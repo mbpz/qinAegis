@@ -1,5 +1,5 @@
 [package]
-name = "qinAegis-notion"
+name = "qin_aegis_notion"
 version.workspace = true
 edition.workspace = true
 

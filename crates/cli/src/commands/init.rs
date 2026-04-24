@@ -1,7 +1,7 @@
 // crates/cli/src/commands/init.rs
 use crate::oauth_server::OAuthServer;
-use qinAegis_notion::auth::{get_notion_token, store_notion_token, NotionAuth};
-use qinAegis_notion::database::{
+use qin_aegis_notion::auth::{get_notion_token, store_notion_token, NotionAuth};
+use qin_aegis_notion::database::{
     NotionClient, PROJECTS_DB_SPEC, REQUIREMENTS_DB_SPEC, TEST_CASES_DB_SPEC, TEST_RESULTS_DB_SPEC,
 };
 use std::path::PathBuf;

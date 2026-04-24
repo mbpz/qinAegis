@@ -16,5 +16,5 @@ clap = { version = "4", features = ["derive"] }
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
-qinAegis-notion = { path = "../notion" }
+qin_aegis_notion = { path = "../notion" }
 open = "5"

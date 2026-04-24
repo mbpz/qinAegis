@@ -1,5 +1,5 @@
 [package]
-name = "qinAegis-sandbox"
+name = "qin_aegis_sandbox"
 version.workspace = true
 edition.workspace = true
 

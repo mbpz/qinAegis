@@ -20,7 +20,7 @@ struct ChatRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Message {
+pub struct Message {
     role: String,
     content: String,
 }
