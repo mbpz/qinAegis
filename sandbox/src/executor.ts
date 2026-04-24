@@ -54,8 +54,11 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id, ok: true, data: buf };
       }
       case 'explore': {
-        // Stub — implemented in Task 3. Return empty for now.
-        return { id: req.id, ok: true, data: { pages: [], markdown: '' } };
+        const { url, depth } = req.args[0] as { url: string; depth: number };
+        const { exploreProject, toMarkdown } = await import('./explorer.js');
+        const pages = await exploreProject([url], depth);
+        const md = toMarkdown(pages);
+        return { id: req.id, ok: true, data: { pages, markdown: md } };
       }
       case 'shutdown': {
         await browser?.close();
