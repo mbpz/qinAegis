@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  steel:
+    image: ghcr.io/steel-dev/steel-browser:latest
+    ports:
+      - "3333:3333"    # Steel REST API
+      - "9222:9222"    # Chrome CDP WebSocket
+    environment:
+      STEEL_API_KEY: "local-dev-key"
+      STEEL_HEADLESS: "false"
+    volumes:
+      - steel-data:/data
+    networks:
+      - sandbox
+    restart: unless-stopped
+
+networks:
+  sandbox:
+    driver: bridge
+
+volumes:
+  steel-data:
