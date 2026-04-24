@@ -88,6 +88,12 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const result = await runLighthouse(url, outputPath);
         return { id: req.id, ok: true, data: result };
       }
+      case 'stress': {
+        const [targetUrl, users, spawnRate, duration] = req.args as [string, number, number, number];
+        const { runLocust } = await import('./locust_runner.js');
+        const result = await runLocust(targetUrl, users, spawnRate, duration);
+        return { id: req.id, ok: true, data: result };
+      }
       case 'shutdown': {
         await browser?.close();
         process.exit(0);
