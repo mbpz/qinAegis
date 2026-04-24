@@ -11,3 +11,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+qinAegis-notion = { path = "../notion" }
+open = "5"

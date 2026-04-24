@@ -87,10 +87,10 @@ pub fn delete_notion_token() -> Result<(), AuthError> {
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    workspace_id: String,
-    workspace_name: String,
+pub struct TokenResponse {
+    pub access_token: String,
+    pub workspace_id: String,
+    pub workspace_name: String,
 }
 
 #[derive(Serialize)]
