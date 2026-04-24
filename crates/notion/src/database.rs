@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use super::models::{DatabaseSpec, PropertySchema};
 
 pub struct NotionClient {
-    token: String,
+    pub token: String,
 }
 
 impl NotionClient {
@@ -51,6 +51,21 @@ impl NotionClient {
             .as_str()
             .map(|s| s.to_string())
             .ok_or_else(|| anyhow::anyhow!("no database id in response"))
+    }
+
+    pub async fn create_page(&self, title: &str, parent_id: &str) -> anyhow::Result<String> {
+        let body = serde_json::json!({
+            "parent": { "page_id": parent_id },
+            "properties": {
+                "title": {
+                    "title": [{ "text": { "content": title } }]
+                }
+            }
+        });
+        let resp = self.post("pages", &body).await?;
+        let json: serde_json::Value = resp.json().await?;
+        json["id"].as_str().map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("no page id in response"))
     }
 }
 

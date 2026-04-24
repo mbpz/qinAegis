@@ -19,7 +19,7 @@ enum Cmd {
 async fn main() -> anyhow::Result<()> {
     let cmd = Cmd::parse();
     match cmd {
-        Cmd::Init => commands::init::run_init(
+        Cmd::Init => commands::init::run_init_and_setup(
             std::env::var("NOTION_CLIENT_ID").unwrap_or_default(),
             std::env::var("NOTION_CLIENT_SECRET").unwrap_or_default(),
         )
