@@ -35,6 +35,7 @@ struct Choice {
     message: Message,
 }
 
+#[derive(Clone)]
 pub struct MiniMaxClient {
     base_url: String,
     api_key: String,
