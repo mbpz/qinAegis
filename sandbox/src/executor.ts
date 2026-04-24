@@ -72,6 +72,13 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
           await runPage.close();
         }
       }
+      case 'lighthouse': {
+        const [url] = req.args as [string];
+        const outputPath = `/tmp/lighthouse_${Date.now()}.json`;
+        const { runLighthouse } = await import('./lighthouse_runner.js');
+        const result = await runLighthouse(url, outputPath);
+        return { id: req.id, ok: true, data: result };
+      }
       case 'shutdown': {
         await browser?.close();
         process.exit(0);
