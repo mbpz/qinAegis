@@ -1,0 +1,3 @@
+class BaseElement {
+}
+export { BaseElement };
