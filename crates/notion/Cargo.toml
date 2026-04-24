@@ -11,3 +11,4 @@ serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 keyring = "3"
+chrono.workspace = true

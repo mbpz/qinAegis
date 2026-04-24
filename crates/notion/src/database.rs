@@ -23,6 +23,60 @@ impl NotionClient {
             .map_err(|e| anyhow::anyhow!("notion api error: {}", e))
     }
 
+    pub async fn query_database(&self, db_id: &str, filter: Option<&serde_json::Value>) -> anyhow::Result<serde_json::Value> {
+        let body = filter.cloned().unwrap_or_else(|| serde_json::json!({}));
+        let resp = self
+            .post(&format!("databases/{}/query", db_id), &body)
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+        Ok(resp)
+    }
+
+    pub async fn query_test_cases(&self, db_id: &str, test_type: &str, status: &str) -> anyhow::Result<Vec<TestCaseInfo>> {
+        let filter = serde_json::json!({
+            "filter": {
+                "and": [
+                    { "property": "type", "select": { "equals": test_type } },
+                    { "property": "status", "select": { "equals": status } }
+                ]
+            }
+        });
+
+        let resp = self.query_database(db_id, Some(&filter)).await?;
+        let pages = resp["results"].as_array().ok_or_else(|| anyhow::anyhow!("no results"))?;
+
+        let cases: Vec<TestCaseInfo> = pages
+            .iter()
+            .filter_map(|page| {
+                let id = page["id"].as_str()?.to_string();
+                let name = page["properties"]["name"]["title"]
+                    .as_array()?
+                    .first()?
+                    .get("text")?
+                    .get("content")?
+                    .as_str()?
+                    .to_string();
+                let yaml_script = page["properties"]["yaml_script"]["code"]
+                    .as_str()?
+                    .to_string();
+                let priority = page["properties"]["priority"]["select"]["name"]
+                    .as_str()
+                    .unwrap_or("medium")
+                    .to_string();
+
+                Some(TestCaseInfo {
+                    id,
+                    name,
+                    yaml_script,
+                    priority,
+                })
+            })
+            .collect();
+
+        Ok(cases)
+    }
+
     pub async fn create_database(&self, parent_id: &str, spec: &DatabaseSpec) -> anyhow::Result<String> {
         let properties: serde_json::Value = spec
             .properties
@@ -116,3 +170,11 @@ pub static TEST_RESULTS_DB_SPEC: LazyLock<DatabaseSpec, fn() -> DatabaseSpec> = 
         PropertySchema { name: String::from("error_message"), property_type: String::from("rich_text") },
     ],
 });
+
+#[derive(Debug, Clone)]
+pub struct TestCaseInfo {
+    pub id: String,
+    pub name: String,
+    pub yaml_script: String,
+    pub priority: String,
+}

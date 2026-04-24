@@ -21,7 +21,14 @@ enum Cmd {
         #[arg(long, default_value = "~/.local/share/qinAegis/exploration/spec.md")]
         spec: String,
     },
-    Run,
+    Run {
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = "smoke")]
+        test_type: String,
+        #[arg(long, default_value = "4")]
+        concurrency: usize,
+    },
     Report,
 }
 
@@ -39,7 +46,9 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Generate { requirement, spec } => {
             commands::generate::run_generate(&requirement, spec.as_ref()).await?
         }
-        Cmd::Run => println!("run"),
+        Cmd::Run { project, test_type, concurrency } => {
+            commands::run::run_tests(&test_type, &project, concurrency).await?
+        }
         Cmd::Report => println!("report"),
     }
     Ok(())

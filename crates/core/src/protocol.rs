@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
@@ -19,6 +20,11 @@ pub enum JsonRpcRequest {
     Goto { url: String },
     #[serde(rename = "screenshot")]
     Screenshot,
+    #[serde(rename = "run_yaml")]
+    RunYaml {
+        yaml_script: String,
+        case_id: String,
+    },
     #[serde(rename = "shutdown")]
     Shutdown,
 }
@@ -55,7 +61,8 @@ impl JsonRpcResponse {
 }
 
 pub struct MidsceneProcess {
-    child: Child,
+    #[allow(dead_code)]
+    child: Arc<Child>,
     request_tx: mpsc::Sender<JsonRpcRequest>,
     response_rx: mpsc::Receiver<JsonRpcResponse>,
 }
@@ -77,7 +84,7 @@ impl MidsceneProcess {
         let (resp_tx, response_rx) = mpsc::channel::<JsonRpcResponse>(32);
 
         // Spawn writer task
-        let _writer_handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             let mut stdin = stdin;
             let mut rx = request_rx;
             while let Some(req) = rx.recv().await {
@@ -100,7 +107,7 @@ impl MidsceneProcess {
         });
 
         // Spawn reader task
-        let _reader_handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&line) {
@@ -109,12 +116,11 @@ impl MidsceneProcess {
             }
         });
 
-        let process = Self {
-            child,
+        Ok(Self {
+            child: Arc::new(child),
             request_tx,
             response_rx,
-        };
-        Ok(process)
+        })
     }
 
     pub async fn call(&mut self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {

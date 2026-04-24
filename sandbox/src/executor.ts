@@ -60,6 +60,18 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const md = toMarkdown(pages);
         return { id: req.id, ok: true, data: { pages, markdown: md } };
       }
+      case 'run_yaml': {
+        const [yamlScript, caseId] = req.args as [string, string];
+        if (!browser) await ensureConnected();
+        const runPage = await browser!.newPage();
+        try {
+          const { runYaml } = await import('./yaml_runner.js');
+          const result = await runYaml(yamlScript, caseId, runPage);
+          return { id: req.id, ok: true, data: result };
+        } finally {
+          await runPage.close();
+        }
+      }
       case 'shutdown': {
         await browser?.close();
         process.exit(0);
