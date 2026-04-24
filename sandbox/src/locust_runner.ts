@@ -32,7 +32,7 @@ export async function runLocust(
       '--users', users.toString(),
       '--spawn-rate', spawnRate.toString(),
       '--run-time', `${durationSeconds}s`,
-      '--target-url', targetUrl,
+      '--host', targetUrl,
       '--html', `/tmp/locust_report_${Date.now()}.html`,
     ];
 
