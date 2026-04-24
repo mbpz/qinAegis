@@ -4,4 +4,5 @@ pub mod critic;
 pub mod llm;
 pub mod protocol;
 pub use explorer::Explorer;
+pub use generator::TestCaseGenerator;
 pub use protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
