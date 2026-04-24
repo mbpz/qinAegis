@@ -61,7 +61,7 @@ pub struct MidsceneProcess {
 }
 
 impl MidsceneProcess {
-    pub async fn spawn() -> anyhow::Result<(Self, mpsc::Receiver<JsonRpcResponse>)> {
+    pub async fn spawn() -> anyhow::Result<Self> {
         let mut child = Command::new("node")
             .args(["src/executor.ts"])
             .current_dir("sandbox")
@@ -114,10 +114,10 @@ impl MidsceneProcess {
             request_tx,
             response_rx,
         };
-        Ok((process, response_rx))
+        Ok(process)
     }
 
-    pub async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+    pub async fn call(&mut self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
         self.request_tx.send(req).await?;
         self.response_rx
             .recv()
