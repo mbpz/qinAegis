@@ -74,6 +74,15 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       }
       case 'lighthouse': {
         const [url] = req.args as [string];
+        // Validate URL before passing to runLighthouse
+        try {
+          new URL(url);
+          if (!['http:', 'https:'].includes(new URL(url).protocol)) {
+            throw new Error('Only http/https URLs are allowed');
+          }
+        } catch (e) {
+          return { id: req.id, ok: false, error: `Invalid URL: ${url}` };
+        }
         const outputPath = `/tmp/lighthouse_${Date.now()}.json`;
         const { runLighthouse } = await import('./lighthouse_runner.js');
         const result = await runLighthouse(url, outputPath);

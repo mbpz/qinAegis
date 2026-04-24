@@ -4,6 +4,17 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+function validateUrl(url: string): void {
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('Only http/https URLs are allowed');
+    }
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+}
+
 export interface LighthouseMetrics {
   performance: number;
   accessibility: number;
@@ -29,16 +40,20 @@ export async function runLighthouse(
   url: string,
   outputPath: string,
 ): Promise<LighthouseResult> {
+  validateUrl(url);
+
   const timestamp = new Date().toISOString();
 
   // Run lighthouse CI with JSON output
   const cmd = `npx @lhci/cli autorun --url=${url} --output-json=${outputPath} --temporary-public-storage=true`;
 
+  let stderr = '';
   try {
-    const { stdout, stderr } = await execAsync(cmd, {
+    const { stdout, stderr: stderrOutput } = await execAsync(cmd, {
       cwd: process.cwd(),
       timeout: 120000,
     });
+    stderr = stderrOutput;
 
     // Parse JSON output
     const output = JSON.parse(stdout);
@@ -64,6 +79,6 @@ export async function runLighthouse(
       report_path: outputPath,
     };
   } catch (e) {
-    throw new Error(`Lighthouse failed: ${e}`);
+    throw new Error(`Lighthouse failed: ${stderr || e}`);
   }
 }
