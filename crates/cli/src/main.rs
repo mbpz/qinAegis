@@ -30,6 +30,22 @@ enum Cmd {
         concurrency: usize,
     },
     Report,
+    Performance {
+        #[arg(long)]
+        url: String,
+        #[arg(long, default_value = "10")]
+        threshold: f64,
+    },
+    Stress {
+        #[arg(long)]
+        target: String,
+        #[arg(long, default_value = "100")]
+        users: u32,
+        #[arg(long, default_value = "10")]
+        spawn_rate: u32,
+        #[arg(long, default_value = "60")]
+        duration: u32,
+    },
 }
 
 #[tokio::main]
@@ -50,6 +66,12 @@ async fn main() -> anyhow::Result<()> {
             commands::run::run_tests(&test_type, &project, concurrency).await?
         }
         Cmd::Report => println!("report"),
+        Cmd::Performance { url, threshold } => {
+            commands::performance::run_performance(&url, threshold).await?
+        }
+        Cmd::Stress { target, users, spawn_rate, duration } => {
+            commands::performance::run_stress(qin_aegis_core::StressTestConfig::new(&target, users, spawn_rate, duration)).await?
+        }
     }
     Ok(())
 }
