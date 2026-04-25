@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x86
+
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Release
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          tar -czf qinAegis-${{ matrix.target }}.tar.gz \
+            -C target/${{ matrix.target }}/release qinAegis
+
+      - name: Generate SHA256
+        run: |
+          echo "${{ matrix.target }}" > sha256.txt
+          shasum -a 256 qinAegis-${{ matrix.target }}.tar.gz | awk '{print $1}' >> sha256.txt
+
+      - name: Upload Release Artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            qinAegis-${{ matrix.target }}.tar.gz
+            sha256.txt
+          draft: true
+
+  create-homebrew-pr:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout homebrew-core
+        uses: actions/checkout@v4
+        with:
+          repository: yourorg/homebrew-qinAegis
+          path: homebrew-qinAegis
+          token: ${{ secrets.HOMEBREW_TOKEN }}
+
+      - name: Download artifacts
+        run: |
+          curl -sL https://github.com/yourorg/qinAegis/releases/download/${{ github.ref_name }}/qinAegis-aarch64-apple-darwin.tar.gz -o qinAegis-aarch64-apple-darwin.tar.gz
+          curl -sL https://github.com/yourorg/qinAegis/releases/download/${{ github.ref_name }}/qinAegis-x86_64-apple-darwin.tar.gz -o qinAegis-x86_64-apple-darwin.tar.gz
+
+      - name: Calculate SHA256
+        run: |
+          shasum -a 256 qinAegis-*.tar.gz | tee sha256.txt
+
+      - name: Update Formula
+        env:
+          ARM_SHA: $(grep aarch64 sha256.txt | awk '{print $1}')
+          X86_SHA: $(grep x86_64 sha256.txt | awk '{print $1}')
+        run: |
+          sed -i "s/sha256 \"REPLACE_WITH_ARM_SHA256\"/sha256 \"$ARM_SHA\"/" Formula/qinAegis.rb
+          sed -i "s/sha256 \"REPLACE_WITH_X86_SHA256\"/sha256 \"$X86_SHA\"/" Formula/qinAegis.rb
+          sed -i "s|version \".*\"|version \"${{ github.ref_name }}\"|" Formula/qinAegis.rb
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          path: homebrew-qinAegis
+          commit-message: "Update qinAegis to ${{ github.ref_name }}"
+          title: "Update qinAegis to ${{ github.ref_name }}"
+          body: "Automated PR created by GitHub Actions"
