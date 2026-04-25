@@ -1,7 +1,11 @@
 [package]
-name = "qinAegis-cli"
+name = "qinAegis"
 version.workspace = true
 edition.workspace = true
+
+[[bin]]
+name = "qinAegis"
+path = "src/main.rs"
 
 [dependencies]
 tokio.workspace = true
