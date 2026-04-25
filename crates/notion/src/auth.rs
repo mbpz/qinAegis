@@ -45,9 +45,25 @@ mod tests {
         assert!(url.contains("redirect_uri=http://localhost:54321/callback"));
         assert!(url.contains("response_type=code"));
     }
-}
 
-// Add to crates/notion/src/auth.rs
+    #[test]
+    fn test_store_and_get_token() {
+        let test_token = "test_token_123";
+        store_notion_token(test_token).expect("store should succeed");
+        let retrieved = get_notion_token().expect("get should succeed");
+        assert_eq!(retrieved, Some(test_token.to_string()));
+        // Cleanup
+        delete_notion_token().expect("delete should succeed");
+    }
+
+    #[test]
+    fn test_get_token_when_none_exists() {
+        // Ensure no token exists first
+        let _ = delete_notion_token();
+        let result = get_notion_token().expect("should not error");
+        assert_eq!(result, None);
+    }
+}
 
 use keyring::Entry;
 
@@ -81,8 +97,6 @@ pub fn delete_notion_token() -> Result<(), AuthError> {
         .map_err(|e| AuthError::Keyring(e.to_string()))?;
     Ok(())
 }
-
-// Add to crates/notion/src/auth.rs
 
 use serde::{Deserialize, Serialize};
 
