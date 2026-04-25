@@ -5,6 +5,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -46,6 +49,7 @@ jobs:
             qinAegis-${{ matrix.target }}.tar.gz
             sha256.txt
           draft: true
+          generate_release_notes: true
 
   create-homebrew-pr:
     needs: build-macos
