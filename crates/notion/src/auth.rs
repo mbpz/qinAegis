@@ -100,6 +100,12 @@ struct TokenRequest {
     redirect_uri: String,
 }
 
+#[derive(Serialize)]
+struct RefreshRequest {
+    grant_type: String,
+    refresh_token: String,
+}
+
 impl NotionAuth {
     pub async fn exchange_code(&self, code: &str, client_secret: &str) -> Result<TokenResponse, AuthError> {
         let client = reqwest::Client::new();
@@ -112,6 +118,24 @@ impl NotionAuth {
         let resp = client
             .post("https://api.notion.com/v1/oauth/token")
             .basic_auth(&self.client_id, Some(client_secret))
+            .json(&body)
+            .send()
+            .await?;
+
+        let token_resp: TokenResponse = resp.json().await?;
+        Ok(token_resp)
+    }
+
+    pub async fn refresh_token(&self, refresh_token: &str) -> Result<TokenResponse, AuthError> {
+        let client = reqwest::Client::new();
+        let body = RefreshRequest {
+            grant_type: "refresh_token".to_string(),
+            refresh_token: refresh_token.to_string(),
+        };
+
+        let resp = client
+            .post("https://api.notion.com/v1/oauth/token")
+            .basic_auth(&self.client_id, None::<&str>)
             .json(&body)
             .send()
             .await?;
