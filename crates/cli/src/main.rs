@@ -8,6 +8,8 @@ mod oauth_server;
 #[command(version = "0.1.0")]
 enum Cmd {
     Init,
+    InitDb,
+    ListProjects,
     Config,
     Explore {
         #[arg(long)]
@@ -57,6 +59,8 @@ async fn main() -> anyhow::Result<()> {
             std::env::var("NOTION_CLIENT_SECRET").unwrap_or_default(),
         )
         .await?,
+        Cmd::InitDb => commands::notion::init_databases().await?,
+        Cmd::ListProjects => commands::notion::list_projects().await?,
         Cmd::Config => println!("config"),
         Cmd::Explore { url, depth } => commands::explore::run_explore(url, depth).await?,
         Cmd::Generate { requirement, spec } => {

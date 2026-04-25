@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use crate::models::{Project, Requirement, TestCase};
 use super::models::{DatabaseSpec, PropertySchema};
 
 pub struct NotionClient {
@@ -31,50 +32,6 @@ impl NotionClient {
             .json::<serde_json::Value>()
             .await?;
         Ok(resp)
-    }
-
-    pub async fn query_test_cases(&self, db_id: &str, test_type: &str, status: &str) -> anyhow::Result<Vec<TestCaseInfo>> {
-        let filter = serde_json::json!({
-            "filter": {
-                "and": [
-                    { "property": "type", "select": { "equals": test_type } },
-                    { "property": "status", "select": { "equals": status } }
-                ]
-            }
-        });
-
-        let resp = self.query_database(db_id, Some(&filter)).await?;
-        let pages = resp["results"].as_array().ok_or_else(|| anyhow::anyhow!("no results"))?;
-
-        let cases: Vec<TestCaseInfo> = pages
-            .iter()
-            .filter_map(|page| {
-                let id = page["id"].as_str()?.to_string();
-                let name = page["properties"]["name"]["title"]
-                    .as_array()?
-                    .first()?
-                    .get("text")?
-                    .get("content")?
-                    .as_str()?
-                    .to_string();
-                let yaml_script = page["properties"]["yaml_script"]["code"]
-                    .as_str()?
-                    .to_string();
-                let priority = page["properties"]["priority"]["select"]["name"]
-                    .as_str()
-                    .unwrap_or("medium")
-                    .to_string();
-
-                Some(TestCaseInfo {
-                    id,
-                    name,
-                    yaml_script,
-                    priority,
-                })
-            })
-            .collect();
-
-        Ok(cases)
     }
 
     pub async fn create_database(&self, parent_id: &str, spec: &DatabaseSpec) -> anyhow::Result<String> {
@@ -120,6 +77,66 @@ impl NotionClient {
         let json: serde_json::Value = resp.json().await?;
         json["id"].as_str().map(|s| s.to_string())
             .ok_or_else(|| anyhow::anyhow!("no page id in response"))
+    }
+
+    pub async fn query_projects(&self, db_id: &str) -> anyhow::Result<Vec<Project>> {
+        let resp = self.query_database(db_id, None).await?;
+        let pages = resp["results"].as_array().ok_or_else(|| anyhow::anyhow!("no results"))?;
+        let projects: Vec<Project> = pages
+            .iter()
+            .filter_map(Project::from_notion_page)
+            .collect();
+        Ok(projects)
+    }
+
+    pub async fn query_requirements(&self, db_id: &str, project_id: Option<&str>) -> anyhow::Result<Vec<Requirement>> {
+        let filter = project_id.map(|pid| {
+            serde_json::json!({
+                "filter": {
+                    "property": "project",
+                    "relation": { "contains": pid }
+                }
+            })
+        });
+        let filter_ref: Option<&serde_json::Value> = filter.as_ref();
+        let resp = self.query_database(db_id, filter_ref).await?;
+        let pages = resp["results"].as_array().ok_or_else(|| anyhow::anyhow!("no results"))?;
+        let requirements: Vec<Requirement> = pages
+            .iter()
+            .filter_map(Requirement::from_notion_page)
+            .collect();
+        Ok(requirements)
+    }
+
+    pub async fn query_test_cases(&self, db_id: &str, test_type: Option<&str>, status: Option<&str>) -> anyhow::Result<Vec<TestCase>> {
+        let mut filter_parts: Vec<serde_json::Value> = Vec::new();
+        if let Some(t) = test_type {
+            filter_parts.push(serde_json::json!({
+                "property": "type",
+                "select": { "equals": t }
+            }));
+        }
+        if let Some(s) = status {
+            filter_parts.push(serde_json::json!({
+                "property": "status",
+                "select": { "equals": s }
+            }));
+        }
+        let filter = if filter_parts.is_empty() {
+            None
+        } else if filter_parts.len() == 1 {
+            Some(serde_json::json!({ "filter": filter_parts[0] }))
+        } else {
+            Some(serde_json::json!({ "filter": { "and": filter_parts } }))
+        };
+        let filter_ref: Option<&serde_json::Value> = filter.as_ref();
+        let resp = self.query_database(db_id, filter_ref).await?;
+        let pages = resp["results"].as_array().ok_or_else(|| anyhow::anyhow!("no results"))?;
+        let test_cases: Vec<TestCase> = pages
+            .iter()
+            .filter_map(TestCase::from_notion_page)
+            .collect();
+        Ok(test_cases)
     }
 }
 

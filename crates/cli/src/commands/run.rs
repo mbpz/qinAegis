@@ -1,6 +1,7 @@
 use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter};
-use qin_aegis_notion::{NotionClient, TestCaseInfo};
+use qin_aegis_notion::{NotionClient};
 use qin_aegis_notion::writer::NotionWriter;
+use qin_aegis_notion::models::TestCase;
 
 pub async fn run_tests(
     test_type: &str,
@@ -16,8 +17,8 @@ pub async fn run_tests(
     let test_cases_db_id = std::env::var("QIN_AEGIS_TEST_CASES_DB_ID")
         .unwrap_or_else(|_| "test_cases_db".to_string());
 
-    let cases: Vec<TestCaseInfo> = notion
-        .query_test_cases(&test_cases_db_id, test_type, "Approved")
+    let cases: Vec<TestCase> = notion
+        .query_test_cases(&test_cases_db_id, Some(test_type), Some("Approved"))
         .await?;
 
     if cases.is_empty() {
@@ -31,11 +32,18 @@ pub async fn run_tests(
 
     let case_refs: Vec<TestCaseRef> = cases
         .iter()
-        .map(|c| TestCaseRef {
-            id: c.id.clone(),
-            yaml_script: c.yaml_script.clone(),
-            name: c.name.clone(),
-            priority: c.priority.clone(),
+        .map(|c| {
+            let priority_str = match c.priority {
+                qin_aegis_notion::models::Priority::P0 => "high",
+                qin_aegis_notion::models::Priority::P1 => "medium",
+                qin_aegis_notion::models::Priority::P2 => "low",
+            };
+            TestCaseRef {
+                id: c.id.clone(),
+                yaml_script: c.yaml_script.clone(),
+                name: c.name.clone(),
+                priority: priority_str.to_string(),
+            }
         })
         .collect();
 
