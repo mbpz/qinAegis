@@ -2,14 +2,19 @@ use clap::Parser;
 
 mod commands;
 mod oauth_server;
+mod config;
 
 #[derive(Parser, Debug)]
 #[command(name = "qinAegis")]
 #[command(version = "0.1.0")]
 enum Cmd {
+    /// Setup or reconfigure QinAegis (interactive)
+    Setup,
+    /// Initialize Notion workspace and databases
     Init,
-    InitDb,
+    /// List projects from Notion
     ListProjects,
+    /// Show current configuration
     Config,
     Explore {
         #[arg(long)]
@@ -54,14 +59,29 @@ enum Cmd {
 async fn main() -> anyhow::Result<()> {
     let cmd = Cmd::parse();
     match cmd {
-        Cmd::Init => commands::init::run_init_and_setup(
-            std::env::var("NOTION_CLIENT_ID").unwrap_or_default(),
-            std::env::var("NOTION_CLIENT_SECRET").unwrap_or_default(),
-        )
-        .await?,
-        Cmd::InitDb => commands::notion::init_databases().await?,
+        Cmd::Setup => {
+            let config = config::prompt_for_config()?;
+            config.save()?;
+            println!("Configuration saved to {}", config::Config::config_path().display());
+        }
+        Cmd::Init => commands::init::run_init_and_setup().await?,
         Cmd::ListProjects => commands::notion::list_projects().await?,
-        Cmd::Config => println!("config"),
+        Cmd::Config => {
+            match config::Config::load()? {
+                Some(cfg) => {
+                    println!("Current configuration:");
+                    println!("  Notion: {} (workspace: {})",
+                        if cfg.is_notion_configured() { "configured" } else { "NOT configured" },
+                        cfg.notion.workspace_id);
+                    println!("  LLM: {} (provider: {}, model: {})",
+                        if cfg.is_llm_configured() { "configured" } else { "NOT configured" },
+                        cfg.llm.provider, cfg.llm.model);
+                }
+                None => {
+                    println!("No configuration found. Run 'qinAegis setup' first.");
+                }
+            }
+        }
         Cmd::Explore { url, depth } => commands::explore::run_explore(url, depth).await?,
         Cmd::Generate { requirement, spec } => {
             commands::generate::run_generate(&requirement, spec.as_ref()).await?
