@@ -2,8 +2,8 @@
 # Custom steel-browser sandbox with Locust and Lighthouse CI pre-installed
 FROM ghcr.io/steel-dev/steel-browser:latest
 
-# Install Locust for stress testing (use pip3)
-RUN pip3 install --no-cache-dir locust || apt-get update && apt-get install -y python3-pip && pip3 install --no-cache-dir locust
+# Install Locust for stress testing
+RUN apt-get update && apt-get install -y python3-pip && pip3 install --no-cache-dir --break-system-packages locust
 
 # Install Lighthouse CI for performance testing
 RUN npm install -g @lhci/cli
