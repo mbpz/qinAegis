@@ -33,7 +33,8 @@ pub async fn run_explore(project_name: &str, seed_url: Option<String>, max_depth
     let mut all_markdown = String::from("# 项目规格书\n\n");
     all_markdown.push_str(&result.markdown);
 
-    let spec_path = LocalStorage::save_spec(project_name, &all_markdown)?;
+    LocalStorage::save_spec(project_name, &all_markdown)?;
+    let spec_path = LocalStorage::project_spec_path(project_name);
     println!("\n✓ Exploration complete: {} pages", result.pages.len());
     println!("✓ Spec saved to: {}", spec_path.display());
 

@@ -11,7 +11,7 @@ pub async fn run_tests(
         .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
 
     // Load project
-    let project = LocalStorage::load_project(project_name)
+    let _project = LocalStorage::load_project(project_name)
         .map_err(|_| anyhow::anyhow!("Project '{}' not found. Run 'qinAegis project add' first.", project_name))?;
 
     // Load cases

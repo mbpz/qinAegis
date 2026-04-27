@@ -9,10 +9,11 @@ pub async fn add_project(name: &str, url: &str) -> anyhow::Result<()> {
         anyhow::bail!("LLM not configured. Run 'qinAegis init' first.");
     }
 
-    let tech_stack = vec![]; // TODO: could prompt for this
-    let dir = LocalStorage::init_project(name, url, tech_stack)?;
+    let tech_stack = vec![];
+    LocalStorage::init_project(name, url, tech_stack)?;
+    let project_dir = LocalStorage::project_dir(name);
 
-    println!("✓ Project '{}' created at {}", name, dir.display());
+    println!("✓ Project '{}' created at {}", name, project_dir.display());
     println!("  URL: {}", url);
     println!("\nNext: qinAegis explore {}", name);
 
