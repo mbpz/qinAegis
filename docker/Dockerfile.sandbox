@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir locust
 RUN npm install -g @lhci/cli
 
 # Copy example locustfile
-COPY locustfile.py /sandbox/locustfile.py
+COPY sandbox/locustfile.py /sandbox/locustfile.py
 
 # Default to headless mode for automated testing
 ENV NODE_ENV=production

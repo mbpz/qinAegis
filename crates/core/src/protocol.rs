@@ -69,9 +69,16 @@ pub struct MidsceneProcess {
 
 impl MidsceneProcess {
     pub async fn spawn() -> anyhow::Result<Self> {
-        let mut child = Command::new("node")
+        // Navigate from crates/core to project root (../../)
+        let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()  // crates
+            .parent().unwrap()  // project root
+            .join("sandbox");
+        let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
+
+        let mut child = Command::new(&tsx_path)
             .args(["src/executor.ts"])
-            .current_dir("sandbox")
+            .current_dir(&sandbox_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
