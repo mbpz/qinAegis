@@ -161,7 +161,7 @@ impl NotionAuth {
             .send()
             .await?;
 
-        let status = resp.status();
+        let _status = resp.status();
         let body_text = resp.text().await?;
 
         let token_resp: TokenResponse = serde_json::from_str(&body_text)?;

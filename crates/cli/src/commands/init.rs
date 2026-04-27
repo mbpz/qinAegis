@@ -125,7 +125,17 @@ fn save_notion_db_ids(ids: &NotionDbIds) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let content = toml::to_string(ids)?;
+
+    let mut databases = toml::map::Map::new();
+    databases.insert("projects".to_string(), toml::Value::String(ids.projects_id.clone()));
+    databases.insert("requirements".to_string(), toml::Value::String(ids.requirements_id.clone()));
+    databases.insert("test_cases".to_string(), toml::Value::String(ids.test_cases_id.clone()));
+    databases.insert("test_results".to_string(), toml::Value::String(ids.test_results_id.clone()));
+
+    let mut config = toml::map::Map::new();
+    config.insert("databases".to_string(), toml::Value::Table(databases));
+
+    let content = toml::to_string(&toml::Value::Table(config))?;
     std::fs::write(&path, content)?;
     println!("  ✓ Config saved to {}", path.display());
     Ok(())
