@@ -7,6 +7,7 @@ pub mod executor;
 pub mod reporter;
 pub mod performance;
 pub mod stress;
+pub mod storage;
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
