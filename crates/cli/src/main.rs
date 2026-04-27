@@ -10,10 +10,13 @@ mod config;
 enum Cmd {
     /// Setup or reconfigure QinAegis (interactive)
     Setup,
-    /// Initialize Notion workspace and databases
+    /// Initialize QinAegis configuration
     Init,
-    /// List projects from Notion
-    ListProjects,
+    /// Manage projects
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     /// Show current configuration
     Config,
     Explore {
@@ -59,6 +62,24 @@ enum Cmd {
     },
 }
 
+#[derive(Parser, Debug)]
+enum ProjectAction {
+    /// Add a new project
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        url: String,
+    },
+    /// List all projects
+    List,
+    /// Remove a project
+    Remove {
+        #[arg(long)]
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cmd = Cmd::parse();
@@ -69,7 +90,13 @@ async fn main() -> anyhow::Result<()> {
             println!("Configuration saved to {}", config::Config::config_path().display());
         }
         Cmd::Init => commands::init::run_init_and_setup().await?,
-        Cmd::ListProjects => commands::notion::list_projects().await?,
+        Cmd::Project { action } => {
+            match action {
+                ProjectAction::Add { name, url } => commands::project::add_project(&name, &url).await?,
+                ProjectAction::List => commands::project::list_projects().await?,
+                ProjectAction::Remove { name } => commands::project::remove_project(&name).await?,
+            }
+        }
         Cmd::Config => {
             match config::Config::load()? {
                 Some(cfg) => {

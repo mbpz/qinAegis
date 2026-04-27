@@ -1,4 +1,4 @@
-use qin_aegis_core::{Explorer, LlmConfig};
+use qin_aegis_core::{Explorer, LlmConfig, SandboxConfig};
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
 
@@ -26,7 +26,11 @@ pub async fn run_explore(project_name: &str, seed_url: Option<String>, max_depth
         model: config.llm.model,
     });
 
-    let mut explorer = Explorer::new(llm_config).await?;
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+
+    let mut explorer = Explorer::new(llm_config, sandbox_config).await?;
 
     let result = explorer.explore(&url, max_depth).await?;
 

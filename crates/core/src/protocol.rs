@@ -74,14 +74,27 @@ pub struct LlmConfig {
     pub model: String,
 }
 
+#[derive(Clone)]
+pub struct SandboxConfig {
+    pub cdp_port: u16,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self { cdp_port: 9333 }
+    }
+}
+
 impl MidsceneProcess {
-    pub async fn spawn(llm_config: Option<LlmConfig>) -> anyhow::Result<Self> {
+    pub async fn spawn(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
         // Navigate from crates/core to project root (../../)
         let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap()  // crates
             .parent().unwrap()  // project root
             .join("sandbox");
         let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
+
+        let sandbox_cfg = sandbox_config.unwrap_or_default();
 
         let mut cmd = Command::new(&tsx_path);
         cmd.args(["src/executor.ts"])
@@ -90,6 +103,9 @@ impl MidsceneProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
+
+        // Pass CDP WebSocket URL
+        cmd.env("CDP_WS_URL", format!("ws://localhost:{}", sandbox_cfg.cdp_port));
 
         // Pass LLM environment variables from config
         if let Some(cfg) = llm_config {

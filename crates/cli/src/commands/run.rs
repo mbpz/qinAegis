@@ -1,4 +1,4 @@
-use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter, LlmConfig};
+use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter, LlmConfig, SandboxConfig};
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
 
@@ -41,7 +41,11 @@ pub async fn run_tests(
         model: config.llm.model,
     });
 
-    let executor = TestExecutor::new(concurrency, llm_config).await?;
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+
+    let executor = TestExecutor::new(concurrency, llm_config, sandbox_config).await?;
 
     let case_refs: Vec<TestCaseRef> = cases
         .iter()
