@@ -1,7 +1,8 @@
-use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter};
+use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter, LlmConfig};
 use qin_aegis_notion::{NotionClient};
 use qin_aegis_notion::writer::NotionWriter;
 use qin_aegis_notion::models::TestCase;
+use crate::config::Config;
 
 pub async fn run_tests(
     test_type: &str,
@@ -28,7 +29,15 @@ pub async fn run_tests(
 
     println!("Running {} test cases (concurrency={})...", cases.len(), concurrency);
 
-    let executor = TestExecutor::new(concurrency).await?;
+    // Load config for LLM settings
+    let llm_config = Config::load()?
+        .map(|cfg| LlmConfig {
+            api_key: cfg.llm.api_key,
+            base_url: cfg.llm.base_url,
+            model: cfg.llm.model,
+        });
+
+    let executor = TestExecutor::new(concurrency, llm_config).await?;
 
     let case_refs: Vec<TestCaseRef> = cases
         .iter()

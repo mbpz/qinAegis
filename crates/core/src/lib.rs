@@ -11,7 +11,7 @@ pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
 pub use llm::{MiniMaxClient, Message};
-pub use protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
+pub use protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess, LlmConfig};
 pub use executor::{TestExecutor, TestCaseRef, TestResult};
 pub use reporter::Reporter;
 pub use performance::{LighthouseMetrics, LighthouseResult, PerformanceComparison};

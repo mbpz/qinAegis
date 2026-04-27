@@ -1,11 +1,20 @@
-use qin_aegis_core::Explorer;
+use qin_aegis_core::{Explorer, LlmConfig};
+use crate::config::Config;
 
 pub async fn run_explore(seed_urls: Vec<String>, max_depth: u32) -> anyhow::Result<()> {
     println!("Starting project exploration...");
     println!("Seed URLs: {:?}", seed_urls);
     println!("Max depth: {}", max_depth);
 
-    let mut explorer = Explorer::new().await?;
+    // Load config for LLM settings
+    let llm_config = Config::load()?
+        .map(|cfg| LlmConfig {
+            api_key: cfg.llm.api_key,
+            base_url: cfg.llm.base_url,
+            model: cfg.llm.model,
+        });
+
+    let mut explorer = Explorer::new(llm_config).await?;
 
     let mut all_pages = vec![];
     let mut all_markdown = String::from("# 项目规格书\n\n");
