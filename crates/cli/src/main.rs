@@ -21,7 +21,7 @@ enum Cmd {
     Config,
     Explore {
         #[arg(long)]
-        project: String,
+        project: Option<String>,
         #[arg(long)]
         url: Option<String>,
         #[arg(long, default_value = "3")]
@@ -110,7 +110,16 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Explore { project, url, depth } => commands::explore::run_explore(&project, url, depth).await?,
+        Cmd::Explore { project, url, depth } => {
+            if let Some(project_name) = project {
+                commands::explore::run_explore(&project_name, url, depth).await?
+            } else if let Some(url) = url {
+                // Direct URL exploration without a project
+                commands::explore::run_explore_direct(&url, depth).await?
+            } else {
+                anyhow::bail!("Either --project or --url must be provided");
+            }
+        }
         Cmd::Generate { project, requirement, spec } => {
             commands::generate::run_generate(&project, &requirement, std::path::Path::new(&spec)).await?
         }

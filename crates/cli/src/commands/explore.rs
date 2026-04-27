@@ -45,3 +45,36 @@ pub async fn run_explore(project_name: &str, seed_url: Option<String>, max_depth
     explorer.shutdown().await?;
     Ok(())
 }
+
+/// Explore a URL directly without an existing project
+pub async fn run_explore_direct(seed_url: &str, max_depth: u32) -> anyhow::Result<()> {
+    let config = Config::load()?
+        .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
+
+    if !config.is_llm_configured() {
+        anyhow::bail!("LLM not configured. Run 'qinAegis init' first.");
+    }
+
+    println!("Exploring directly: {}", seed_url);
+    println!("Max depth: {}\n", max_depth);
+
+    let llm_config = Some(LlmConfig {
+        api_key: config.llm.api_key,
+        base_url: config.llm.base_url,
+        model: config.llm.model,
+    });
+
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+
+    let mut explorer = Explorer::new(llm_config, sandbox_config).await?;
+
+    let result = explorer.explore(seed_url, max_depth).await?;
+
+    println!("\n✓ Exploration complete: {} pages", result.pages.len());
+    println!("\nResult markdown:\n{}", result.markdown);
+
+    explorer.shutdown().await?;
+    Ok(())
+}
