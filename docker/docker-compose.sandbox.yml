@@ -3,9 +3,7 @@ version: "3.9"
 
 services:
   steel:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.sandbox
+    image: ghcr.io/steel-dev/steel-browser:latest
     ports:
       - "3333:3333"    # Steel REST API
       - "9222:9222"    # Chrome CDP WebSocket
