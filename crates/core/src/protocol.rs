@@ -67,8 +67,26 @@ pub struct MidsceneProcess {
     response_rx: mpsc::Receiver<JsonRpcResponse>,
 }
 
+#[derive(Clone)]
+pub struct LlmConfig {
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+}
+
+#[derive(Clone)]
+pub struct SandboxConfig {
+    pub cdp_port: u16,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self { cdp_port: 9333 }
+    }
+}
+
 impl MidsceneProcess {
-    pub async fn spawn() -> anyhow::Result<Self> {
+    pub async fn spawn(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
         // Navigate from crates/core to project root (../../)
         let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap()  // crates
@@ -76,14 +94,30 @@ impl MidsceneProcess {
             .join("sandbox");
         let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
 
-        let mut child = Command::new(&tsx_path)
-            .args(["src/executor.ts"])
+        let sandbox_cfg = sandbox_config.unwrap_or_default();
+
+        let mut cmd = Command::new(&tsx_path);
+        cmd.args(["src/executor.ts"])
             .current_dir(&sandbox_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
+            .kill_on_drop(true);
+
+        // Pass CDP WebSocket URL
+        cmd.env("CDP_WS_URL", format!("ws://localhost:{}", sandbox_cfg.cdp_port));
+
+        // Pass LLM environment variables from config
+        if let Some(cfg) = llm_config {
+            if !cfg.api_key.is_empty() {
+                cmd.env("MIDSCENE_MODEL_API_KEY", &cfg.api_key);
+                cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
+                cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
+                cmd.env("MIDSCENE_MODEL_FAMILY", "openai");
+            }
+        }
+
+        let mut child = cmd.spawn()?;
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();

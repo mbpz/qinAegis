@@ -1,4 +1,4 @@
-use crate::protocol::{JsonRpcRequest, MidsceneProcess};
+use crate::protocol::{JsonRpcRequest, MidsceneProcess, LlmConfig, SandboxConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
@@ -26,8 +26,8 @@ pub struct TestExecutor {
 }
 
 impl TestExecutor {
-    pub async fn new(max_concurrency: usize) -> anyhow::Result<Self> {
-        let process = MidsceneProcess::spawn().await?;
+    pub async fn new(max_concurrency: usize, llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
+        let process = MidsceneProcess::spawn(llm_config, sandbox_config).await?;
         let semaphore = Arc::new(Semaphore::new(max_concurrency));
         Ok(Self {
             process: Arc::new(Mutex::new(process)),

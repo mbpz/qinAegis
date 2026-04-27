@@ -1,49 +1,59 @@
-use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter};
-use qin_aegis_notion::{NotionClient};
-use qin_aegis_notion::writer::NotionWriter;
-use qin_aegis_notion::models::TestCase;
+use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter, LlmConfig, SandboxConfig};
+use qin_aegis_core::storage::LocalStorage;
+use crate::config::Config;
 
 pub async fn run_tests(
+    project_name: &str,
     test_type: &str,
-    _project_id: &str,
     concurrency: usize,
 ) -> anyhow::Result<()> {
-    println!("Loading test cases from Notion...");
-    let token = qin_aegis_notion::auth::get_notion_token()?
-        .ok_or_else(|| anyhow::anyhow!("not logged in, run qinAegis init first"))?;
-    let notion = NotionClient::new(&token);
+    let config = Config::load()?
+        .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
 
-    // Query approved test cases
-    let test_cases_db_id = std::env::var("QIN_AEGIS_TEST_CASES_DB_ID")
-        .unwrap_or_else(|_| "test_cases_db".to_string());
+    // Load project
+    let _project = LocalStorage::load_project(project_name)
+        .map_err(|_| anyhow::anyhow!("Project '{}' not found. Run 'qinAegis project add' first.", project_name))?;
 
-    let cases: Vec<TestCase> = notion
-        .query_test_cases(&test_cases_db_id, Some(test_type), Some("Approved"))
-        .await?;
+    // Load cases
+    let mut cases = LocalStorage::load_cases(project_name)?;
 
     if cases.is_empty() {
-        println!("No approved {} test cases found.", test_type);
+        println!("No test cases found for project '{}'.", project_name);
+        println!("Run 'qinAegis generate' first.");
+        return Ok(());
+    }
+
+    // Filter by test type if specified
+    if test_type != "all" {
+        cases.retain(|c| c.test_type == test_type);
+    }
+
+    if cases.is_empty() {
+        println!("No {} test cases found.", test_type);
         return Ok(());
     }
 
     println!("Running {} test cases (concurrency={})...", cases.len(), concurrency);
 
-    let executor = TestExecutor::new(concurrency).await?;
+    let llm_config = Some(LlmConfig {
+        api_key: config.llm.api_key,
+        base_url: config.llm.base_url,
+        model: config.llm.model,
+    });
+
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+
+    let executor = TestExecutor::new(concurrency, llm_config, sandbox_config).await?;
 
     let case_refs: Vec<TestCaseRef> = cases
         .iter()
-        .map(|c| {
-            let priority_str = match c.priority {
-                qin_aegis_notion::models::Priority::P0 => "high",
-                qin_aegis_notion::models::Priority::P1 => "medium",
-                qin_aegis_notion::models::Priority::P2 => "low",
-            };
-            TestCaseRef {
-                id: c.id.clone(),
-                yaml_script: c.yaml_script.clone(),
-                name: c.name.clone(),
-                priority: priority_str.to_string(),
-            }
+        .map(|c| TestCaseRef {
+            id: c.id.clone(),
+            yaml_script: c.yaml_script.clone(),
+            name: c.name.clone(),
+            priority: c.priority.clone(),
         })
         .collect();
 
@@ -57,37 +67,11 @@ pub async fn run_tests(
         .to_string();
 
     // Save summary
+    let report_dir = LocalStorage::report_dir(project_name, &run_id);
+    std::fs::create_dir_all(&report_dir)?;
+
     let summary_path = Reporter::save_summary(&run_id, &results)?;
     println!("Summary saved: {}", summary_path.display());
-
-    // Write to Notion
-    println!("Writing results to Notion...");
-    let test_results_db_id = std::env::var("QIN_AEGIS_TEST_RESULTS_DB_ID")
-        .unwrap_or_else(|_| "test_results_db".to_string());
-    let writer = NotionWriter::new(&notion, &test_results_db_id);
-
-    for (case, result) in cases.iter().zip(results.iter()) {
-        let result_json = serde_json::json!({
-            "passed": result.passed,
-            "duration_ms": result.duration_ms,
-            "error_message": result.error_message,
-        });
-        let _page_id = writer
-            .write_result(
-                &case.id,
-                &case.name,
-                &case.id,
-                &result_json,
-                &run_id,
-                None,
-            )
-            .await?;
-        println!(
-            "  {}: {}",
-            case.name,
-            if result.passed { "PASS" } else { "FAIL" }
-        );
-    }
 
     let passed = results.iter().filter(|r| r.passed).count();
     let failed = results.len() - passed;

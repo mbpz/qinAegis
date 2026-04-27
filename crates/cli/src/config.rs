@@ -3,19 +3,10 @@ use std::io::{self, Write};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Config {
-    pub notion: NotionConfig,
     pub llm: LlmConfig,
     pub sandbox: SandboxConfig,
     #[serde(default)]
     pub exploration: ExplorationConfig,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct NotionConfig {
-    pub client_id: String,
-    pub client_secret: String,
-    #[serde(default)]
-    pub workspace_id: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -43,16 +34,6 @@ pub struct ExplorationConfig {
 
 fn default_max_depth() -> u32 { 3 }
 fn default_max_pages_per_seed() -> u32 { 20 }
-
-impl Default for NotionConfig {
-    fn default() -> Self {
-        Self {
-            client_id: String::new(),
-            client_secret: String::new(),
-            workspace_id: String::new(),
-        }
-    }
-}
 
 impl Default for LlmConfig {
     fn default() -> Self {
@@ -115,16 +96,12 @@ impl Config {
         Ok(())
     }
 
-    pub fn is_notion_configured(&self) -> bool {
-        !self.notion.client_id.is_empty() && !self.notion.client_secret.is_empty()
-    }
-
     pub fn is_llm_configured(&self) -> bool {
         !self.llm.api_key.is_empty()
     }
 
     pub fn is_complete(&self) -> bool {
-        self.is_notion_configured() && self.is_llm_configured()
+        self.is_llm_configured()
     }
 }
 
@@ -133,16 +110,10 @@ pub fn prompt_for_config() -> anyhow::Result<Config> {
     println!("\n=== QinAegis Configuration Setup ===\n");
 
     let mut config = Config {
-        notion: NotionConfig::default(),
         llm: LlmConfig::default(),
         sandbox: SandboxConfig::default(),
         exploration: ExplorationConfig::default(),
     };
-
-    // Notion OAuth
-    println!("Notion OAuth Configuration:");
-    config.notion.client_id = prompt("  Client ID")?;
-    config.notion.client_secret = prompt("  Client Secret")?;
 
     // LLM Configuration
     println!("\nLLM Configuration (for Midscene AI):");

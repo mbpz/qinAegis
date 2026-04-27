@@ -1,4 +1,4 @@
-use crate::protocol::{JsonRpcRequest, MidsceneProcess};
+use crate::protocol::{JsonRpcRequest, MidsceneProcess, LlmConfig, SandboxConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -31,8 +31,8 @@ pub struct Explorer {
 }
 
 impl Explorer {
-    pub async fn new() -> anyhow::Result<Self> {
-        let process = MidsceneProcess::spawn().await?;
+    pub async fn new(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
+        let process = MidsceneProcess::spawn(llm_config, sandbox_config).await?;
         Ok(Self { process })
     }
 

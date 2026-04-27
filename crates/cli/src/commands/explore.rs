@@ -1,33 +1,46 @@
-use qin_aegis_core::Explorer;
+use qin_aegis_core::{Explorer, LlmConfig, SandboxConfig};
+use qin_aegis_core::storage::LocalStorage;
+use crate::config::Config;
 
-pub async fn run_explore(seed_urls: Vec<String>, max_depth: u32) -> anyhow::Result<()> {
-    println!("Starting project exploration...");
-    println!("Seed URLs: {:?}", seed_urls);
-    println!("Max depth: {}", max_depth);
+pub async fn run_explore(project_name: &str, seed_url: Option<String>, max_depth: u32) -> anyhow::Result<()> {
+    // Load config
+    let config = Config::load()?
+        .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
 
-    let mut explorer = Explorer::new().await?;
-
-    let mut all_pages = vec![];
-    let mut all_markdown = String::from("# 项目规格书\n\n");
-
-    for url in &seed_urls {
-        println!("Exploring {}", url);
-        let result = explorer.explore(url, max_depth).await?;
-        all_pages.extend(result.pages);
-        all_markdown.push_str(&result.markdown);
+    if !config.is_llm_configured() {
+        anyhow::bail!("LLM not configured. Run 'qinAegis init' first.");
     }
 
-    let output_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("qinAegis")
-        .join("exploration");
+    // Check project exists, get URL
+    let project = LocalStorage::load_project(project_name)
+        .map_err(|_| anyhow::anyhow!("Project '{}' not found. Run 'qinAegis project add' first.", project_name))?;
 
-    std::fs::create_dir_all(&output_dir)?;
-    let output_path = output_dir.join("spec.md");
-    std::fs::write(&output_path, &all_markdown)?;
+    let url = seed_url.unwrap_or_else(|| project.url.clone());
 
-    println!("\n✓ Exploration complete: {} pages", all_pages.len());
-    println!("✓ Spec saved to: {}", output_path.display());
+    println!("Exploring {} from {}", project_name, url);
+    println!("Max depth: {}\n", max_depth);
+
+    let llm_config = Some(LlmConfig {
+        api_key: config.llm.api_key,
+        base_url: config.llm.base_url,
+        model: config.llm.model,
+    });
+
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+
+    let mut explorer = Explorer::new(llm_config, sandbox_config).await?;
+
+    let result = explorer.explore(&url, max_depth).await?;
+
+    let mut all_markdown = String::from("# 项目规格书\n\n");
+    all_markdown.push_str(&result.markdown);
+
+    LocalStorage::save_spec(project_name, &all_markdown)?;
+    let spec_path = LocalStorage::project_spec_path(project_name);
+    println!("\n✓ Exploration complete: {} pages", result.pages.len());
+    println!("✓ Spec saved to: {}", spec_path.display());
 
     explorer.shutdown().await?;
     Ok(())

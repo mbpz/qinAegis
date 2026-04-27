@@ -1,18 +1,11 @@
-use qin_aegis_core::{PerformanceComparison, StressTestConfig};
-use qin_aegis_notion::NotionClient;
+use qin_aegis_core::{PerformanceComparison, StressTestConfig, LighthouseResult};
 
 pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Result<()> {
     println!("Running Lighthouse performance test for {}", url);
 
-    // Get Notion token
-    let token = qin_aegis_notion::auth::get_notion_token()?
-        .ok_or_else(|| anyhow::anyhow!("not logged in, run qinAegis init first"))?;
-    let notion = NotionClient::new(&token);
-
     // Run Lighthouse via JSON-RPC
     let result = run_lighthouse_rpc(url).await?;
 
-    // Save to local file
     let run_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -24,12 +17,12 @@ pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Resul
     let report_path = report_dir.join("lighthouse_report.json");
     std::fs::write(&report_path, serde_json::to_string_pretty(&result)?)?;
 
-    // Compare with baseline from Notion
-    if let Some(baseline) = fetch_baseline_from_notion(&notion, url).await? {
+    // Compare with baseline - local baseline storage pending
+    if let Some(baseline) = fetch_baseline(url).await? {
         let comparison = PerformanceComparison::compare(result.clone(), baseline, threshold_percent);
 
         if !comparison.passed {
-            println!("\n⚠️  PERFORMANCE REGRESSION DETECTED:");
+            println!("\nWARNING: PERFORMANCE REGRESSION DETECTED:");
             for reg in &comparison.regression {
                 if reg.regressed {
                     println!(
@@ -130,10 +123,9 @@ async fn run_locust_rpc(config: &StressTestConfig) -> anyhow::Result<qin_aegis_c
     })
 }
 
-async fn fetch_baseline_from_notion(
-    _notion: &NotionClient,
+async fn fetch_baseline(
     _url: &str,
-) -> anyhow::Result<Option<qin_aegis_core::LighthouseResult>> {
+) -> anyhow::Result<Option<LighthouseResult>> {
     Ok(None)
 }
 

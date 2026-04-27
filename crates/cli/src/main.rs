@@ -10,22 +10,29 @@ mod config;
 enum Cmd {
     /// Setup or reconfigure QinAegis (interactive)
     Setup,
-    /// Initialize Notion workspace and databases
+    /// Initialize QinAegis configuration
     Init,
-    /// List projects from Notion
-    ListProjects,
+    /// Manage projects
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
+    },
     /// Show current configuration
     Config,
     Explore {
         #[arg(long)]
-        url: Vec<String>,
+        project: String,
+        #[arg(long)]
+        url: Option<String>,
         #[arg(long, default_value = "3")]
         depth: u32,
     },
     Generate {
         #[arg(long)]
+        project: String,
+        #[arg(long)]
         requirement: String,
-        #[arg(long, default_value = "~/.local/share/qinAegis/exploration/spec.md")]
+        #[arg(long)]
         spec: String,
     },
     Run {
@@ -55,6 +62,24 @@ enum Cmd {
     },
 }
 
+#[derive(Parser, Debug)]
+enum ProjectAction {
+    /// Add a new project
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        url: String,
+    },
+    /// List all projects
+    List,
+    /// Remove a project
+    Remove {
+        #[arg(long)]
+        name: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cmd = Cmd::parse();
@@ -65,14 +90,17 @@ async fn main() -> anyhow::Result<()> {
             println!("Configuration saved to {}", config::Config::config_path().display());
         }
         Cmd::Init => commands::init::run_init_and_setup().await?,
-        Cmd::ListProjects => commands::notion::list_projects().await?,
+        Cmd::Project { action } => {
+            match action {
+                ProjectAction::Add { name, url } => commands::project::add_project(&name, &url).await?,
+                ProjectAction::List => commands::project::list_projects().await?,
+                ProjectAction::Remove { name } => commands::project::remove_project(&name).await?,
+            }
+        }
         Cmd::Config => {
             match config::Config::load()? {
                 Some(cfg) => {
                     println!("Current configuration:");
-                    println!("  Notion: {} (workspace: {})",
-                        if cfg.is_notion_configured() { "configured" } else { "NOT configured" },
-                        cfg.notion.workspace_id);
                     println!("  LLM: {} (provider: {}, model: {})",
                         if cfg.is_llm_configured() { "configured" } else { "NOT configured" },
                         cfg.llm.provider, cfg.llm.model);
@@ -82,12 +110,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Explore { url, depth } => commands::explore::run_explore(url, depth).await?,
-        Cmd::Generate { requirement, spec } => {
-            commands::generate::run_generate(&requirement, spec.as_ref()).await?
+        Cmd::Explore { project, url, depth } => commands::explore::run_explore(&project, url, depth).await?,
+        Cmd::Generate { project, requirement, spec } => {
+            commands::generate::run_generate(&project, &requirement, std::path::Path::new(&spec)).await?
         }
         Cmd::Run { project, test_type, concurrency } => {
-            commands::run::run_tests(&test_type, &project, concurrency).await?
+            commands::run::run_tests(&project, &test_type, concurrency).await?
         }
         Cmd::Report => println!("report"),
         Cmd::Performance { url, threshold } => {
