@@ -65,8 +65,14 @@ impl NotionClient {
     }
 
     pub async fn create_page(&self, title: &str, parent_id: &str) -> anyhow::Result<String> {
+        let parent = if parent_id == "workspace" {
+            serde_json::json!({ "workspace": true })
+        } else {
+            serde_json::json!({ "page_id": parent_id })
+        };
+
         let body = serde_json::json!({
-            "parent": { "page_id": parent_id },
+            "parent": parent,
             "properties": {
                 "title": {
                     "title": [{ "text": { "content": title } }]
@@ -154,7 +160,7 @@ pub static REQUIREMENTS_DB_SPEC: LazyLock<DatabaseSpec, fn() -> DatabaseSpec> = 
     name: String::from("Requirements"),
     properties: vec![
         PropertySchema { name: String::from("name"), property_type: String::from("title") },
-        PropertySchema { name: String::from("project"), property_type: String::from("relation") },
+        PropertySchema { name: String::from("project_id"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("description"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("priority"), property_type: String::from("select") },
         PropertySchema { name: String::from("status"), property_type: String::from("select") },
@@ -165,11 +171,11 @@ pub static TEST_CASES_DB_SPEC: LazyLock<DatabaseSpec, fn() -> DatabaseSpec> = La
     name: String::from("TestCases"),
     properties: vec![
         PropertySchema { name: String::from("name"), property_type: String::from("title") },
-        PropertySchema { name: String::from("requirement"), property_type: String::from("relation") },
+        PropertySchema { name: String::from("requirement_id"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("type"), property_type: String::from("select") },
         PropertySchema { name: String::from("priority"), property_type: String::from("select") },
         PropertySchema { name: String::from("status"), property_type: String::from("select") },
-        PropertySchema { name: String::from("yaml_script"), property_type: String::from("code") },
+        PropertySchema { name: String::from("yaml_script"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("expected_result"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("tags"), property_type: String::from("multi_select") },
     ],
@@ -179,7 +185,7 @@ pub static TEST_RESULTS_DB_SPEC: LazyLock<DatabaseSpec, fn() -> DatabaseSpec> = 
     name: String::from("TestResults"),
     properties: vec![
         PropertySchema { name: String::from("name"), property_type: String::from("title") },
-        PropertySchema { name: String::from("test_case"), property_type: String::from("relation") },
+        PropertySchema { name: String::from("test_case_id"), property_type: String::from("rich_text") },
         PropertySchema { name: String::from("status"), property_type: String::from("select") },
         PropertySchema { name: String::from("duration_ms"), property_type: String::from("number") },
         PropertySchema { name: String::from("run_at"), property_type: String::from("date") },

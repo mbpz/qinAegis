@@ -9,6 +9,8 @@ pub enum AuthError {
     Http(#[from] reqwest::Error),
     #[error("callback missing code param")]
     MissingCode,
+    #[error("JSON parse error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 pub struct NotionAuth {
@@ -65,37 +67,60 @@ mod tests {
     }
 }
 
-use keyring::Entry;
-
 const SERVICE_NAME: &str = "qinAegis";
 const NOTION_TOKEN_KEY: &str = "notion_access_token";
 
 pub fn store_notion_token(token: &str) -> Result<(), AuthError> {
-    let entry = Entry::new(SERVICE_NAME, NOTION_TOKEN_KEY)
+    let output = std::process::Command::new("security")
+        .args(&["add-generic-password", "-s", SERVICE_NAME, "-a", NOTION_TOKEN_KEY, "-w", token, "-U"])
+        .output()
         .map_err(|e| AuthError::Keyring(e.to_string()))?;
-    entry
-        .set_password(token)
-        .map_err(|e| AuthError::Keyring(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AuthError::Keyring(format!("security command failed: {}", stderr)));
+    }
     Ok(())
 }
 
 pub fn get_notion_token() -> Result<Option<String>, AuthError> {
-    let entry = Entry::new(SERVICE_NAME, NOTION_TOKEN_KEY)
+    let output = std::process::Command::new("security")
+        .args(&["find-generic-password", "-s", SERVICE_NAME, "-a", NOTION_TOKEN_KEY, "-w"])
+        .output()
         .map_err(|e| AuthError::Keyring(e.to_string()))?;
-    match entry.get_password() {
-        Ok(token) => Ok(Some(token)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(AuthError::Keyring(e.to_string())),
+
+    if output.status.code() == Some(44) {
+        return Ok(None);
     }
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("SecKeychainSearchCopyNext") || output.status.code() == Some(44) {
+            return Ok(None);
+        }
+        return Err(AuthError::Keyring(format!("security command failed: {}", stderr)));
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(token))
 }
 
 pub fn delete_notion_token() -> Result<(), AuthError> {
-    let entry = Entry::new(SERVICE_NAME, NOTION_TOKEN_KEY)
+    let output = std::process::Command::new("security")
+        .args(&["delete-generic-password", "-s", SERVICE_NAME, "-a", NOTION_TOKEN_KEY])
+        .output()
         .map_err(|e| AuthError::Keyring(e.to_string()))?;
-    entry
-        .delete_credential()
-        .map_err(|e| AuthError::Keyring(e.to_string()))?;
-    Ok(())
+
+    // 44 means item not found, which is OK for delete
+    if output.status.success() || output.status.code() == Some(44) {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(AuthError::Keyring(format!("delete failed: {}", stderr)))
 }
 
 use serde::{Deserialize, Serialize};
@@ -136,7 +161,10 @@ impl NotionAuth {
             .send()
             .await?;
 
-        let token_resp: TokenResponse = resp.json().await?;
+        let status = resp.status();
+        let body_text = resp.text().await?;
+
+        let token_resp: TokenResponse = serde_json::from_str(&body_text)?;
         Ok(token_resp)
     }
 

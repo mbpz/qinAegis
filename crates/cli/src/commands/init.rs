@@ -61,7 +61,7 @@ pub async fn run_init_and_setup(client_id: String, client_secret: String) -> any
     // 3. Create parent page to host the databases
     println!("Creating QinAegis workspace page...");
     let parent_page_id = client
-        .create_page("QinAegis", "root")
+        .create_page("QinAegis", "workspace")
         .await
         .map_err(|e| anyhow::anyhow!("failed to create parent page: {}", e))?;
     println!("  ✓ Workspace page created: {}", parent_page_id);
