@@ -1,21 +1,14 @@
 # docker/docker-compose.sandbox.yml
-version: "3.9"
-
 services:
   steel:
     image: ghcr.io/steel-dev/steel-browser:latest
-    ports:
-      - "3333:3333"    # Steel REST API
-      - "9222:9222"    # Chrome CDP WebSocket
+    network_mode: host
     environment:
       STEEL_API_KEY: "local-dev-key"
+      # Override Chrome debug address to bind to all interfaces
+      CDP_WS_URL: "ws://0.0.0.0:9222/ws"
     volumes:
       - steel-data:/data
-    networks: [sandbox]
-
-networks:
-  sandbox:
-    driver: bridge
 
 volumes:
   steel-data:
