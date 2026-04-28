@@ -9,3 +9,5 @@ _huashu-output/
 midscene_run/
 sandbox/_huashu-output/
 sandbox/midscene_run/
+node_modules
+package-lock.json
