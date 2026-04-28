@@ -4,3 +4,8 @@
 .env
 .DS_Store
 Cargo.lock
+# Temporary/runtime files
+_huashu-output/
+midscene_run/
+sandbox/_huashu-output/
+sandbox/midscene_run/
