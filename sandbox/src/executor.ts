@@ -13,11 +13,30 @@ let browser: Browser | null = null;
 let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
-const CDP_URL = process.env.CDP_WS_URL || 'ws://localhost:9222';
+const CDP_HOST = process.env.CDP_HOST || 'localhost';
+const CDP_PORT = process.env.CDP_PORT || '9222';
+const CDP_URL = `ws://${CDP_HOST}:${CDP_PORT}`;
+
+async function resolveCdpUrl(): Promise<string> {
+  try {
+    // Get browser WebSocket URL from /json/version
+    const response = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/version`);
+    if (!response.ok) {
+      throw new Error(`CDP /json/version returned ${response.status}`);
+    }
+    const info = await response.json();
+    console.error(`[executor] Connecting to browser: ${info.webSocketDebuggerUrl}`);
+    return info.webSocketDebuggerUrl;
+  } catch (e) {
+    throw new Error(`Failed to resolve CDP URL: ${e}`);
+  }
+}
 
 async function ensureConnected() {
   if (!browser) {
-    browser = await chromium.connectOverCDP(CDP_URL);
+    const wsUrl = await resolveCdpUrl();
+    console.error(`[executor] Connecting to CDP via: ${wsUrl}`);
+    browser = await chromium.connectOverCDP(wsUrl);
     page = await browser.newPage();
     agent = new PlaywrightAgent(page);
   }
@@ -25,7 +44,11 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
-    await ensureConnected();
+    // Only ensure connected for methods that need the executor's page/agent
+    // 'explore' creates its own browser connection in explorer.ts
+    if (req.method !== 'explore') {
+      await ensureConnected();
+    }
 
     switch (req.method) {
       case 'aiQuery': {
@@ -54,9 +77,10 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id, ok: true, data: buf };
       }
       case 'explore': {
-        const { url, depth } = req.args[0] as { url: string; depth: number };
+        // Rust serializes Explore { url, depth } as {"url":..., "depth":...} object
+        const args = req.args as { url: string; depth: number };
         const { exploreProject, toMarkdown } = await import('./explorer.js');
-        const pages = await exploreProject([url], depth);
+        const pages = await exploreProject([args.url], args.depth);
         const md = toMarkdown(pages);
         return { id: req.id, ok: true, data: { pages, markdown: md } };
       }
