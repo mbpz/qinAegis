@@ -90,7 +90,7 @@ async function extractPageInfo(page: Page): Promise<PageInfo> {
   const { PlaywrightAgent } = await import('@midscene/web/playwright');
   const agent = new PlaywrightAgent(page);
 
-  const info = await agent.aiQuery<{
+  const rawInfo = await agent.aiQuery<{
     title: string;
     primaryNav: string[];
     mainFeatures: string[];
@@ -105,16 +105,27 @@ async function extractPageInfo(page: Page): Promise<PageInfo> {
     { screenshotIncluded: false }
   );
 
+  const info = rawInfo as {
+    title?: string;
+    primaryNav?: string[];
+    mainFeatures?: string[];
+    authRequired?: boolean;
+    techStack?: string[];
+    forms?: { action: string; method: string; fields: string[] }[];
+    keyElements?: string[];
+    links?: string[];
+  };
+
   return {
     url: page.url(),
-    title: info.title,
-    primaryNav: info.primaryNav,
-    mainFeatures: info.mainFeatures,
-    authRequired: info.authRequired,
-    techStack: info.techStack,
-    forms: info.forms,
-    keyElements: info.keyElements,
-    links: info.links.filter(l => !l.startsWith('http') || l.includes(new URL(page.url()).host)),
+    title: info.title || '',
+    primaryNav: Array.isArray(info.primaryNav) ? info.primaryNav : [],
+    mainFeatures: Array.isArray(info.mainFeatures) ? info.mainFeatures : [],
+    authRequired: Boolean(info.authRequired),
+    techStack: Array.isArray(info.techStack) ? info.techStack : [],
+    forms: Array.isArray(info.forms) ? info.forms : [],
+    keyElements: Array.isArray(info.keyElements) ? info.keyElements : [],
+    links: Array.isArray(info.links) ? info.links.filter(l => !l.startsWith('http') || l.includes(new URL(page.url()).host)) : [],
   };
 }
 
