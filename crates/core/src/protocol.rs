@@ -1,9 +1,14 @@
+use crate::sandbox::{SandboxAdapter, SteelBrowserAdapter};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
+
+// ============================================================================
+// JSON-RPC types (shared between Rust CLI and TypeScript executor)
+// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method", content = "args")]
@@ -60,6 +65,10 @@ impl JsonRpcResponse {
     }
 }
 
+// ============================================================================
+// MidsceneProcess
+// ============================================================================
+
 pub struct MidsceneProcess {
     #[allow(dead_code)]
     child: Arc<Child>,
@@ -96,7 +105,12 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
-    pub async fn spawn(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
+    /// Spawn with a concrete SandboxAdapter.
+    /// The adapter is used to resolve the CDP URL and wait for browser readiness.
+    pub async fn with_adapter(
+        llm_config: Option<LlmConfig>,
+        adapter: Arc<dyn SandboxAdapter>,
+    ) -> anyhow::Result<Self> {
         // Navigate from crates/core to project root (../../)
         let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap()  // crates
@@ -104,7 +118,11 @@ impl MidsceneProcess {
             .join("sandbox");
         let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
 
-        let sandbox_cfg = sandbox_config.unwrap_or_default();
+        // Wait for browser to be ready via adapter
+        let cdp_url = adapter
+            .wait_for_browser(30)
+            .await
+            .map_err(|e| anyhow::anyhow!("browser not ready: {}", e))?;
 
         let mut cmd = Command::new(&tsx_path);
         cmd.args(["src/executor.ts"])
@@ -114,8 +132,8 @@ impl MidsceneProcess {
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
 
-        // Pass CDP WebSocket URL
-        cmd.env("CDP_WS_URL", format!("ws://localhost:{}", sandbox_cfg.cdp_port));
+        // Pass CDP WebSocket URL from adapter
+        cmd.env("CDP_WS_URL", &cdp_url);
 
         // Pass LLM environment variables from config
         if let Some(cfg) = llm_config {
@@ -171,6 +189,19 @@ impl MidsceneProcess {
             request_tx,
             response_rx: Arc::new(Mutex::new(response_rx)),
         })
+    }
+
+    /// Spawn with SandboxConfig (legacy, creates SteelBrowserAdapter internally).
+    pub async fn spawn(
+        llm_config: Option<LlmConfig>,
+        sandbox_config: Option<SandboxConfig>,
+    ) -> anyhow::Result<Self> {
+        let cfg = sandbox_config.unwrap_or_default();
+        let adapter: Arc<dyn SandboxAdapter> = Arc::new(SteelBrowserAdapter::new(format!(
+            "ws://localhost:{}",
+            cfg.cdp_port
+        )));
+        Self::with_adapter(llm_config, adapter).await
     }
 
     pub async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {

@@ -4,7 +4,9 @@ use crate::automation::{
 };
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
 use crate::prompts::ExplorerPrompt;
+use crate::sandbox::{SandboxAdapter, ShellBrowserAdapter, SteelBrowserAdapter};
 use async_trait::async_trait;
+use std::sync::Arc;
 
 /// BrowserAutomation implementation backed by MidsceneProcess (TS executor).
 #[derive(Clone)]
@@ -21,6 +23,27 @@ impl MidsceneAutomation {
             .await
             .map_err(|e| AutomationError::ProcessDied(e.to_string()))?;
         Ok(Self { process })
+    }
+
+    /// Spawn with an explicit SandboxAdapter (enables CDP retry and hot reload).
+    pub async fn with_adapter(
+        llm_config: Option<crate::protocol::LlmConfig>,
+        adapter: Arc<dyn SandboxAdapter>,
+    ) -> Result<Self, AutomationError> {
+        let process = MidsceneProcess::with_adapter(llm_config, adapter)
+            .await
+            .map_err(|e| AutomationError::ProcessDied(e.to_string()))?;
+        Ok(Self { process })
+    }
+
+    /// Create a ShellBrowserAdapter for the given browser path and CDP port.
+    pub fn shell_adapter(browser_path: &str, args: Vec<String>, cdp_port: u16) -> Arc<dyn SandboxAdapter> {
+        Arc::new(ShellBrowserAdapter::new(browser_path.to_string(), args, cdp_port))
+    }
+
+    /// Create a SteelBrowserAdapter for the given CDP WebSocket URL.
+    pub fn steel_adapter(cdp_url: &str) -> Arc<dyn SandboxAdapter> {
+        Arc::new(SteelBrowserAdapter::new(cdp_url))
     }
 
     async fn call(&self, req: JsonRpcRequest) -> Result<JsonRpcResponse, AutomationError> {
