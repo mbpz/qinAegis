@@ -1,6 +1,9 @@
-use ratatui::{Frame, prelude::Rect};
+use ratatui::{Frame, prelude::Rect, layout::{Layout, Constraint}, widgets::{Block, Borders, Paragraph}};
 use crate::tui::app::App;
 
-pub fn render(_frame: &mut Frame, _app: &App, _area: Rect) {
-    // Placeholder - will be implemented in Task 7
+pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+    let chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(3)]).split(area);
+    let content = Paragraph::new("Generate test cases\n\n[Esc] Back")
+        .block(Block::default().title("Generate").borders(Borders::ALL));
+    frame.render_widget(content, chunks[0]);
 }
