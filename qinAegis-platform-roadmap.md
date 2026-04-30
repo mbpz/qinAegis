@@ -1,7 +1,7 @@
 # AI 自动化测试平台 qinAegis Roadmap
 
 > 基于开源成熟项目（Midscene.js · steel-browser · Shortest · k6）的修正版本  
-> 产物形态：macOS TUI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在 Notion
+> 产物形态：macOS TUI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在本地文件系统
 
 ---
 
@@ -14,7 +14,7 @@
 5. [Phase 1 · Bootstrap — 认证 + 沙箱搭建](#5-phase-1--bootstrap--认证--沙箱搭建)
 6. [Phase 2 · AI Core — 视觉驱动执行引擎](#6-phase-2--ai-core--视觉驱动执行引擎)
 7. [Phase 3 · Test Execution — 四类测试](#7-phase-3--test-execution--四类测试)
-8. [Phase 4 · Notion 数据模型](#8-phase-4--notion-数据模型)
+8. [Phase 4 · 本地数据模型](#8-phase-4--本地数据模型)
 9. [Phase 5 · Distribution — Homebrew 分发](#9-phase-5--distribution--homebrew-分发)
 10. [原方案 vs 修正方案对比](#10-原方案-vs-修正方案对比)
 11. [开发里程碑](#11-开发里程碑)
@@ -30,7 +30,7 @@
 
 - **完全本地沙箱化**：测试执行在 Docker 容器内进行，与宿主机完全隔离
 - **AI 驱动**：视觉大模型理解页面、生成测试用例、执行断言，无需维护 CSS selector
-- **Notion 作为数据中心**：项目规格书、需求、测试用例、测试结果全部维护在 Notion
+- **本地文件系统存储**：项目规格书、需求、测试用例、测试结果全部存储在 `~/.qinAegis/projects/`
 - **brew 一键安装**：用户体验对标 gh / lazygit 等成熟 CLI 工具
 
 ### 用户使用流程
@@ -38,20 +38,21 @@
 ```
 brew install qinAegis
 ↓
-qinAegis init           # OAuth2 授权 Notion，初始化 workspace
+qinAegis init           # 初始化本地配置（AI 模型密钥等）
 ↓
 qinAegis project add    # 添加 Web 项目（URL + 技术栈）
 ↓
 qinAegis explore        # AI 自动探索项目，生成规格书
 ↓
-qinAegis generate       # 按需求维度生成测试用例 → 写入 Notion
+qinAegis generate       # 按需求维度生成测试用例 → 写入本地 cases/
 ↓
 qinAegis run smoke      # 执行冒烟测试
 qinAegis run full       # 执行完整功能测试
 qinAegis run perf       # 执行性能测试
 qinAegis run stress     # 执行压力测试
 ↓
-qinAegis report         # 查看 Notion Dashboard 汇总
+qinAegis report         # 查看测试报告
+qinAegis export         # 导出 HTML/MD/JSON 报告
 ```
 
 ---
@@ -88,11 +89,11 @@ qinAegis report         # 查看 Notion Dashboard 汇总
 │                   TUI 客户端 (Rust · ratatui)            │
 │              brew install qinAegis · 自研               │
 └───────────────────────┬─────────────────────────────────┘
-                        │ OAuth2
+                        │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Notion OAuth2 授权 + 数据层                 │
-│   项目 → 需求 → 测试用例 → 测试结果 (四维度 Database)    │
+│              本地文件系统存储 (~/.qinAegis/)             │
+│   projects/<name>/config.yaml · spec.md · cases/ · reports/
 └───────────────────────┬─────────────────────────────────┘
                         │
           ┌─────────────┴─────────────┐
@@ -121,10 +122,10 @@ qinAegis report         # 查看 Notion Dashboard 汇总
 AI 理解项目 (Midscene aiQuery 爬取页面结构 + 截图)
     │
     ▼
-Notion 写入规格书
+本地写入规格书 (projects/<name>/spec.md)
     │
     ▼
-AI 生成测试用例 YAML → Notion 测试用例 Database (Draft)
+AI 生成测试用例 YAML → 本地 cases/*.json (Draft)
     │
     ▼ (人工或 AI Critic 审核 → Approved)
     │
@@ -137,10 +138,10 @@ AI 生成测试用例 YAML → Notion 测试用例 Database (Draft)
     └── 压力测试 → k6 Summary JSON
     │
     ▼
-Notion 测试结果 Database 写入 (通过率 · 耗时 · Report 附件)
+本地写入测试结果 (projects/<name>/reports/<run-id>/)
     │
     ▼
-TUI Dashboard 展示 / Notion Dashboard 视图
+TUI Dashboard 展示 / qinAegis export 导出报告
 ```
 
 ---
@@ -154,9 +155,9 @@ TUI Dashboard 展示 / Notion Dashboard 视图
 | Rust | stable | 主语言，编译为原生二进制 |
 | ratatui | 0.27+ | TUI 框架，组件化布局 |
 | tokio | 1.x | 异步运行时 |
-| reqwest | 0.12+ | HTTP 客户端（Notion API · LLM API） |
+| reqwest | 0.12+ | HTTP 客户端（LLM API） |
 | serde / serde_json | 1.x | 序列化 |
-| keyring | macOS Keychain 集成，存储 token |
+| keyring | macOS Keychain 集成，存储 LLM API token |
 | crossterm | 终端跨平台控制 |
 
 ### 4.2 浏览器沙箱（steel-browser）
@@ -279,44 +280,57 @@ tasks:
 
 ---
 
-## 5. Phase 1 · Bootstrap — 认证 + 沙箱搭建
+## 5. Phase 1 · Bootstrap — 配置 + 沙箱搭建
 
-### 5.1 OAuth2 Notion 登录
+### 5.1 本地配置初始化
 
-TUI 启动检测 `~/.config/qinAegis/config.toml`，若无有效 token 则触发授权：
-
-```
-1. 随机端口监听（如 :54321）
-2. 打开浏览器 → https://api.notion.com/v1/oauth/authorize?...
-3. 用户在 Notion 授权页确认
-4. 回调 redirect_uri=http://localhost:54321/callback
-5. 换取 access_token + workspace_id
-6. 加密写入 macOS Keychain（keyring crate）
-7. TUI 显示 "已连接 workspace: xxx"
-```
-
-**Notion OAuth2 请求参数：**
+TUI 启动检测 `~/.config/qinAegis/config.toml`，若无则引导用户配置：
 
 ```
-client_id=YOUR_NOTION_INTEGRATION_ID
-redirect_uri=http://localhost:54321/callback
-response_type=code
-owner=user
+1. 检查 ~/.config/qinAegis/config.toml 是否存在
+2. 若不存在，启动首次配置向导
+3. 引导用户输入 AI 模型配置（Provider · Base URL · API Key · Model）
+4. API Key 加密写入 macOS Keychain（keyring crate）
+5. 配置写入 ~/.config/qinAegis/config.toml
+6. TUI 显示 "配置完成，可添加第一个项目"
 ```
 
-### 5.2 Notion workspace 初始化
+**config.toml 格式：**
 
-首次登录后，自动在 Notion 创建以下 Database 模板：
+```toml
+[llm]
+provider = "minimax"
+base_url = "https://api.minimax.chat/v1"
+model = "MiniMax-VL-01"
+# api_key 存在 macOS Keychain，不写入文件
+
+[sandbox]
+compose_file = "~/.config/qinAegis/docker-compose.yml"
+steel_port = 3333
+cdp_port = 9222
+
+[exploration]
+max_depth = 3
+max_pages_per_seed = 20
+```
+
+### 5.2 项目本地存储初始化
+
+`qinAegis project add` 在本地创建项目目录：
 
 ```
-qinAegis/
-├── 📋 Projects          ← 项目维度
-├── 📄 Requirements      ← 需求维度（relation → Projects）
-├── 🧪 TestCases         ← 测试用例（relation → Requirements）
-└── 📊 TestResults       ← 测试结果（relation → TestCases）
+~/.qinAegis/projects/<project-name>/
+├── config.yaml          # 项目配置（URL、技术栈）
+├── spec.md              # explore 结果
+├── requirements/        # 需求文档
+│   └── <req-id>.md
+├── cases/               # 测试用例 JSON
+│   └── <case-id>.json
+└── reports/             # 测试结果
+    └── <run-id>/
+        ├── summary.json
+        └── <case-id>.html
 ```
-
-每个 Database 的 Schema 定义见 [Phase 4](#8-phase-4--notion-数据模型)。
 
 ### 5.3 沙箱启动
 
@@ -428,8 +442,8 @@ export async function exploreProject(projectUrl: string) {
     pageDetails.push(detail);
   }
 
-  // 4. 写入 Notion 规格书
-  await writeToNotionProjectSpec({ pageStructure, routes, pageDetails });
+  // 4. 写入本地规格书
+  await writeToLocalSpec({ pageStructure, routes, pageDetails });
 
   return { pageStructure, routes, pageDetails };
 }
@@ -542,17 +556,11 @@ Report 内容包含：
 ```typescript
 // 执行流程
 async function runSmokeTests(projectId: string) {
-  // 1. 从 Notion 拉取 P0 已批准用例
-  const cases = await notion.queryDatabase({
-    database_id: TEST_CASES_DB_ID,
-    filter: {
-      and: [
-        { property: "project_id", equals: projectId },
-        { property: "type", equals: "smoke" },
-        { property: "priority", equals: "P0" },
-        { property: "status", equals: "Approved" }
-      ]
-    }
+  // 1. 从本地加载 P0 已批准用例
+  const cases = await localStorage.listCases(projectId, {
+    type: "smoke",
+    priority: "P0",
+    status: "Approved"
   });
 
   // 2. 逐用例执行
@@ -569,8 +577,8 @@ async function runSmokeTests(projectId: string) {
     });
   }
 
-  // 3. 写入 Notion
-  await writeTestResults(results);
+  // 3. 写入本地 reports/
+  await localStorage.saveResults(results);
 
   // 4. TUI 展示摘要
   const passRate = results.filter(r => r.passed).length / results.length;
@@ -640,8 +648,8 @@ async function runPerformanceTest(url: string) {
     performance_score: report.categories.performance.score * 100
   };
 
-  // 写入 Notion TestResults
-  await writePerformanceResult(metrics);
+  // 写入本地 reports/
+  await localStorage.savePerformanceResult(metrics);
 
   return metrics;
 }
@@ -720,154 +728,85 @@ docker exec qinAegis-sandbox k6 run /scripts/k6-script-generated.js \
 
 ---
 
-## 8. Phase 4 · Notion 数据模型
+## 8. Phase 4 · 本地数据模型
 
-### 8.1 四维度 Database 设计
-
-#### Projects（项目）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | Title | 项目名称 |
-| url | URL | 项目访问地址 |
-| tech_stack | Multi-select | React / Vue / Next.js 等 |
-| status | Select | Active / Archived |
-| spec_page | Relation | 关联规格书 Page |
-| created_at | Date | 创建时间 |
-| total_requirements | Rollup | 需求总数 |
-| pass_rate | Formula | 整体通过率 |
-
-#### Requirements（需求）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | Title | 需求标题 |
-| project | Relation | → Projects |
-| description | Rich Text | 需求详细描述 |
-| priority | Select | P0 / P1 / P2 |
-| status | Select | Draft / Active / Done |
-| test_case_count | Rollup | 关联用例数 |
-| pass_rate | Formula | 需求维度通过率 |
-| last_run_at | Date | 最近执行时间 |
-
-#### TestCases（测试用例）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | Title | 用例标题 |
-| requirement | Relation | → Requirements |
-| type | Select | smoke / functional / performance / stress |
-| priority | Select | P0 / P1 / P2 |
-| status | Select | Draft / Approved / Rejected / Deprecated |
-| yaml_script | Code Block | Midscene YAML 脚本 |
-| expected_result | Rich Text | 期望结果描述 |
-| tags | Multi-select | 功能标签 |
-| created_by | Select | AI / Human |
-| reviewed_by | Select | AI-Critic / Human |
-
-#### TestResults（测试结果）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | Title | 自动生成（用例名 + 时间戳） |
-| test_case | Relation | → TestCases |
-| status | Select | Passed / Failed / Skipped / Error |
-| duration_ms | Number | 执行耗时（毫秒） |
-| run_at | Date | 执行时间 |
-| environment | Select | Dev / Staging / Prod |
-| report_url | URL | Midscene HTML Report 链接 |
-| screenshot_url | Files | 关键截图附件 |
-| error_message | Rich Text | 失败原因 |
-| retry_count | Number | 重试次数 |
-| metrics_json | Code | 性能/压测 JSON 数据 |
-
-### 8.2 通过率计算（Notion Formula）
-
-**Requirements.pass_rate：**
+### 8.1 目录结构
 
 ```
-// Notion Formula
-prop("test_case_count") > 0
-? format(
-    round(
-      divide(
-        length(filter(prop("test_results"), current.prop("status") == "Passed")),
-        prop("test_case_count")
-      ) * 100
-    )
-  ) + "%"
-: "未执行"
+~/.qinAegis/
+├── config.toml                    # 全局配置（AI 模型 · 沙箱端口）
+└── projects/
+    └── <project-name>/
+         ├── config.yaml           # 项目配置（URL · 技术栈）
+         ├── spec.md               # AI 探索生成的规格书
+         ├── requirements/
+         │   └── <req-id>.md       # 需求文档（Markdown）
+         ├── cases/
+         │   └── <case-id>.json    # 测试用例（JSON）
+         └── reports/
+              └── <run-id>/
+                   ├── summary.json # 本次运行汇总
+                   └── <case-id>.html # 每个用例的详细报告
 ```
 
-### 8.3 Dashboard 视图配置
+### 8.2 数据模型
 
-在 Notion 创建以下 Gallery / Table 视图：
+#### ProjectConfig (config.yaml)
 
-**需求健康度视图（Requirements Database 分组）：**
-- 按 `priority` 分组
-- 显示：名称 · 通过率 · 最近执行时间 · 用例数
-- 过滤：status = Active
+```yaml
+name: <project-name>
+url: <target-url>
+tech_stack: [react, vite]
+created_at: <timestamp>
+```
 
-**失败用例追踪视图（TestResults 筛选）：**
-- 过滤：status = Failed
-- 排序：run_at 降序
-- 显示：用例名 · 失败原因 · Report 链接 · 重试次数
+#### TestCase (cases/<id>.json)
 
-**项目趋势视图（TestResults 按日期归档）：**
-- 按 run_at 日期分组
-- 显示每日通过率趋势
+```json
+{
+  "id": "<case-id>",
+  "name": "<test-name>",
+  "requirement_id": "<req-id>",
+  "type": "smoke|full|perf|stress",
+  "priority": "P0|P1|P2",
+  "status": "Draft|Approved|Rejected",
+  "yaml_script": "...",
+  "expected_result": "...",
+  "tags": ["login"],
+  "created_by": "AI|Human",
+  "reviewed_by": "AI-Critic|Human",
+  "created_at": "<timestamp>"
+}
+```
 
-### 8.4 Notion API 写入示例
+#### TestResult (reports/<run-id>/summary.json)
+
+```json
+{
+  "run_id": "<run-id>",
+  "project": "<project-name>",
+  "type": "<type>",
+  "total": 10,
+  "passed": 9,
+  "failed": 1,
+  "duration_ms": 12345,
+  "run_at": "<timestamp>",
+  "cases": [
+    {
+      "case_id": "<id>",
+      "status": "Passed|Failed|Error",
+      "duration_ms": 1234,
+      "report_path": "<case-id>.html"
+    }
+  ]
+}
+```
+
+### 8.3 通过率计算（本地）
 
 ```rust
-// src/notion/writer.rs
-use reqwest::Client;
-use serde_json::json;
-
-pub async fn write_test_result(
-    client: &Client,
-    notion_token: &str,
-    result: &TestResult,
-) -> Result<()> {
-    let body = json!({
-        "parent": { "database_id": TEST_RESULTS_DB_ID },
-        "properties": {
-            "name": {
-                "title": [{ "text": { "content": &result.name } }]
-            },
-            "test_case": {
-                "relation": [{ "id": &result.test_case_id }]
-            },
-            "status": {
-                "select": { "name": &result.status }
-            },
-            "duration_ms": {
-                "number": result.duration_ms
-            },
-            "run_at": {
-                "date": { "start": &result.run_at.to_rfc3339() }
-            },
-            "report_url": {
-                "url": &result.report_url
-            },
-            "error_message": {
-                "rich_text": [{
-                    "text": { "content": result.error_message.as_deref().unwrap_or("") }
-                }]
-            }
-        }
-    });
-
-    client
-        .post("https://api.notion.com/v1/pages")
-        .bearer_auth(notion_token)
-        .header("Notion-Version", "2022-06-28")
-        .json(&body)
-        .send()
-        .await?;
-
-    Ok(())
-}
+// reports/<run-id>/summary.json 加载后直接计算
+let pass_rate = (passed as f64 / total as f64) * 100.0;
 ```
 
 ---
@@ -986,7 +925,7 @@ brew tap yourorg/qinAegis
 # 安装
 brew install qinAegis
 
-# 初始化（会打开浏览器授权 Notion）
+# 初始化（本地配置向导）
 qinAegis init
 
 # 添加项目
@@ -1006,6 +945,9 @@ qinAegis run stress
 
 # 查看结果
 qinAegis report
+
+# 导出报告
+qinAegis export --project My App --format html
 ```
 
 ---
@@ -1019,10 +961,11 @@ qinAegis report
 | **页面操作方式** | 手写 CDP 指令（Page.navigate 等） | aiAct() 自然语言 → 框架自动生成 CDP | -90% |
 | **大模型** | MiniMax abab6.5（纯文本 ❌） | MiniMax-VL / Qwen3-VL / UI-TARS（视觉 ✅） | 配置修改 |
 | **测试用例格式** | JSON + cdp_hints 数组 | YAML 自然语言（Midscene 标准格式） | 简化 |
-| **测试报告** | 自研截图上传系统 | Midscene HTML Report → Notion 附件 | -80% |
+| **测试报告** | 自研截图上传系统 | Midscene HTML Report → 本地文件 | -80% |
 | **性能测试** | Lighthouse（保留） | Lighthouse CI（保留 ✅） | 不变 |
 | **压力测试** | k6（保留） | k6（保留 ✅） | 不变 |
-| **TUI + Notion** | Rust ratatui（自研） | Rust ratatui（自研，保留 ✅） | 不变 |
+| **数据存储** | Notion（云端 ❌） | 本地文件系统（本地 ✅） | 替换 |
+| **TUI + 本地存储** | Rust ratatui（自研） | Rust ratatui（自研，保留 ✅） | 不变 |
 | **Homebrew 分发** | GitHub Actions 打包（保留） | GitHub Actions 打包（保留 ✅） | 不变 |
 
 **整体工作量节省约 40%，稳定性和可维护性大幅提升。**
@@ -1035,9 +978,9 @@ qinAegis report
 
 - [ ] Rust 项目初始化（cargo workspace）
 - [ ] ratatui 基础 TUI 框架搭建（导航 · 布局 · 输入）
-- [ ] OAuth2 Notion 登录流程（本地 HTTP server + 浏览器唤起）
-- [ ] Notion API 封装（创建 Database · 写入 Page）
-- [ ] Notion workspace 初始化（四个 Database 自动创建）
+- [ ] 本地配置文件初始化（config.toml 读写）
+- [ ] 本地存储抽象（Storage trait + LocalStorageInstance）
+- [ ] qinAegis init 向导（AI 模型配置）
 
 ### Week 3–4：沙箱 + Midscene 集成
 
@@ -1050,26 +993,26 @@ qinAegis report
 ### Week 5–6：AI 探索 + 用例生成
 
 - [ ] 项目探索流水线（爬路由 · 截图 · 结构理解）
-- [ ] 规格书写入 Notion Projects Database
+- [ ] 规格书写入本地 spec.md
 - [ ] 测试用例生成（LLM Prompt 工程 · YAML 输出）
-- [ ] 测试用例写入 Notion TestCases Database
+- [ ] 测试用例写入本地 cases/
 - [ ] AI Critic 自动审核逻辑
 
 ### Week 7–8：核心测试执行
 
-- [ ] YAML 用例从 Notion 拉取 + 解析
+- [ ] YAML 用例从本地加载 + 解析
 - [ ] Midscene YAML 执行引擎封装
 - [ ] 冒烟测试流程端到端打通
 - [ ] 功能测试流程端到端打通
-- [ ] Midscene HTML Report 解析 + 上传 Notion
+- [ ] Midscene HTML Report 写入本地 reports/
 
 ### Week 9–10：性能 + 压测
 
 - [ ] Lighthouse CI 容器内集成
-- [ ] 性能测试结果解析 + 写入 Notion
+- [ ] 性能测试结果解析 + 写入本地 reports/
 - [ ] k6 压测脚本 AI 生成
 - [ ] k6 容器内执行 + 结果解析
-- [ ] 压测结果写入 Notion
+- [ ] 压测结果写入本地 reports/
 
 ### Week 11–12：打磨 + 分发
 
@@ -1099,50 +1042,48 @@ qinAegis/
 │   │   │   │   ├── project_list.rs
 │   │   │   │   └── config_form.rs
 │   │   │   ├── commands/        # 命令处理
-│   │   │   │   ├── init.rs      # OAuth2 登录
+│   │   │   │   ├── init.rs      # 本地配置初始化
 │   │   │   │   ├── explore.rs   # 项目探索
 │   │   │   │   ├── generate.rs  # 用例生成
-│   │   │   │   └── run.rs       # 测试执行
+│   │   │   │   ├── run.rs       # 测试执行
+│   │   │   │   ├── project.rs   # 项目管理 (add/list/remove)
+│   │   │   │   └── export.rs    # 报告导出
 │   │   │   └── config.rs        # 配置读写
 │   │   └── Cargo.toml
 │   │
-│   ├── sandbox/                  # 沙箱管理
+│   ├── core/                     # 业务逻辑
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── steel.rs         # steel-browser API 封装
-│   │   │   ├── docker.rs        # Docker 生命周期
-│   │   │   └── health.rs        # 健康检查
+│   │   │   ├── explorer.rs      # 项目探索
+│   │   │   ├── generator.rs     # 用例生成（LLM API）
+│   │   │   ├── critic.rs        # AI Critic 审核
+│   │   │   ├── executor.rs      # 测试执行
+│   │   │   ├── reporter.rs      # 报告解析
+│   │   │   ├── llm.rs           # LLM 客户端（MiniMax VL 等）
+│   │   │   ├── storage/         # 本地存储抽象
+│   │   │   │   ├── trait_def.rs # Storage trait
+│   │   │   │   └── local.rs     # 本地文件系统实现
+│   │   │   ├── prompts/         # Prompt 模板（i18n）
+│   │   │   │   └── i18n.rs
+│   │   │   ├── sandbox/         # 沙箱适配器
+│   │   │   │   └── adapter.rs   # SandboxAdapter trait
+│   │   │   ├── automation/      # 浏览器自动化
+│   │   │   │   ├── trait_def.rs # BrowserAutomation trait
+│   │   │   │   └── midscene.rs  # Midscene 实现
+│   │   │   └── config/          # 配置管理
+│   │   │       └── app.rs       # AppConfig
 │   │   └── Cargo.toml
 │   │
-│   ├── notion/                   # Notion API 封装
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── auth.rs          # OAuth2 流程
-│   │   │   ├── database.rs      # Database CRUD
-│   │   │   ├── writer.rs        # 结果写入
-│   │   │   └── models.rs        # 数据结构
-│   │   └── Cargo.toml
-│   │
-│   └── core/                     # 业务逻辑
+│   └── sandbox/                  # Node.js 沙箱执行层
+│       ├── package.json
+│       ├── tsconfig.json
 │       ├── src/
-│       │   ├── lib.rs
-│       │   ├── explorer.rs      # 项目探索（调 Node.js 子进程）
-│       │   ├── generator.rs     # 用例生成（LLM API）
-│       │   ├── executor.rs      # 测试执行（调 Node.js 子进程）
-│       │   ├── reporter.rs      # 报告解析 + 上传
-│       │   └── llm.rs           # LLM 客户端（MiniMax VL 等）
-│       └── Cargo.toml
-│
-├── sandbox/                      # Node.js 沙箱执行层
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── src/
-│   │   ├── explorer.ts          # Midscene 项目探索
-│   │   ├── executor.ts          # Midscene YAML 执行
-│   │   ├── lighthouse.ts        # Lighthouse 性能测试
-│   │   └── k6-generator.ts      # k6 脚本 AI 生成
-│   └── scripts/
-│       └── k6-template.js       # k6 脚本模板
+│       │   ├── explorer.ts      # Midscene 项目探索
+│       │   ├── executor.ts      # Midscene YAML 执行
+│       │   ├── lighthouse.ts    # Lighthouse 性能测试
+│       │   └── k6-generator.ts  # k6 脚本 AI 生成
+│       └── scripts/
+│           └── k6-template.js   # k6 脚本模板
 │
 ├── docker/
 │   ├── docker-compose.sandbox.yml
@@ -1175,19 +1116,15 @@ cd sandbox && pnpm install && cd ..
 # 4. 启动 steel-browser 沙箱
 docker compose -f docker/docker-compose.sandbox.yml up -d
 
-# 5. 配置环境变量（开发用）
-cp .env.example .env
-# 编辑 .env，填入 MINIMAX_VL_API_KEY 等
-
-# 6. 运行开发版 TUI
+# 5. 运行开发版 TUI（首次会引导配置）
 cargo run -p cli
 
-# 7. 运行测试
+# 6. 运行测试
 cargo test
 cd sandbox && pnpm test
 ```
 
 ---
 
-*文档版本：v0.2（基于开源项目调研修正）*  
+*文档版本：v0.3（移除 Notion，替换为本地文件系统存储）*
 *最后更新：2026-04*
