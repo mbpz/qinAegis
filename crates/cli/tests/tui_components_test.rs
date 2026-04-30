@@ -1,7 +1,6 @@
 //! Components unit tests
 
 use ratatui::layout::Rect;
-use ratatui::prelude::Rect as PreludeRect;
 use qinAegis_lib::tui::components::three_panel;
 
 fn make_rect(x: u16, y: u16, w: u16, h: u16) -> Rect {
@@ -29,10 +28,13 @@ fn test_three_panel_small_height() {
     let area = make_rect(0, 0, 80, 5);
     let [top, middle, bottom] = three_panel(area);
 
-    // Each panel gets at least 1 row
-    assert!(top.height >= 1);
-    assert!(middle.height >= 1);
-    assert!(bottom.height >= 1);
+    // height=5 with Constraint::Length(3), Constraint::Min(0), Constraint::Length(3)
+    // Layout processes Length constraints first (each wants 3)
+    // Since top+bottom = 6 > 5, they shrink proportionally: top=2, bottom=3
+    // Min(0) gets nothing = 0
+    assert_eq!(top.height, 2);
+    assert_eq!(middle.height, 0);
+    assert_eq!(bottom.height, 3);
 }
 
 #[test]
