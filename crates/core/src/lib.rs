@@ -8,6 +8,7 @@ pub mod reporter;
 pub mod performance;
 pub mod stress;
 pub mod storage;
+pub mod automation;
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
@@ -17,3 +18,9 @@ pub use executor::{TestExecutor, TestCaseRef, TestResult};
 pub use reporter::Reporter;
 pub use performance::{LighthouseMetrics, LighthouseResult, PerformanceComparison};
 pub use stress::{LocustStats, LocustResult, StressTestConfig};
+// Automation — new BrowserAutomation trait and implementations
+pub use automation::{
+    AutomationError, AutomationCommand, AutomationResponse, BrowserAutomation,
+    ExploreResult, PageInfo, FormInfo,
+    MidsceneAutomation, BfsExplorer,
+};

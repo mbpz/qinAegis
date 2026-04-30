@@ -43,7 +43,7 @@ impl TestExecutor {
             case_id: case.id.clone(),
         };
 
-        let mut process = self.process.lock().await;
+        let process = self.process.lock().await;
         let resp = process.call(req).await?;
 
         if resp.ok {
@@ -76,7 +76,7 @@ impl TestExecutor {
                     case_id: case.id.clone(),
                 };
                 let resp = {
-                    let mut p = proc.lock().await;
+                    let p = proc.lock().await;
                     p.call(req).await
                 };
                 match resp {
@@ -116,7 +116,7 @@ impl TestExecutor {
     }
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {
-        let mut process = self.process.lock().await;
+        let process = self.process.lock().await;
         process.call(JsonRpcRequest::Shutdown).await?;
         Ok(())
     }

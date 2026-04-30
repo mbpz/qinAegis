@@ -1,59 +1,37 @@
-use crate::protocol::{JsonRpcRequest, MidsceneProcess, LlmConfig, SandboxConfig};
-use serde::Deserialize;
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct PageInfo {
-    pub url: String,
-    pub title: String,
-    pub primary_nav: Vec<String>,
-    pub main_features: Vec<String>,
-    pub auth_required: bool,
-    pub tech_stack: Vec<String>,
-    pub forms: Vec<FormInfo>,
-    pub links: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct FormInfo {
-    pub action: String,
-    pub method: String,
-    pub fields: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ExploreResult {
-    pub pages: Vec<PageInfo>,
-    pub markdown: String,
-}
+use crate::automation::{AutomationError, BfsExplorer, BrowserAutomation, ExploreResult, MidsceneAutomation};
+use crate::protocol::{LlmConfig, SandboxConfig};
 
 pub struct Explorer {
-    process: MidsceneProcess,
+    automation: MidsceneAutomation,
+    bfs: BfsExplorer,
 }
 
 impl Explorer {
     pub async fn new(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
-        let process = MidsceneProcess::spawn(llm_config, sandbox_config).await?;
-        Ok(Self { process })
+        let automation: Result<MidsceneAutomation, AutomationError> =
+            MidsceneAutomation::new(llm_config, sandbox_config).await;
+        let automation = automation?;
+        let bfs = BfsExplorer::new(Box::new(automation.clone()));
+        Ok(Self { automation, bfs })
     }
 
     pub async fn explore(&mut self, seed_url: &str, max_depth: u32) -> anyhow::Result<ExploreResult> {
-        let req = JsonRpcRequest::Explore {
-            url: seed_url.to_string(),
-            depth: max_depth,
-        };
-
-        let resp = self.process.call(req).await?;
-
-        if resp.ok {
-            let result: ExploreResult = serde_json::from_value(resp.data.unwrap_or_default())?;
-            Ok(result)
-        } else {
-            anyhow::bail!("explore failed: {}", resp.error.unwrap_or_default())
-        }
+        self.bfs
+            .explore(&[seed_url.to_string()], max_depth)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))
     }
 
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
-        self.process.call(JsonRpcRequest::Shutdown).await?;
-        Ok(())
+        self.automation.shutdown().await.map_err(|e| anyhow::anyhow!("{}", e))
+    }
+}
+
+impl Clone for Explorer {
+    fn clone(&self) -> Self {
+        Self {
+            automation: self.automation.clone(),
+            bfs: BfsExplorer::new(Box::new(self.automation.clone())),
+        }
     }
 }

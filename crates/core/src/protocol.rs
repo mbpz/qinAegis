@@ -3,7 +3,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method", content = "args")]
@@ -64,7 +64,17 @@ pub struct MidsceneProcess {
     #[allow(dead_code)]
     child: Arc<Child>,
     request_tx: mpsc::Sender<JsonRpcRequest>,
-    response_rx: mpsc::Receiver<JsonRpcResponse>,
+    response_rx: Arc<Mutex<mpsc::Receiver<JsonRpcResponse>>>,
+}
+
+impl Clone for MidsceneProcess {
+    fn clone(&self) -> Self {
+        Self {
+            child: self.child.clone(),
+            request_tx: self.request_tx.clone(),
+            response_rx: self.response_rx.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -159,15 +169,13 @@ impl MidsceneProcess {
         Ok(Self {
             child: Arc::new(child),
             request_tx,
-            response_rx,
+            response_rx: Arc::new(Mutex::new(response_rx)),
         })
     }
 
-    pub async fn call(&mut self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+    pub async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
         self.request_tx.send(req).await?;
-        self.response_rx
-            .recv()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("process died"))
+        let resp = self.response_rx.lock().await.recv().await;
+        resp.ok_or_else(|| anyhow::anyhow!("process died"))
     }
 }
