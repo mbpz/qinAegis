@@ -10,6 +10,7 @@ use ratatui::{
     Terminal,
 };
 
+use crate::config::Config;
 use crate::tui::dashboard;
 use crate::tui::project_list;
 use crate::tui::config_form;
@@ -34,10 +35,13 @@ pub struct App {
     pub selected_project: Option<usize>,
     pub message: Option<String>,
     pub is_loading: bool,
+    // Config state for ConfigForm
+    pub config: Option<Config>,
     // Input state for ExploreView
     pub explore_url: String,
     pub explore_depth: u32,
     pub explore_input_mode: bool,
+    pub explore_depth_input: bool,
 }
 
 impl App {
@@ -48,9 +52,11 @@ impl App {
             selected_project: None,
             message: None,
             is_loading: false,
+            config: Config::load().ok().flatten(),
             explore_url: String::new(),
             explore_depth: 3,
             explore_input_mode: false,
+            explore_depth_input: false,
         }
     }
 }
@@ -95,6 +101,20 @@ fn run_app<B: ratatui::backend::Backend>(
         // Call on_enter when transitioning to ProjectList
         if let AppState::ProjectList = &app.current_state {
             project_list::on_enter(app);
+        }
+
+        // Load config when entering ConfigForm
+        if matches!(&app.current_state, AppState::ConfigForm) {
+            app.config = Config::load().ok().flatten();
+        }
+
+        // Pre-fill explore URL from project config when entering ExploreView
+        if let AppState::ExploreView { project_name } = &app.current_state.clone() {
+            if app.explore_url.is_empty() && !project_name.is_empty() {
+                if let Ok(project_cfg) = qin_aegis_core::storage::LocalStorage::load_project(&project_name) {
+                    app.explore_url = project_cfg.url;
+                }
+            }
         }
 
         if !handle_events(app)? {
@@ -212,6 +232,20 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 KeyCode::Char('3') => {
                     if let AppState::Dashboard = &app.current_state {
                         app.current_state = AppState::ConfigForm;
+                    }
+                }
+                KeyCode::Char('+') | KeyCode::Char('=') => {
+                    if let AppState::ExploreView { .. } = &app.current_state {
+                        if app.explore_depth < 10 {
+                            app.explore_depth += 1;
+                        }
+                    }
+                }
+                KeyCode::Char('-') => {
+                    if let AppState::ExploreView { .. } = &app.current_state {
+                        if app.explore_depth > 1 {
+                            app.explore_depth -= 1;
+                        }
                     }
                 }
                 KeyCode::Char(c) => {
