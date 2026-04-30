@@ -102,10 +102,13 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
         if key.kind == KeyEventKind::Press {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => {
-                    if matches!(app.current_state, AppState::ConfigForm) {
-                        app.current_state = AppState::Dashboard;
-                    } else {
-                        return Ok(false);
+                    match &app.current_state {
+                        AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } => {
+                            app.current_state = AppState::Dashboard;
+                        }
+                        _ => {
+                            return Ok(false);
+                        }
                     }
                 }
                 KeyCode::Enter => {
@@ -144,6 +147,21 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 KeyCode::Char('a') => {
                     if let AppState::ProjectList = &app.current_state {
                         app.message = Some("Use CLI: qinAegis project add".to_string());
+                    }
+                }
+                KeyCode::Char('1') => {
+                    if let AppState::Dashboard = &app.current_state {
+                        app.current_state = AppState::ProjectList;
+                    }
+                }
+                KeyCode::Char('2') => {
+                    if let AppState::Dashboard = &app.current_state {
+                        app.current_state = AppState::GenerateView { project_name: String::new() };
+                    }
+                }
+                KeyCode::Char('3') => {
+                    if let AppState::Dashboard = &app.current_state {
+                        app.current_state = AppState::ConfigForm;
                     }
                 }
                 _ => {}
