@@ -1,6 +1,12 @@
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
+
+// ============================================================================
+// LLM error
+// ============================================================================
 
 #[derive(Error, Debug)]
 pub enum LlmError {
@@ -12,17 +18,51 @@ pub enum LlmError {
     NoApiKey,
 }
 
-#[derive(Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<Message>,
-    max_tokens: Option<u32>,
+// ============================================================================
+// LLM client trait (for testability and abstraction)
+// ============================================================================
+
+#[async_trait]
+pub trait LlmClient: Send + Sync {
+    async fn chat(&self, messages: &[Message]) -> Result<String, LlmError>;
 }
+
+#[derive(Clone)]
+pub struct ArcLlmClient(pub Arc<dyn LlmClient>);
+
+impl ArcLlmClient {
+    pub fn new(client: impl LlmClient + 'static) -> Self {
+        Self(Arc::new(client))
+    }
+}
+
+#[async_trait]
+impl LlmClient for ArcLlmClient {
+    async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+        self.0.chat(messages).await
+    }
+}
+
+// ============================================================================
+// Message types
+// ============================================================================
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Message {
     pub role: String,
     pub content: String,
+}
+
+// ============================================================================
+// MiniMax client
+// ============================================================================
+
+#[derive(Clone)]
+pub struct MiniMaxClient {
+    base_url: String,
+    api_key: String,
+    model: String,
+    client: Client,
 }
 
 #[derive(Deserialize)]
@@ -35,14 +75,6 @@ struct Choice {
     message: Message,
 }
 
-#[derive(Clone)]
-pub struct MiniMaxClient {
-    base_url: String,
-    api_key: String,
-    model: String,
-    client: Client,
-}
-
 impl MiniMaxClient {
     pub fn new(base_url: String, api_key: String, model: String) -> Self {
         Self {
@@ -52,8 +84,11 @@ impl MiniMaxClient {
             client: Client::new(),
         }
     }
+}
 
-    pub async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+#[async_trait]
+impl LlmClient for MiniMaxClient {
+    async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
         let body = ChatRequest {
             model: self.model.clone(),
             messages: messages.to_vec(),
@@ -84,7 +119,15 @@ impl MiniMaxClient {
     }
 }
 
-// Add to Message struct:
+// Internal request type
+#[derive(Serialize)]
+struct ChatRequest {
+    model: String,
+    messages: Vec<Message>,
+    max_tokens: Option<u32>,
+}
+
+// Additional message content types
 #[derive(Serialize, Clone)]
 #[serde(untagged)]
 pub enum Content {

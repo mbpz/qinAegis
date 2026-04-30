@@ -1,4 +1,4 @@
-use crate::llm::{MiniMaxClient, Message};
+use crate::llm::{ArcLlmClient, LlmClient, Message};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TestCase {
@@ -14,11 +14,11 @@ pub struct TestCase {
 }
 
 pub struct TestCaseGenerator {
-    llm: MiniMaxClient,
+    llm: ArcLlmClient,
 }
 
 impl TestCaseGenerator {
-    pub fn new(llm: MiniMaxClient) -> Self {
+    pub fn new(llm: ArcLlmClient) -> Self {
         Self { llm }
     }
 

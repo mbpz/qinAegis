@@ -1,4 +1,4 @@
-use qin_aegis_core::{TestCaseGenerator, Critic, MiniMaxClient};
+use qin_aegis_core::{ArcLlmClient, MiniMaxClient, TestCaseService};
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
 use std::path::Path;
@@ -15,49 +15,23 @@ pub async fn run_generate(project_name: &str, requirement_text: &str, spec_path:
 
     println!("Generating test cases for requirement: {}", requirement_text);
 
-    let llm = MiniMaxClient::new(
+    let llm = ArcLlmClient::new(MiniMaxClient::new(
         config.llm.base_url,
         config.llm.api_key,
         config.llm.model,
-    );
+    ));
 
-    let generator = TestCaseGenerator::new(llm.clone());
-    let cases = generator.generate(&spec_markdown, requirement_text).await?;
+    let service = TestCaseService::new(llm, qin_aegis_core::storage::LocalStorageInstance::new());
+    let results = service.generate_and_save(project_name, &spec_markdown, requirement_text).await?;
 
-    println!("\n✓ Generated {} test cases", cases.len());
-
-    let critic = Critic::new(llm);
-
-    // Save cases to local storage
-    for tc in &cases {
-        let review = critic.review(&tc.yaml_script, &spec_markdown, requirement_text).await;
-
-        let (score, issues) = match review {
-            Ok(r) => (r.score, r.issues),
-            Err(e) => {
-                println!("  {} - critic failed: {}", tc.name, e);
-                (0, vec![])
-            }
-        };
-
-        println!("  {} - score: {}/10", tc.name, score);
-        if !issues.is_empty() {
-            for issue in &issues {
+    println!("\n✓ Generated and saved {} test cases", results.len());
+    for r in &results {
+        println!("  {} - score: {}/10", r.case_name, r.score);
+        if !r.issues.is_empty() {
+            for issue in &r.issues {
                 println!("    ⚠ {}", issue);
             }
         }
-
-        let test_case = qin_aegis_core::storage::TestCase {
-            id: tc.id.clone(),
-            name: tc.name.clone(),
-            requirement_id: tc.requirement_id.clone(),
-            test_type: tc.case_type.clone(),
-            yaml_script: tc.yaml_script.clone(),
-            priority: tc.priority.clone(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
-
-        LocalStorage::save_case(project_name, &test_case)?;
     }
 
     println!("\n✓ Test cases saved to ~/.qinAegis/projects/{}/cases/", project_name);

@@ -1,4 +1,4 @@
-use crate::llm::{MiniMaxClient, Message};
+use crate::llm::{ArcLlmClient, LlmClient, Message};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CriticReview {
@@ -9,11 +9,11 @@ pub struct CriticReview {
 }
 
 pub struct Critic {
-    llm: MiniMaxClient,
+    llm: ArcLlmClient,
 }
 
 impl Critic {
-    pub fn new(llm: MiniMaxClient) -> Self {
+    pub fn new(llm: ArcLlmClient) -> Self {
         Self { llm }
     }
 
