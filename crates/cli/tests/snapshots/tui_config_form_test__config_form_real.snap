@@ -1,0 +1,27 @@
+---
+source: crates/cli/tests/tui_config_form_test.rs
+expression: output
+---
+Settings                                                                        
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+┌Settings──────────────────────────────────────────────────────────────────────┐
+│LLM Configuration                                                             │
+│                                                                              │
+│Provider:  minimax                                                            │
+│Base URL:  https://api.minimax.chat/v1                                        │
+│API Key:   sk-a****                                                           │
+│Model:     MiniMax-VL-01                                                      │
+│                                                                              │
+│Sandbox Configuration                                                         │
+│                                                                              │
+│Steel Port:  3333                                                             │
+│CDP Port:    9222                                                             │
+│                                                                              │
+│Exploration                                                                   │
+│                                                                              │
+│Max Depth:        5                                                           │
+│Max Pages/Seed:   30                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────
+[Esc] Back
