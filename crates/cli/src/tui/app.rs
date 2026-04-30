@@ -85,6 +85,11 @@ fn run_app<B: ratatui::backend::Backend>(
             }
         })?;
 
+        // Call on_enter when transitioning to ProjectList
+        if let AppState::ProjectList = &app.current_state {
+            project_list::on_enter(app);
+        }
+
         if !handle_events(app)? {
             break;
         }
@@ -102,6 +107,36 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 KeyCode::Enter => {
                     if let AppState::Dashboard = &app.current_state {
                         app.current_state = AppState::ProjectList;
+                    } else if let AppState::ProjectList = &app.current_state {
+                        if let Some(idx) = app.selected_project.clone() {
+                            let name = app.projects[idx].clone();
+                            app.current_state = AppState::ExploreView { project_name: name };
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    if let AppState::ProjectList = &app.current_state {
+                        if let Some(idx) = app.selected_project {
+                            if idx + 1 < app.projects.len() {
+                                app.selected_project = Some(idx + 1);
+                            }
+                        } else if !app.projects.is_empty() {
+                            app.selected_project = Some(0);
+                        }
+                    }
+                }
+                KeyCode::Up => {
+                    if let AppState::ProjectList = &app.current_state {
+                        if let Some(idx) = app.selected_project {
+                            if idx > 0 {
+                                app.selected_project = Some(idx - 1);
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('a') => {
+                    if let AppState::ProjectList = &app.current_state {
+                        app.message = Some("Use CLI: qinAegis project add".to_string());
                     }
                 }
                 _ => {}
