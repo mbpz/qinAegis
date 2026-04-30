@@ -18,6 +18,8 @@ thiserror.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap = { version = "4", features = ["derive"] }
+ratatui = "0.27"
+crossterm = "0.27"
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
