@@ -1,6 +1,7 @@
 use ratatui::{Frame, prelude::Rect, widgets::{Block, Borders, List, ListItem}};
 use qin_aegis_core::storage::LocalStorage;
 use crate::tui::app::App;
+use crate::tui::components;
 
 pub fn on_enter(app: &mut App) {
     app.is_loading = true;
@@ -12,6 +13,9 @@ pub fn on_enter(app: &mut App) {
 }
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+    let [top, middle, bottom] = components::three_panel(area);
+    components::title_bar(frame, top, "Select Project");
+
     let items: Vec<ListItem> = app.projects.iter()
         .enumerate()
         .map(|(i, name)| {
@@ -21,7 +25,14 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let list = List::new(items)
-        .block(Block::new().title("Select Project").borders(Borders::ALL));
+        .block(Block::new().borders(Borders::ALL));
 
-    frame.render_widget(list, area);
+    frame.render_widget(list, middle);
+
+    let hint = if app.projects.is_empty() {
+        "q: quit | a: add project"
+    } else {
+        "q: quit | ↑↓: select | Enter: confirm | a: add"
+    };
+    components::status_bar(frame, bottom, hint);
 }

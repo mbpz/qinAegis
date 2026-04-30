@@ -1,23 +1,13 @@
 use ratatui::{
-    layout::{Constraint, Layout},
     widgets::{Block, Borders, Paragraph, Wrap},
-    style::Stylize,
     Frame, prelude::Rect,
 };
 use crate::tui::app::App;
+use crate::tui::components;
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(0),
-        Constraint::Length(3),
-    ]).split(area);
-
-    // Title bar
-    let title = Paragraph::new("qinAegis — AI Testing TUI")
-        .block(Block::default().borders(Borders::BOTTOM))
-        .bold();
-    frame.render_widget(title, chunks[0]);
+    let [top, middle, bottom] = components::three_panel(area);
+    components::title_bar(frame, top, "qinAegis — AI Testing TUI");
 
     // Main content
     let status = if app.is_loading {
@@ -34,11 +24,9 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     .block(Block::default().borders(Borders::ALL))
     .wrap(Wrap { trim: true });
 
-    frame.render_widget(main_text, chunks[1]);
+    frame.render_widget(main_text, middle);
 
-    // Footer
-    let footer = Paragraph::new("q: quit | ↑↓: select | Enter: confirm");
-    frame.render_widget(footer, chunks[2]);
+    components::status_bar(frame, bottom, "q: quit | 1-4: select | Enter: confirm");
 }
 
 #[cfg(test)]
