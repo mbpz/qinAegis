@@ -102,10 +102,17 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
         if key.kind == KeyEventKind::Press {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => {
-                    return Ok(false);
+                    if matches!(app.current_state, AppState::ConfigForm) {
+                        app.current_state = AppState::Dashboard;
+                    } else {
+                        return Ok(false);
+                    }
                 }
                 KeyCode::Enter => {
-                    if let AppState::Dashboard = &app.current_state {
+                    if let AppState::ConfigForm = &app.current_state {
+                        app.current_state = AppState::Dashboard;
+                        app.message = Some("Settings saved".to_string());
+                    } else if let AppState::Dashboard = &app.current_state {
                         app.current_state = AppState::ProjectList;
                     } else if let AppState::ProjectList = &app.current_state {
                         if let Some(idx) = app.selected_project.clone() {
