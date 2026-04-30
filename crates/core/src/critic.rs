@@ -1,4 +1,5 @@
-use crate::llm::{ArcLlmClient, LlmClient, Message};
+use crate::llm::{ArcLlmClient, ChatOptions, LlmClient, Message};
+use crate::prompts::{CriticPrompts, Locale};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CriticReview {
@@ -10,11 +11,27 @@ pub struct CriticReview {
 
 pub struct Critic {
     llm: ArcLlmClient,
+    locale: Locale,
+    options: ChatOptions,
 }
 
 impl Critic {
     pub fn new(llm: ArcLlmClient) -> Self {
-        Self { llm }
+        Self {
+            llm,
+            locale: Locale::default(),
+            options: ChatOptions::new(),
+        }
+    }
+
+    pub fn with_locale(mut self, locale: Locale) -> Self {
+        self.locale = locale;
+        self
+    }
+
+    pub fn with_options(mut self, options: ChatOptions) -> Self {
+        self.options = options;
+        self
     }
 
     pub async fn review(
@@ -23,29 +40,21 @@ impl Critic {
         spec_markdown: &str,
         requirement_text: &str,
     ) -> anyhow::Result<CriticReview> {
-        let prompt = format!(
-            r#"审核以下测试用例，评估其完整性和可执行性：
+        let prompts = CriticPrompts::new(self.locale, spec_markdown, test_case_yaml, requirement_text);
 
-规格书上下文:
-{}
+        let messages = if let Some(system) = self.options.system_prompt.clone() {
+            vec![
+                Message::system(system),
+                Message::user(prompts.user),
+            ]
+        } else {
+            vec![
+                Message::system(prompts.system),
+                Message::user(prompts.user),
+            ]
+        };
 
-测试用例:
-{}
-
-需求:
-{}
-
-返回 JSON:
-{{"score": 1-10, "issues": ["问题描述"], "suggestions": ["改进建议"], "coverage": "P0覆盖率评估"}}"#,
-            spec_markdown, test_case_yaml, requirement_text
-        );
-
-        let response = self.llm.chat(&[
-            Message {
-                role: "user".to_string(),
-                content: prompt,
-            }
-        ]).await?;
+        let response = self.llm.chat_with_options(&messages, self.options.clone()).await?;
 
         let json_str = response
             .trim()

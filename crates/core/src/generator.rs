@@ -1,4 +1,5 @@
-use crate::llm::{ArcLlmClient, LlmClient, Message};
+use crate::llm::{ArcLlmClient, ChatOptions, LlmClient, Message};
+use crate::prompts::{GeneratorPrompts, Locale};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TestCase {
@@ -15,11 +16,27 @@ pub struct TestCase {
 
 pub struct TestCaseGenerator {
     llm: ArcLlmClient,
+    locale: Locale,
+    options: ChatOptions,
 }
 
 impl TestCaseGenerator {
     pub fn new(llm: ArcLlmClient) -> Self {
-        Self { llm }
+        Self {
+            llm,
+            locale: Locale::default(),
+            options: ChatOptions::new(),
+        }
+    }
+
+    pub fn with_locale(mut self, locale: Locale) -> Self {
+        self.locale = locale;
+        self
+    }
+
+    pub fn with_options(mut self, options: ChatOptions) -> Self {
+        self.options = options;
+        self
     }
 
     pub async fn generate(
@@ -27,33 +44,21 @@ impl TestCaseGenerator {
         spec_markdown: &str,
         requirement_text: &str,
     ) -> anyhow::Result<Vec<TestCase>> {
-        let prompt = format!(
-            r#"你是一名资深 QA 工程师，熟悉 Midscene.js 的 YAML 测试格式。
+        let prompts = GeneratorPrompts::new(self.locale, spec_markdown, requirement_text);
 
-项目规格书:
-{}
+        let messages = if let Some(system) = self.options.system_prompt.clone() {
+            vec![
+                Message::system(system),
+                Message::user(prompts.user),
+            ]
+        } else {
+            vec![
+                Message::system(prompts.system),
+                Message::user(prompts.user),
+            ]
+        };
 
-需求描述:
-{}
-
-请生成符合以下规范的测试用例列表（JSON 格式）:
-
-{{"id": "TC-001", "name": "用例标题", "requirement_id": "REQ-001", "type": "smoke|functional|performance|stress", "priority": "P0|P1|P2", "yaml_script": "完整的 Midscene YAML 脚本", "expected_result": "期望结果", "tags": ["tag1"]}}
-
-规则:
-1. P0 仅覆盖核心路径
-2. yaml_script 使用 aiAct / aiAssert / aiQuery API
-3. 不得使用 CSS selector 或 XPath
-4. 每个用例必须有明确的 aiAssert 断言"#,
-            spec_markdown, requirement_text
-        );
-
-        let response = self.llm.chat(&[
-            Message {
-                role: "user".to_string(),
-                content: prompt,
-            }
-        ]).await?;
+        let response = self.llm.chat_with_options(&messages, self.options.clone()).await?;
 
         let json_str = response
             .trim()

@@ -19,12 +19,70 @@ pub enum LlmError {
 }
 
 // ============================================================================
+// Chat options (model-specific)
+// ============================================================================
+
+#[derive(Debug, Clone, Default)]
+pub struct ChatOptions {
+    /// Override default max_tokens for this call
+    pub max_tokens: Option<u32>,
+    /// Sampling temperature
+    pub temperature: Option<f32>,
+    /// Whether to enable vision/image input support
+    pub vision: Option<bool>,
+    /// JSON schema to constrain response format (model-dependent)
+    pub json_schema: Option<String>,
+    /// Conversation history to include (e.g. for system prompt)
+    pub system_prompt: Option<String>,
+}
+
+impl ChatOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    pub fn with_temperature(mut self, temperature: f32) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn with_vision(mut self) -> Self {
+        self.vision = Some(true);
+        self
+    }
+
+    pub fn with_json_schema(mut self, schema: impl Into<String>) -> Self {
+        self.json_schema = Some(schema.into());
+        self
+    }
+
+    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.system_prompt = Some(prompt.into());
+        self
+    }
+}
+
+// ============================================================================
 // LLM client trait (for testability and abstraction)
 // ============================================================================
 
 #[async_trait]
 pub trait LlmClient: Send + Sync {
     async fn chat(&self, messages: &[Message]) -> Result<String, LlmError>;
+
+    async fn chat_with_options(
+        &self,
+        messages: &[Message],
+        options: ChatOptions,
+    ) -> Result<String, LlmError> {
+        let _ = options;
+        self.chat(messages).await
+    }
 }
 
 #[derive(Clone)]
@@ -41,6 +99,14 @@ impl LlmClient for ArcLlmClient {
     async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
         self.0.chat(messages).await
     }
+
+    async fn chat_with_options(
+        &self,
+        messages: &[Message],
+        options: ChatOptions,
+    ) -> Result<String, LlmError> {
+        self.0.chat_with_options(messages, options).await
+    }
 }
 
 // ============================================================================
@@ -53,6 +119,22 @@ pub struct Message {
     pub content: String,
 }
 
+impl Message {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+}
+
 // ============================================================================
 // MiniMax client
 // ============================================================================
@@ -63,6 +145,7 @@ pub struct MiniMaxClient {
     api_key: String,
     model: String,
     client: Client,
+    default_options: ChatOptions,
 }
 
 #[derive(Deserialize)]
@@ -82,17 +165,33 @@ impl MiniMaxClient {
             api_key,
             model,
             client: Client::new(),
+            default_options: ChatOptions::new(),
         }
+    }
+
+    pub fn with_options(mut self, options: ChatOptions) -> Self {
+        self.default_options = options;
+        self
     }
 }
 
 #[async_trait]
 impl LlmClient for MiniMaxClient {
     async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+        self.chat_with_options(messages, self.default_options.clone()).await
+    }
+
+    async fn chat_with_options(
+        &self,
+        messages: &[Message],
+        options: ChatOptions,
+    ) -> Result<String, LlmError> {
+        let max_tokens = options.max_tokens.or(self.default_options.max_tokens).unwrap_or(1024);
+
         let body = ChatRequest {
             model: self.model.clone(),
             messages: messages.to_vec(),
-            max_tokens: Some(1024),
+            max_tokens: Some(max_tokens),
         };
 
         let resp = self

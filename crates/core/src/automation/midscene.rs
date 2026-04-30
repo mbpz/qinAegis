@@ -3,6 +3,7 @@ use crate::automation::{
     ExploreResult, PageInfo, TestResult,
 };
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
+use crate::prompts::ExplorerPrompt;
 use async_trait::async_trait;
 
 /// BrowserAutomation implementation backed by MidsceneProcess (TS executor).
@@ -176,11 +177,7 @@ impl BfsExplorer {
             visited.insert(url.clone());
 
             // Use ai_query to extract page info + links
-            let prompt = format!(
-                r#"分析当前页面，提取：标题、顶部导航、主要功能、是否需要登录、检测到的技术栈、表单信息、关键元素、所有内部链接。
-返回JSON格式：
-{{"title":"","primaryNav":[],"mainFeatures":[],"authRequired":false,"techStack":[],"forms":[],"keyElements":[],"links":[]}}"#,
-            );
+            let prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
 
             match self.automation.ai_query(&prompt).await {
                 Ok(json_str) => {
