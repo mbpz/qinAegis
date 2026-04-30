@@ -21,7 +21,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let help_text = if app.explore_input_mode {
         "[Type URL] [Enter] Confirm  [Esc] Cancel"
     } else {
-        "[i] Enter URL  [Enter] Start  [Esc] Back"
+        "[+/-] Depth  [i] Edit URL  [Enter] Start  [Esc] Back"
     };
 
     let content = Paragraph::new(format!(
