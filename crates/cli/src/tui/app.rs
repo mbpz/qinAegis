@@ -48,17 +48,24 @@ impl App {
     }
 }
 
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = stdout().execute(LeaveAlternateScreen);
+    }
+}
+
 pub fn run() -> anyhow::Result<()> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
+    let _guard = TerminalGuard;
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let mut app = App::new();
 
-    let res = run_app(&mut terminal, &mut app);
-
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    res
+    run_app(&mut terminal, &mut app)
 }
 
 fn run_app<B: ratatui::backend::Backend>(
