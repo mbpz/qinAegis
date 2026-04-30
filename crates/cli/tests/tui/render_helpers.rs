@@ -1,9 +1,10 @@
 use ratatui::{backend::TestBackend, buffer::Buffer, prelude::Rect, Frame, Terminal};
+use qinAegis_lib::tui::app::App;
 
 /// Renders a view function to a String by capturing the TestBackend buffer.
-pub fn render_to_string<F>(app: &crate::tui::app::App, view: F) -> String
+pub fn render_to_string<F>(app: &App, view: F) -> String
 where
-    F: Fn(&mut Frame, &crate::tui::app::App, Rect),
+    F: Fn(&mut Frame, &App, Rect),
 {
     let backend = TestBackend::new(80, 24);
     let mut terminal = Terminal::new(backend);

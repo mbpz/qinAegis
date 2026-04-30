@@ -7,6 +7,10 @@ edition.workspace = true
 name = "qinAegis"
 path = "src/main.rs"
 
+[lib]
+name = "qinAegis_lib"
+path = "src/lib.rs"
+
 [dependencies]
 tokio.workspace = true
 reqwest.workspace = true
