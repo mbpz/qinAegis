@@ -12,6 +12,7 @@ pub mod automation;
 pub mod service;
 pub mod prompts;
 pub mod sandbox;
+pub mod config;
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
