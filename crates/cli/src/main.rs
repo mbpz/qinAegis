@@ -3,11 +3,14 @@ use clap::Parser;
 mod commands;
 mod oauth_server;
 mod config;
+mod tui;
 
 #[derive(Parser, Debug)]
 #[command(name = "qinAegis")]
 #[command(version = "0.1.0")]
 enum Cmd {
+    /// Start interactive TUI
+    Tui,
     /// Setup or reconfigure QinAegis (interactive)
     Setup,
     /// Initialize QinAegis configuration
@@ -84,6 +87,9 @@ enum ProjectAction {
 async fn main() -> anyhow::Result<()> {
     let cmd = Cmd::parse();
     match cmd {
+        Cmd::Tui => {
+            crate::tui::run_tui()?
+        }
         Cmd::Setup => {
             let config = config::prompt_for_config()?;
             config.save()?;
