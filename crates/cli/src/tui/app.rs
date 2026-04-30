@@ -34,6 +34,10 @@ pub struct App {
     pub selected_project: Option<usize>,
     pub message: Option<String>,
     pub is_loading: bool,
+    // Input state for ExploreView
+    pub explore_url: String,
+    pub explore_depth: u32,
+    pub explore_input_mode: bool,
 }
 
 impl App {
@@ -44,6 +48,9 @@ impl App {
             selected_project: None,
             message: None,
             is_loading: false,
+            explore_url: String::new(),
+            explore_depth: 3,
+            explore_input_mode: false,
         }
     }
 }
@@ -101,14 +108,29 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
     if let Event::Key(key) = event::read()? {
         if key.kind == KeyEventKind::Press {
             match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => {
+                KeyCode::Char('q') => {
                     match &app.current_state {
+                        AppState::Dashboard | AppState::ProjectList => {
+                            return Ok(false);
+                        }
                         AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } => {
                             app.current_state = AppState::Dashboard;
                         }
-                        _ => {
-                            return Ok(false);
+                    }
+                }
+                KeyCode::Esc => {
+                    match &app.current_state {
+                        AppState::ExploreView { .. } => {
+                            if app.explore_input_mode {
+                                app.explore_input_mode = false;
+                            } else {
+                                app.current_state = AppState::Dashboard;
+                            }
                         }
+                        AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } => {
+                            app.current_state = AppState::Dashboard;
+                        }
+                        _ => {}
                     }
                 }
                 KeyCode::Enter => {
@@ -120,7 +142,35 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                     } else if let AppState::ProjectList = &app.current_state {
                         if let Some(idx) = app.selected_project.clone() {
                             let name = app.projects[idx].clone();
+                            app.explore_input_mode = false;
+                            app.explore_url.clear();
                             app.current_state = AppState::ExploreView { project_name: name };
+                        }
+                    } else if let AppState::ExploreView { .. } = &app.current_state {
+                        if app.explore_input_mode {
+                            app.explore_input_mode = false;
+                            // Start explore
+                            let url = app.explore_url.clone();
+                            let depth = app.explore_depth;
+                            let project_name = match &app.current_state {
+                                AppState::ExploreView { project_name } => project_name.clone(),
+                                _ => String::new(),
+                            };
+                            app.is_loading = true;
+                            app.message = Some("Exploring...".to_string());
+                            // Run async command in background
+                            let handle = tokio::runtime::Handle::current();
+                            std::thread::spawn(move || {
+                                let result = handle.block_on(
+                                    crate::commands::explore::run_explore(&project_name, Some(url), depth)
+                                );
+                                if let Err(e) = result {
+                                    eprintln!("Explore error: {}", e);
+                                }
+                            });
+                            app.current_state = AppState::Dashboard;
+                        } else {
+                            app.explore_input_mode = true;
                         }
                     }
                 }
@@ -162,6 +212,22 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 KeyCode::Char('3') => {
                     if let AppState::Dashboard = &app.current_state {
                         app.current_state = AppState::ConfigForm;
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let AppState::ExploreView { .. } = &app.current_state {
+                        if app.explore_input_mode {
+                            app.explore_url.push(c);
+                        } else if c == 'i' {
+                            app.explore_input_mode = true;
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let AppState::ExploreView { .. } = &app.current_state {
+                        if app.explore_input_mode {
+                            app.explore_url.pop();
+                        }
                     }
                 }
                 _ => {}

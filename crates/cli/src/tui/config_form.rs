@@ -1,12 +1,10 @@
-use ratatui::{Frame, prelude::Rect, layout::Layout, layout::Constraint, widgets::{Block, Borders, Paragraph}};
+use ratatui::{Frame, prelude::Rect, widgets::{Block, Borders, Paragraph}};
 use crate::tui::app::App;
+use crate::tui::components;
 
 pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
-    let chunks = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(0),
-        Constraint::Length(3),
-    ]).split(area);
+    let [top, middle, bottom] = components::three_panel(area);
+    components::title_bar(frame, top, "Settings");
 
     let content = Paragraph::new(
         "LLM Configuration\n\n\
@@ -15,9 +13,9 @@ pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
          Model:     MiniMax-VL-01\n\n\
          Sandbox Configuration\n\n\
          Steel Port:  3333\n\
-         CDP Port:    9222\n\n\
-         [Enter] Save  [Esc] Cancel"
-    ).block(Block::default().title("Settings").borders(Borders::ALL));
+         CDP Port:    9222"
+    ).block(Block::default().borders(Borders::ALL));
 
-    frame.render_widget(content, chunks[1]);
+    frame.render_widget(content, middle);
+    components::status_bar(frame, bottom, "[Enter] Save  [Esc] Cancel");
 }
