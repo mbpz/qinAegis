@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Layout, Direction, Alignment},
+    layout::{Constraint, Layout},
     widgets::{Block, Borders, Paragraph, Wrap},
     style::Stylize,
     Frame, prelude::Rect,
@@ -7,13 +7,15 @@ use ratatui::{
 use crate::tui::app::App;
 
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::vertical()
-        .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(3)].as_ref())
-        .split(area);
+    let chunks = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(3),
+    ]).split(area);
 
     // Title bar
-    let title = Paragraph("qinAegis — AI Testing TUI")
-        .block(Block::new().borders(Borders::BOTTOM))
+    let title = Paragraph::new("qinAegis — AI Testing TUI")
+        .block(Block::default().borders(Borders::BOTTOM))
         .bold();
     frame.render_widget(title, chunks[0]);
 
@@ -24,19 +26,18 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.message.clone().unwrap_or_default()
     };
 
-    let main_text = Paragraph(format!(
+    let main_text = Paragraph::new(format!(
         "Projects: {}\n\n[1] Explore    — AI explore a URL\n[2] Generate   — Generate test cases\n[3] Run Tests  — Execute test suite\n[4] Settings  — Configure LLM & Sandbox\n\n{}",
         app.projects.len(),
         status
     ))
-    .block(Block::new().borders(Borders::ALL))
+    .block(Block::default().borders(Borders::ALL))
     .wrap(Wrap { trim: true });
 
     frame.render_widget(main_text, chunks[1]);
 
     // Footer
-    let footer = Paragraph("q: quit | ↑↓: select | Enter: confirm")
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new("q: quit | ↑↓: select | Enter: confirm");
     frame.render_widget(footer, chunks[2]);
 }
 
@@ -48,7 +49,6 @@ mod tests {
     #[test]
     fn test_dashboard_renders_without_panic() {
         let app = App::new();
-        // Verify App struct can be created and is in Dashboard state
         assert_eq!(app.current_state, AppState::Dashboard);
         assert_eq!(app.projects.len(), 0);
         assert!(!app.is_loading);
