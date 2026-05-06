@@ -1072,10 +1072,10 @@ qinAegis export --project My App --format html
 
 ### Week 9–10：性能 + 压测
 
-- [ ] Lighthouse CI 容器内集成
+- [ ] Lighthouse CI 集成（通过 Playwright）
 - [ ] 性能测试结果解析 + 写入本地 runs/
 - [ ] k6 压测脚本 AI 生成
-- [ ] k6 容器内执行 + 结果解析
+- [ ] k6 直接执行 + 结果解析
 - [ ] 压测结果写入本地 runs/
 - [ ] gate 阈值配置与 CI exit code
 
@@ -1150,10 +1150,6 @@ qinAegis/
 │       └── scripts/
 │           └── k6-template.js   # k6 脚本模板
 │
-├── docker/
-│   ├── docker-compose.sandbox.yml
-│   └── Dockerfile.sandbox        # 定制沙箱镜像（含 k6 + Lighthouse）
-│
 ├── Formula/
 │   └── qinAegis.rb              # Homebrew Formula
 │
@@ -1178,8 +1174,8 @@ rustup target add aarch64-apple-darwin
 # 3. 安装 Node.js 依赖（sandbox 层）
 cd sandbox && pnpm install && cd ..
 
-# 4. 启动 steel-browser 沙箱
-docker compose -f docker/docker-compose.sandbox.yml up -d
+# 4. 安装 Playwright 浏览器
+npx playwright install chromium
 
 # 5. 运行开发版 TUI（首次会引导配置）
 cargo run -p cli
