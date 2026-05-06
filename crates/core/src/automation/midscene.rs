@@ -7,7 +7,7 @@ use crate::automation::{
 };
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
 use crate::prompts::ExplorerPrompt;
-use crate::sandbox::{SandboxAdapter, ShellBrowserAdapter, SteelBrowserAdapter};
+use crate::sandbox::{SandboxAdapter, ShellBrowserAdapter, SteelBrowserAdapter, PlaywrightBrowserAdapter};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -47,6 +47,16 @@ impl MidsceneAutomation {
     /// Create a SteelBrowserAdapter for the given CDP WebSocket URL.
     pub fn steel_adapter(cdp_url: &str) -> Arc<dyn SandboxAdapter> {
         Arc::new(SteelBrowserAdapter::new(cdp_url))
+    }
+
+    /// Create a PlaywrightBrowserAdapter for the given CDP port (no Docker needed).
+    pub fn playwright_adapter(cdp_port: u16) -> Arc<dyn SandboxAdapter> {
+        Arc::new(PlaywrightBrowserAdapter::new(cdp_port))
+    }
+
+    /// Create a PlaywrightBrowserAdapter with auto-detection (no Docker needed).
+    pub fn playwright_adapter_auto() -> Arc<dyn SandboxAdapter> {
+        Arc::new(PlaywrightBrowserAdapter::new(9222))
     }
 
     async fn call(&self, req: JsonRpcRequest) -> Result<JsonRpcResponse, AutomationError> {

@@ -18,10 +18,15 @@
 ### 前置要求
 
 - macOS 12.0+
-- Docker（用于沙箱执行）
+- **以下二选一**：
+  - **方案A（推荐）**: Google Chrome 浏览器（用于无 Docker 沙箱）
+  - **方案B**: Docker Desktop（用于 Docker 沙箱）
 
 ```bash
-# 安装 Docker（如未安装）
+# 方案A: 安装 Chrome（如未安装）
+brew install --cask google-chrome
+
+# 方案B: 安装 Docker（如未安装）
 brew install --cask docker
 ```
 
@@ -276,9 +281,12 @@ model = "MiniMax-VL-01"
 # api_key 存储在 macOS Keychain
 
 [sandbox]
-compose_file = "~/.config/qinAegis/docker-compose.sandbox.yml"
-steel_port = 3333
+# 无 Docker 模式（默认）：使用本地 Chrome
 cdp_port = 9222
+
+# Docker 模式（可选）：
+# compose_file = "~/.config/qinAegis/docker-compose.sandbox.yml"
+# steel_port = 3333
 ```
 
 ### 环境变量
@@ -312,7 +320,18 @@ export MIDSCENE_MODEL_FAMILY="openai"
 
 ## 常见问题
 
-### Q: Docker 未运行
+### Q: 浏览器未运行
+
+如果使用无 Docker 模式（推荐），确保 Chrome 在运行：
+
+```bash
+# 检查浏览器是否在运行
+curl -s http://localhost:9222/json/version | head -1
+
+# 如果未运行，qinAegis 会自动启动
+```
+
+### Q: Docker 未运行（传统模式）
 
 ```bash
 # 启动 Docker Desktop

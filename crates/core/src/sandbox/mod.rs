@@ -3,6 +3,7 @@
 
 pub use adapter::{
     SandboxAdapter, SandboxError, SandboxHealth, ShellBrowserAdapter, SteelBrowserAdapter,
+    PlaywrightBrowserAdapter,
 };
 
 pub mod adapter;
