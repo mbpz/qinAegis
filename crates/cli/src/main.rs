@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use clap::Parser;
 
 // Modules are now in the library crate

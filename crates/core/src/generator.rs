@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::llm::{ArcLlmClient, ChatOptions, LlmClient, Message};
 use crate::prompts::{GeneratorPrompts, Locale};
 

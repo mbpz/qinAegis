@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::config::Config;
 use qin_aegis_core::storage::LocalStorage;
 

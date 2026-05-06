@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use ratatui::{backend::TestBackend, buffer::Buffer, prelude::Rect, Frame, Terminal};
 use qinAegis_lib::tui::app::App;
 use qinAegis_lib::tui::dashboard;

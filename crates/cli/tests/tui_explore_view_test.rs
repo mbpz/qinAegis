@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 //! ExploreView render snapshot tests
 
 use ratatui::{backend::TestBackend, buffer::Buffer, prelude::Rect, Frame, Terminal};

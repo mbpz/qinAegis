@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::automation::{AutomationError, BfsExplorer, BrowserAutomation, ExploreResult, MidsceneAutomation};
 use crate::protocol::{LlmConfig, SandboxConfig};
 

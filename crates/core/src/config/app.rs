@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::PathBuf;
@@ -197,7 +200,7 @@ impl AppConfig {
 
 /// Resolve $VAR and ${VAR} patterns in a string.
 /// If a variable is not set, leave it as-is.
-fn resolve_env_var(s: &str) -> String {
+pub fn resolve_env_var(s: &str) -> String {
     let result = s.to_string();
 
     // Handle ${VAR} patterns

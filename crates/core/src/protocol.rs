@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::sandbox::{SandboxAdapter, SteelBrowserAdapter};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;

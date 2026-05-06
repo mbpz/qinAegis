@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

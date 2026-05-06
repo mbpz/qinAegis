@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 //! App state machine unit tests
 
 use qinAegis_lib::tui::app::{App, AppState};

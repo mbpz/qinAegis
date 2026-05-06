@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use std::process::Command;
 
 pub fn docker_command(args: &[&str]) -> anyhow::Result<String> {
