@@ -1,6 +1,6 @@
 # AI 自动化测试平台 qinAegis Roadmap
 
-> 基于开源成熟项目（Midscene.js · Playwright/MCP · Stagehand · Shortest · steel-browser · k6 · Lighthouse CI）的本地优先修正版本  
+> 基于开源成熟项目（Midscene.js · Playwright · Stagehand · Shortest · k6 · Lighthouse CI）的本地优先修正版本  
 > 产物形态：macOS TUI/CLI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在本地文件系统
 
 ---
@@ -27,7 +27,7 @@
 
 最新 GitHub 同类项目对标后，qinAegis 的技术路线从“视觉模型驱动的自动化测试工具”升级为“本地优先的 AI 质量工程平台”：
 
-- **不做另一个 AI 浏览器 SDK**：Midscene、Stagehand、Playwright、Steel Browser 已经覆盖底层浏览器动作和会话能力，qinAegis 重点做测试资产、失败复盘、质量门禁和本地工作台。
+- **不做另一个 AI 浏览器 SDK**：Midscene、Stagehand、Playwright 已经覆盖底层浏览器动作和会话能力，qinAegis 重点做测试资产、失败复盘、质量门禁和本地工作台。
 - **去 Notion**：Notion 不再作为核心数据源。所有规格、需求、用例、运行记录、报告、质量知识库都落在 `~/.qinAegis/projects/`。
 - **多通道观测**：优先使用 Playwright/MCP 风格的 accessibility snapshot、DOM、console、network 等结构化信号；复杂视觉 UI 再调用 Midscene/视觉模型。
 - **动作抽象学习 Stagehand**：内部统一为 `observe`、`act`、`extract`、`assert` 四类能力，隐藏 Midscene、Playwright、未来 Stagehand/browser-use 等执行器差异。
@@ -42,10 +42,9 @@ qinAegis CLI/TUI (Rust)
   ├─ Project / Requirement / Case / Run / Gate Services
   ├─ Local FS Storage (~/.qinAegis/projects)
   └─ Sandbox Runtime
-       ├─ Steel Browser: browser/session lifecycle
-       ├─ Playwright: deterministic action, trace, console, network
-       ├─ MCP-style Observer: accessibility snapshot and structured page state
+       ├─ Playwright: browser/session lifecycle, CDP, trace
        ├─ Midscene: visual act/assert/extract
+       ├─ MCP-style Observer: accessibility snapshot and structured page state
        ├─ Lighthouse CI: performance budget
        └─ k6/Locust: load and stress thresholds
 ```
@@ -66,7 +65,7 @@ qinAegis CLI/TUI (Rust)
 
 一款运行在 macOS 本地的 **TUI/CLI AI 质量工程平台**，专为前端 Web 项目设计。核心特性：
 
-- **完全本地沙箱化**：测试执行在 Docker 容器内进行，与宿主机完全隔离
+- **完全本地沙箱化**：测试执行在 Playwright 管理的浏览器进程内进行，与宿主机完全隔离
 - **AI 驱动但可控**：结构化页面观测优先，视觉大模型处理复杂 UI，approved 用例尽量稳定复用
 - **本地文件系统存储**：项目规格书、需求、测试用例、测试结果全部存储在 `~/.qinAegis/projects/`
 - **测试资产治理**：draft / reviewed / approved / flaky / archived 生命周期
@@ -110,7 +109,7 @@ qinAegis export         # 导出 HTML/MD/JSON 报告
 | [browserbase/stagehand](https://github.com/browserbase/stagehand) | AI 浏览器操作抽象 | act/extract/observe/agent 分层清晰 | 统一 `observe/act/extract/assert` 内部接口 |
 | [antiwork/shortest](https://github.com/antiwork/shortest) | 自然语言 E2E 测试格式参考 | plain English 测试体验好 | 测试 DSL 参考，但增加本地治理和 review 状态机 |
 | [browser-use/browser-use](https://github.com/browser-use/browser-use) | 通用 AI 浏览器 Agent | 多步网页任务编排能力强 | 参考 Agent loop，不作为 approved 回归执行默认模式 |
-| [steel-dev/steel-browser](https://github.com/steel-dev/steel-browser) | 浏览器沙箱 | 开箱即用浏览器会话与 CDP 基础设施 | session/page/browser lifecycle |
+| [steel-dev/steel-browser](https://github.com/steel-dev/steel-browser) | 浏览器沙箱参考 | 开箱即用浏览器会话与 CDP 基础设施 | 已被 Playwright 原生方案取代 |
 | [grafana/k6](https://github.com/grafana/k6) | 压力测试 | thresholds、scenarios、checks 成熟 | load gate |
 | [GoogleChrome/lighthouse-ci](https://github.com/GoogleChrome/lighthouse-ci) | 性能持续检测 | 性能预算、断言、CI 友好 | performance gate |
 
@@ -139,7 +138,7 @@ flowchart TB
     Storage --> Runs[runs/run-id]
     Storage --> Knowledge[knowledge/coverage<br/>flakiness<br/>failure-patterns]
 
-    Runtime --> Steel[Steel Browser<br/>session/page/browser lifecycle]
+    Runtime --> PlaywrightBrowser[Playwright<br/>browser/session lifecycle<br/>CDP, trace, evidence]
     Runtime --> Observer[MCP-style Observer<br/>accessibility snapshot<br/>DOM/console/network]
     Runtime --> Playwright[Playwright<br/>deterministic actions<br/>trace and fallback]
     Runtime --> Midscene[Midscene<br/>visual act/assert/extract]
@@ -172,7 +171,7 @@ AI 生成测试用例 YAML/JSON → 本地 cases/draft/
     ▼ (人工或 AI Critic 审核 → Approved)
     │
     ▼
-沙箱执行 (Steel Browser + Playwright + Midscene)
+沙箱执行 (Playwright + Midscene)
     │
     ├── 冒烟测试 → 结果 + Midscene Report
     ├── 功能测试 → 结果 + Midscene Report
@@ -202,37 +201,37 @@ TUI Dashboard 展示 / qinAegis gate / qinAegis export 导出报告
 | keyring | macOS Keychain 集成，存储 LLM API token |
 | crossterm | 终端跨平台控制 |
 
-### 4.2 浏览器沙箱（steel-browser）
+### 4.2 浏览器沙箱（Playwright）
+
+Playwright 原生提供浏览器进程管理，无需 Docker：
 
 ```yaml
-# docker-compose.sandbox.yml
-services:
-  steel:
-    image: ghcr.io/steel-dev/steel-browser:latest
-    ports:
-      - "3333:3333"    # Steel REST API
-      - "9222:9222"    # Chrome CDP WebSocket
-    environment:
-      STEEL_API_KEY: "local-dev-key"
-    volumes:
-      - steel-data:/data
-    networks: [sandbox]
+# playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
 
-networks:
-  sandbox:
-    driver: bridge
-    internal: false   # 需要访问被测 Web 项目
-
-volumes:
-  steel-data:
+export default defineConfig({
+  testDir: './tests',
+  timeout: 30_000,
+  use: {
+    trace: 'on-first-retry',  # trace, screenshot, console log
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+});
 ```
 
-Steel Browser 提供的能力：
-- CDP WebSocket 连接 (`ws://localhost:9222`)
-- Session 生命周期管理（创建 / 暂停 / 恢复 / 销毁）
-- 内置截图 / PDF / Markdown 转换 API
+Playwright 提供的能力：
+- 浏览器进程生命周期管理（启动 / 关闭 / 重用）
+- CDP WebSocket 连接（`ws://localhost:9222`）用于远程控制
+- Session 页面管理（新建 / 截图 / PDF / 打印）
+- Trace viewer 录制与回放
+- Console、network、accessibility snapshot 采集
 - 反检测 + User-Agent 管理
-- 请求日志 + HAR 录制
 
 ### 4.3 AI 执行引擎（Playwright + Midscene）
 
@@ -379,9 +378,8 @@ model = "MiniMax-VL-01"
 # api_key 存在 macOS Keychain，不写入文件
 
 [sandbox]
-compose_file = "~/.config/qinAegis/docker-compose.yml"
-steel_port = 3333
-cdp_port = 9222
+playwright_browser = "chromium"  # chromium, firefox, webkit
+headless = true
 
 [exploration]
 max_depth = 3
@@ -408,24 +406,20 @@ max_pages_per_seed = 20
 
 ### 5.3 沙箱启动
 
-TUI 在首次运行 `qinAegis run` 时自动拉起沙箱：
+TUI 在首次运行 `qinAegis run` 时自动启动 Playwright 浏览器：
 
 ```rust
 // src/sandbox/mod.rs
 pub async fn ensure_sandbox_running() -> Result<SandboxHandle> {
-    // 检查 Docker 是否在运行
-    check_docker_available()?;
+    // 检查 Playwright 浏览器是否可用
+    check_playwright_installed()?;
 
-    // 检查 steel-browser 容器状态
-    if !is_container_running("qinAegis-sandbox").await? {
-        // docker compose -f ~/.config/qinAegis/docker-compose.yml up -d
-        start_sandbox().await?;
-        wait_for_steel_ready("http://localhost:3333/health").await?;
-    }
+    // Playwright 管理浏览器进程生命周期
+    let browser = launch_browser(BrowserType::Chromium, headless).await?;
+    let cdp_ws = browser.ws_endpoint();
 
     Ok(SandboxHandle {
-        steel_api: "http://localhost:3333".to_string(),
-        cdp_ws: "ws://localhost:9222".to_string(),
+        playwright_endpoint: cdp_ws,
     })
 }
 ```
@@ -456,9 +450,8 @@ model = "MiniMax-VL-01"
 # api_key 存在 macOS Keychain，不写入文件
 
 [sandbox]
-compose_file = "~/.config/qinAegis/docker-compose.yml"
-steel_port = 3333
-cdp_port = 9222
+playwright_browser = "chromium"
+headless = true
 ```
 
 ---
@@ -467,7 +460,7 @@ cdp_port = 9222
 
 ### 6.1 项目熟悉流水线（① 探索阶段）
 
-AI 拿到项目 URL 后，用 Midscene.js 驱动 steel-browser 进行结构化探索：
+AI 拿到项目 URL 后，用 Midscene.js 驱动 Playwright 进行结构化探索：
 
 ```typescript
 // sandbox/explorer.ts
@@ -475,8 +468,8 @@ import { PlaywrightAgent } from "@midscene/web/playwright";
 import { chromium } from "playwright";
 
 export async function exploreProject(projectUrl: string) {
-  // 连接 steel-browser CDP
-  const browser = await chromium.connectOverCDP("ws://localhost:9222");
+  // 启动 Playwright 浏览器
+  const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const agent = new PlaywrightAgent(page);
 
@@ -622,7 +615,7 @@ Report 内容包含：
 
 **目标**：快速验证核心路径，P0 用例全部通过。  
 **触发时机**：每次部署后自动执行。  
-**工具**：Midscene.js + Playwright（运行在 steel-browser 沙箱内）
+**工具**：Midscene.js + Playwright（Playwright 管理的浏览器进程）
 
 ```typescript
 // 执行流程
@@ -698,17 +691,21 @@ tasks:
 ### 7.3 性能测试（Performance Test）
 
 **目标**：测量核心 Web Vitals 指标。  
-**工具**：Lighthouse CI（运行在沙箱内）
+**工具**：Lighthouse CI（通过 Playwright 运行）
 
 ```typescript
 async function runPerformanceTest(url: string) {
-  // 在沙箱容器内运行 lighthouse
-  const result = await docker.exec(
-    "qinAegis-sandbox",
-    `lighthouse ${url} --output=json --chrome-flags="--headless" --output-path=/tmp/lh-report.json`
-  );
+  // 通过 Playwright 的 chromium 注入 lighthouse
+  const { chromium } = require('playwright');
+  const lighthouse = require('lighthouse');
 
-  const report = JSON.parse(await docker.readFile("/tmp/lh-report.json"));
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+
+  const report = await lighthouse(url, {
+    port: new URL(browser.wsEndpoint()).port,
+    output: 'json',
+  });
 
   const metrics = {
     lcp: report.audits["largest-contentful-paint"].numericValue,  // ms
@@ -738,7 +735,7 @@ async function runPerformanceTest(url: string) {
 ### 7.4 压力测试（Stress Test）
 
 **目标**：验证接口在高并发下的稳定性。  
-**工具**：k6（运行在沙箱 Docker 容器内）
+**工具**：k6（直接运行，不需要 Docker）
 
 **k6 脚本自动生成（AI 根据接口列表生成）：**
 
@@ -783,8 +780,7 @@ export default function () {
 **执行命令：**
 
 ```bash
-docker exec qinAegis-sandbox k6 run /scripts/k6-script-generated.js \
-  --out json=/results/k6-summary.json
+k6 run scripts/k6-script-generated.js --out json=results/k6-summary.json
 ```
 
 **关键指标写入本地运行报告和质量知识库：**
@@ -888,7 +884,7 @@ let pass_rate = (passed as f64 / total as f64) * 100.0;
 
 ```ruby
 # Formula/qinAegis.rb
-class AiTester < Formula
+class QinAegis < Formula
   desc "AI-powered automated testing TUI for web projects"
   homepage "https://github.com/yourorg/qinAegis"
   version "0.1.0"
@@ -904,13 +900,9 @@ class AiTester < Formula
   end
 
   depends_on :macos
-  depends_on "docker" => :recommended
 
   def install
     bin.install "qinAegis"
-
-    # 安装 sandbox docker-compose 模板
-    (etc/"qinAegis").install "docker-compose.sandbox.yml"
   end
 
   def post_install
@@ -922,8 +914,8 @@ class AiTester < Formula
       To get started:
         qinAegis init
 
-      Docker is required for sandbox execution:
-        brew install --cask docker
+      Playwright browsers will be installed on first run:
+        playwright install chromium
 
       For full documentation:
         https://github.com/yourorg/qinAegis
@@ -967,8 +959,7 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }}
           tar -czf qinAegis-${{ matrix.target }}.tar.gz \
-            -C target/${{ matrix.target }}/release qinAegis \
-            docker-compose.sandbox.yml
+            -C target/${{ matrix.target }}/release qinAegis
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
@@ -1027,7 +1018,7 @@ qinAegis export --project My App --format html
 
 | 模块 | 原方案 | 修正方案 | 工作量变化 |
 |------|--------|---------|-----------|
-| **浏览器沙箱** | 自建 mitmproxy + CDP Bridge + Docker | steel-browser（docker pull 开箱即用） | -75% |
+| **浏览器沙箱** | 自建 mitmproxy + CDP Bridge + Docker | Playwright 原生浏览器进程管理 | -75% |
 | **AI 执行引擎** | 自研 Generator + Evaluator 双 Agent | Playwright + MCP-style Observer + Midscene 视觉补强 | 稳定性提升 |
 | **页面操作方式** | 手写 CDP 指令（Page.navigate 等） | 结构化观测优先，必要时 aiAct()/视觉断言 | -90% |
 | **大模型** | MiniMax abab6.5（纯文本 ❌） | MiniMax-VL / Qwen3-VL / UI-TARS（视觉 ✅） | 配置修改 |
@@ -1055,8 +1046,8 @@ qinAegis export --project My App --format html
 
 ### Week 3–4：沙箱 + Midscene 集成
 
-- [ ] steel-browser Docker 容器管理（启动 · 健康检查 · 停止）
-- [ ] Playwright 通过 CDP 连接 steel-browser
+- [ ] Playwright 浏览器进程管理（启动 · 健康检查 · 关闭）
+- [ ] Playwright trace、screenshot、console、network 证据采集
 - [ ] MCP-style Observer 输出 accessibility snapshot、DOM 摘要、console、network
 - [ ] Midscene.js 集成（aiAct / aiQuery / aiAssert 验证）
 - [ ] MiniMax VL 视觉模型对接测试

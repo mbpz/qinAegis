@@ -29,7 +29,7 @@ Core principles:
 | CLI/TUI | Rust, clap, ratatui | Local workflow and project dashboard |
 | Core services | Rust, tokio | Project, requirement, case, run, report, and gate orchestration |
 | Storage | Local filesystem | Source of truth under `~/.qinAegis/projects/` |
-| Browser sessions | Steel Browser | Isolated browser/session lifecycle |
+| Browser sessions | Playwright | Browser process management, isolated contexts |
 | Deterministic automation | Playwright | Stable actions, trace, screenshots, console, network |
 | Structured observation | MCP-style accessibility snapshot | Low-cost page state for AI planning |
 | Visual automation | Midscene.js | Visual act/assert/extract for complex UI |
@@ -96,7 +96,7 @@ flowchart TB
     Core --> Storage[Local FS<br/>~/.qinAegis/projects]
     Core --> Runtime[Sandbox Runtime]
 
-    Runtime --> Steel[Steel Browser]
+    Runtime --> Playwright[Playwright]
     Runtime --> Observer[MCP-style Observer]
     Runtime --> Playwright[Playwright]
     Runtime --> Midscene[Midscene]
