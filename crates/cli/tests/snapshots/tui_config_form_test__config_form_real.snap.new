@@ -1,5 +1,6 @@
 ---
 source: crates/cli/tests/tui_config_form_test.rs
+assertion_line: 67
 expression: output
 ---
 Settings                                                                        
@@ -9,9 +10,9 @@ Settings
 │LLM Configuration                                                             │
 │                                                                              │
 │Provider:  minimax                                                            │
-│Base URL:  https://api.minimaxi.com/v1                                        │
-│API Key:   sk-c****                                                           │
-│Model:     MiniMax-M2.7                                                       │
+│Base URL:  https://api.minimax.chat/v1                                        │
+│API Key:   sk-a****                                                           │
+│Model:     MiniMax-VL-01                                                      │
 │                                                                              │
 │Sandbox Configuration                                                         │
 │                                                                              │
@@ -19,8 +20,8 @@ Settings
 │                                                                              │
 │Exploration                                                                   │
 │                                                                              │
-│Max Depth:        3                                                           │
-│Max Pages/Seed:   20                                                          │
+│Max Depth:        5                                                           │
+│Max Pages/Seed:   30                                                          │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ────────────────────────────────────────────────────────────────────────────────

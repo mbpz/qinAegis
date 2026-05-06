@@ -24,7 +24,6 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                  API Key:   {}\n\
                  Model:     {}\n\n\
                  Sandbox Configuration\n\n\
-                 Steel Port:  {}\n\
                  CDP Port:    {}\n\n\
                  Exploration\n\n\
                  Max Depth:        {}\n\
@@ -33,7 +32,6 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 cfg.llm.base_url,
                 api_key_display,
                 cfg.llm.model,
-                cfg.sandbox.steel_port,
                 cfg.sandbox.cdp_port,
                 cfg.exploration.max_depth,
                 cfg.exploration.max_pages_per_seed,

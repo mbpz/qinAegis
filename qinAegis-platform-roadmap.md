@@ -1,12 +1,13 @@
 # AI 自动化测试平台 qinAegis Roadmap
 
-> 基于开源成熟项目（Midscene.js · steel-browser · Shortest · k6）的修正版本  
-> 产物形态：macOS TUI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在本地文件系统
+> 基于开源成熟项目（Midscene.js · Playwright/MCP · Stagehand · Shortest · steel-browser · k6 · Lighthouse CI）的本地优先修正版本  
+> 产物形态：macOS TUI/CLI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在本地文件系统
 
 ---
 
 ## 目录
 
+0. [2026-05-07 技术路线修订](#0-2026-05-07-技术路线修订)
 1. [项目概述](#1-项目概述)
 2. [开源项目选型依据](#2-开源项目选型依据)
 3. [整体架构](#3-整体架构)
@@ -22,15 +23,54 @@
 
 ---
 
+## 0. 2026-05-07 技术路线修订
+
+最新 GitHub 同类项目对标后，qinAegis 的技术路线从“视觉模型驱动的自动化测试工具”升级为“本地优先的 AI 质量工程平台”：
+
+- **不做另一个 AI 浏览器 SDK**：Midscene、Stagehand、Playwright、Steel Browser 已经覆盖底层浏览器动作和会话能力，qinAegis 重点做测试资产、失败复盘、质量门禁和本地工作台。
+- **去 Notion**：Notion 不再作为核心数据源。所有规格、需求、用例、运行记录、报告、质量知识库都落在 `~/.qinAegis/projects/`。
+- **多通道观测**：优先使用 Playwright/MCP 风格的 accessibility snapshot、DOM、console、network 等结构化信号；复杂视觉 UI 再调用 Midscene/视觉模型。
+- **动作抽象学习 Stagehand**：内部统一为 `observe`、`act`、`extract`、`assert` 四类能力，隐藏 Midscene、Playwright、未来 Stagehand/browser-use 等执行器差异。
+- **测试 DSL 学习 Shortest，但补齐治理**：自然语言测试步骤只进入 draft，用例必须经过 AI/人工 review 才能进入 approved。
+- **Agent 生成/修复学习 Playwright Test Agents**：采用 Explorer → Planner → Generator → Critic → Executor → Healer 的流水线；Healer 只能产出修复建议或 draft，不能直接污染 approved 用例。
+- **质量门禁学习 k6/Lighthouse CI**：E2E、性能、压力测试都输出统一 gate 结果，支持 CI 阻断。
+
+推荐运行时分层：
+
+```text
+qinAegis CLI/TUI (Rust)
+  ├─ Project / Requirement / Case / Run / Gate Services
+  ├─ Local FS Storage (~/.qinAegis/projects)
+  └─ Sandbox Runtime
+       ├─ Steel Browser: browser/session lifecycle
+       ├─ Playwright: deterministic action, trace, console, network
+       ├─ MCP-style Observer: accessibility snapshot and structured page state
+       ├─ Midscene: visual act/assert/extract
+       ├─ Lighthouse CI: performance budget
+       └─ k6/Locust: load and stress thresholds
+```
+
+新的超越路径：
+
+```text
+产品理解 -> 测试计划 -> 用例生成 -> 用例审查 -> approved 资产库
+-> 沙箱执行 -> 失败证据采集 -> 问题分类 -> 质量门禁
+-> 覆盖缺口推荐 -> 长期质量知识库
+```
+
+---
+
 ## 1. 项目概述
 
 ### 产品定位
 
-一款运行在 macOS 本地的 **TUI（Terminal UI）** 自动化测试工具，专为前端 Web 项目设计。核心特性：
+一款运行在 macOS 本地的 **TUI/CLI AI 质量工程平台**，专为前端 Web 项目设计。核心特性：
 
 - **完全本地沙箱化**：测试执行在 Docker 容器内进行，与宿主机完全隔离
-- **AI 驱动**：视觉大模型理解页面、生成测试用例、执行断言，无需维护 CSS selector
+- **AI 驱动但可控**：结构化页面观测优先，视觉大模型处理复杂 UI，approved 用例尽量稳定复用
 - **本地文件系统存储**：项目规格书、需求、测试用例、测试结果全部存储在 `~/.qinAegis/projects/`
+- **测试资产治理**：draft / reviewed / approved / flaky / archived 生命周期
+- **统一质量门禁**：E2E 通过率、性能预算、压测阈值统一输出 gate 结果
 - **brew 一键安装**：用户体验对标 gh / lazygit 等成熟 CLI 工具
 
 ### 用户使用流程
@@ -63,54 +103,56 @@ qinAegis export         # 导出 HTML/MD/JSON 报告
 
 ### 核心依赖项目
 
-| 项目 | Stars 量级 | 用途 | 选用原因 |
+| 项目 | 用途 | 选用原因 | qinAegis 吸收点 |
 |------|-----------|------|---------|
-| [web-infra-dev/midscene](https://github.com/web-infra-dev/midscene) | 字节系 · 持续活跃 | AI 视觉执行引擎 | 纯视觉定位、兼容 OpenAI API 格式（可接 MiniMax VL）、内置 Report |
-| [steel-dev/steel-browser](https://github.com/steel-dev/steel-browser) | 千星级 | 浏览器沙箱 | 开箱即用 CDP 沙箱，替代手工搭建 mitmproxy + Chrome |
-| [antiwork/shortest](https://github.com/antiwork/shortest) | 千星级 | 自然语言测试格式参考 | 用例格式设计（自然语言 → Playwright）值得借鉴 |
-| [browserbase/stagehand](https://github.com/browserbase/stagehand) | 千星级 | 备选 AI 浏览器操作 | act() / extract() / agent() CDP 封装，备用方案 |
-| grafana/k6 | 万星级 | 压力测试 | 容器内运行，AI 自动生成脚本 |
-| GoogleChrome/lighthouse | 万星级 | 性能测试 | LCP / FCP / TTI / CLS 指标 |
+| [web-infra-dev/midscene](https://github.com/web-infra-dev/midscene) | AI 视觉执行引擎 | 视觉定位、自然语言操作、视觉断言、内置 Report | 复杂 UI 的 visual act/assert/extract |
+| [microsoft/playwright](https://github.com/microsoft/playwright) / Playwright MCP | 稳定自动化与结构化观测 | trace、console、network、accessibility snapshot、CI 生态成熟 | deterministic fallback、证据采集、MCP-style observer |
+| [browserbase/stagehand](https://github.com/browserbase/stagehand) | AI 浏览器操作抽象 | act/extract/observe/agent 分层清晰 | 统一 `observe/act/extract/assert` 内部接口 |
+| [antiwork/shortest](https://github.com/antiwork/shortest) | 自然语言 E2E 测试格式参考 | plain English 测试体验好 | 测试 DSL 参考，但增加本地治理和 review 状态机 |
+| [browser-use/browser-use](https://github.com/browser-use/browser-use) | 通用 AI 浏览器 Agent | 多步网页任务编排能力强 | 参考 Agent loop，不作为 approved 回归执行默认模式 |
+| [steel-dev/steel-browser](https://github.com/steel-dev/steel-browser) | 浏览器沙箱 | 开箱即用浏览器会话与 CDP 基础设施 | session/page/browser lifecycle |
+| [grafana/k6](https://github.com/grafana/k6) | 压力测试 | thresholds、scenarios、checks 成熟 | load gate |
+| [GoogleChrome/lighthouse-ci](https://github.com/GoogleChrome/lighthouse-ci) | 性能持续检测 | 性能预算、断言、CI 友好 | performance gate |
 
 ### 关键修正：为什么放弃自研执行引擎
 
 原方案计划自研 Generator + Evaluator 双 Agent，并手写 CDP 指令序列。调研后发现：
 
-1. **Midscene.js 已完整解决这个问题**：`aiAct()` 接受自然语言 → 自动生成 CDP 调用 → 执行 → 截图验证，完全覆盖 Generator/Evaluator 的职责
-2. **手写 CDP 指令维护成本极高**：`Page.navigate`、`Runtime.evaluate` 等原始 CDP 指令在页面结构变化后会失效，Midscene 基于视觉截图定位，天然抗 DOM 变化
-3. **视觉模型是前提**：原方案使用 MiniMax 纯文本模型无法理解截图，必须切换到视觉模型（MiniMax VL / Qwen3-VL / UI-TARS）
+1. **底层动作不再自研**：Midscene、Stagehand、Playwright 已覆盖浏览器动作生成与执行。
+2. **手写 CDP 指令维护成本极高**：`Page.navigate`、`Runtime.evaluate` 等原始 CDP 指令在页面结构变化后会失效。
+3. **不能只依赖视觉模型**：视觉模型适合复杂 UI，但稳定回归应优先使用 accessibility snapshot、DOM、network、console 等结构化信号。
+4. **平台价值在上层闭环**：测试资产治理、失败复盘、质量门禁、覆盖缺口和本地知识库是 qinAegis 的主要差异化。
 
 ---
 
 ## 3. 整体架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   TUI 客户端 (Rust · ratatui)            │
-│              brew install qinAegis · 自研               │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────┐
-│              本地文件系统存储 (~/.qinAegis/)             │
-│   projects/<name>/config.yaml · spec.md · cases/ · reports/
-└───────────────────────┬─────────────────────────────────┘
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-          ▼                           ▼
-┌──────────────────┐       ┌──────────────────────────────┐
-│  AI 推理层        │       │  沙箱执行层 (Docker)          │
-│                  │       │                              │
-│  视觉大模型       │       │  steel-browser               │
-│  MiniMax VL /   │◄─────►│  (CDP · Playwright · 会话管理)│
-│  Qwen3-VL /     │       │                              │
-│  UI-TARS        │       │  Midscene.js                 │
-│                  │       │  (aiAct / aiQuery / aiAssert)│
-│  Midscene SDK   │       │                              │
-└──────────────────┘       │  k6 + Lighthouse CI          │
-                           │  (性能 · 压测)               │
-                           └──────────────────────────────┘
+```mermaid
+flowchart TB
+    UI[CLI/TUI<br/>Rust + ratatui + clap] --> Core[Rust Core Services]
+    Core --> Storage[Local FS Storage<br/>~/.qinAegis/projects]
+    Core --> Runtime[Sandbox Runtime]
+
+    Storage --> Spec[spec/product.md<br/>routes.json<br/>ui-map.json]
+    Storage --> Requirements[requirements/*.md]
+    Storage --> Cases[cases/draft<br/>cases/approved<br/>cases/flaky<br/>cases/archived]
+    Storage --> Runs[runs/run-id]
+    Storage --> Knowledge[knowledge/coverage<br/>flakiness<br/>failure-patterns]
+
+    Runtime --> Steel[Steel Browser<br/>session/page/browser lifecycle]
+    Runtime --> Observer[MCP-style Observer<br/>accessibility snapshot<br/>DOM/console/network]
+    Runtime --> Playwright[Playwright<br/>deterministic actions<br/>trace and fallback]
+    Runtime --> Midscene[Midscene<br/>visual act/assert/extract]
+    Runtime --> Perf[Lighthouse CI]
+    Runtime --> Load[k6/Locust]
+
+    Midscene --> LLM[Vision / LLM Provider]
+    Observer --> Core
+    Playwright --> Runs
+    Midscene --> Runs
+    Perf --> Runs
+    Load --> Runs
+    Runs --> Knowledge
 ```
 
 ### 数据流向
@@ -119,18 +161,18 @@ qinAegis export         # 导出 HTML/MD/JSON 报告
 用户指令 (TUI)
     │
     ▼
-AI 理解项目 (Midscene aiQuery 爬取页面结构 + 截图)
+项目理解 (accessibility snapshot + DOM/network/console + Midscene 视觉补强)
     │
     ▼
 本地写入规格书 (projects/<name>/spec.md)
     │
     ▼
-AI 生成测试用例 YAML → 本地 cases/*.json (Draft)
+AI 生成测试用例 YAML/JSON → 本地 cases/draft/
     │
     ▼ (人工或 AI Critic 审核 → Approved)
     │
     ▼
-沙箱执行 (steel-browser + Midscene aiAct/aiAssert)
+沙箱执行 (Steel Browser + Playwright + Midscene)
     │
     ├── 冒烟测试 → 结果 + Midscene Report
     ├── 功能测试 → 结果 + Midscene Report
@@ -138,10 +180,10 @@ AI 生成测试用例 YAML → 本地 cases/*.json (Draft)
     └── 压力测试 → k6 Summary JSON
     │
     ▼
-本地写入测试结果 (projects/<name>/reports/<run-id>/)
+本地写入测试结果 (projects/<name>/runs/<run-id>/)
     │
     ▼
-TUI Dashboard 展示 / qinAegis export 导出报告
+TUI Dashboard 展示 / qinAegis gate / qinAegis export 导出报告
 ```
 
 ---
@@ -192,9 +234,27 @@ Steel Browser 提供的能力：
 - 反检测 + User-Agent 管理
 - 请求日志 + HAR 录制
 
-### 4.3 AI 执行引擎（Midscene.js）
+### 4.3 AI 执行引擎（Playwright + Midscene）
 
-Midscene.js 通过**纯视觉方式**定位和操作 UI 元素，不依赖 CSS selector 或 XPath。
+执行层采用“结构化优先、视觉补强”的策略：
+
+1. **MCP-style Observer**：优先采集 accessibility snapshot、DOM 摘要、可交互元素、console、network。
+2. **Playwright**：负责稳定动作、trace、截图、console/network 证据采集和 fallback。
+3. **Midscene.js**：负责复杂 UI 的视觉定位、视觉断言、视觉抽取。
+4. **LLM/Vision Model**：只在 explore、生成、视觉断言、失败解释、自动修复建议等环节调用。
+
+内部统一抽象：
+
+```rust
+trait BrowserAutomation {
+    async fn observe(&self, instruction: &str) -> Result<Observation>;
+    async fn act(&self, instruction: &str) -> Result<ActionResult>;
+    async fn extract(&self, instruction: &str) -> Result<serde_json::Value>;
+    async fn assert(&self, instruction: &str) -> Result<AssertionResult>;
+}
+```
+
+Midscene.js 通过**视觉方式**定位和操作 UI 元素，不依赖 CSS selector 或 XPath，适合处理语义结构差、视觉状态复杂、传统 selector 不稳定的页面。
 
 **环境变量配置（对接 MiniMax VL）：**
 
@@ -240,12 +300,26 @@ await agent.aiAssert("页面右上角显示用户头像，说明已成功登录"
 await agent.aiWaitFor("加载动画消失，内容区域完全展示");
 ```
 
-### 4.4 测试用例格式（Midscene YAML）
+### 4.4 测试用例格式（本地 YAML/JSON）
 
-测试用例存储在 Notion Code Block 中，格式为 Midscene YAML：
+测试用例存储在本地 `cases/` 目录中，不再写入 Notion。推荐分层：
+
+```text
+cases/
+  draft/
+  approved/
+  flaky/
+  archived/
+```
+
+测试用例以业务意图为中心，执行层再编译成 Midscene/Playwright 可运行计划：
 
 ```yaml
 # TC-001: 用户登录功能
+id: TC-001
+status: draft
+priority: P0
+type: smoke
 target:
   url: https://your-app.com/login
 
@@ -489,10 +563,10 @@ export async function exploreProject(projectUrl: string) {
 
 支持两种审核模式：
 
-**人工审核**：Notion 中 TestCases Database 状态流转
+**人工审核**：本地用例状态流转
 
 ```
-Draft → [人工审核] → Approved / Rejected
+draft → reviewed → approved / flaky / archived
 ```
 
 **AI Critic 审核**（自动化模式）：
@@ -520,20 +594,17 @@ async function aiCriticReview(testCase: TestCase): Promise<ReviewResult> {
 
 ### 6.4 Midscene Report 集成
 
-每次执行后生成可视化 HTML Report，上传至 Notion：
+每次执行后生成可视化 HTML Report，保存到本地 `runs/<run-id>/`：
 
 ```typescript
 // Midscene 自动生成 report
 // 路径：./midscene_run/report/xxx.html
 
-// 上传到 Notion 作为 Page 附件
-await notionClient.pages.update({
-  page_id: testResultPageId,
-  properties: {
-    report_url: {
-      url: await uploadToNotionFile("./midscene_run/report/latest.html")
-    }
-  }
+await localStorage.saveRunArtifact({
+  project: "admin-web",
+  runId: "20260507-103000",
+  name: "midscene-report.html",
+  sourcePath: "./midscene_run/report/latest.html"
 });
 ```
 
@@ -716,7 +787,7 @@ docker exec qinAegis-sandbox k6 run /scripts/k6-script-generated.js \
   --out json=/results/k6-summary.json
 ```
 
-**关键指标写入 Notion：**
+**关键指标写入本地运行报告和质量知识库：**
 
 | 指标 | 说明 |
 |------|------|
@@ -957,11 +1028,11 @@ qinAegis export --project My App --format html
 | 模块 | 原方案 | 修正方案 | 工作量变化 |
 |------|--------|---------|-----------|
 | **浏览器沙箱** | 自建 mitmproxy + CDP Bridge + Docker | steel-browser（docker pull 开箱即用） | -75% |
-| **AI 执行引擎** | 自研 Generator + Evaluator 双 Agent | Midscene.js（成熟生产级，MIT 开源） | -66% |
-| **页面操作方式** | 手写 CDP 指令（Page.navigate 等） | aiAct() 自然语言 → 框架自动生成 CDP | -90% |
+| **AI 执行引擎** | 自研 Generator + Evaluator 双 Agent | Playwright + MCP-style Observer + Midscene 视觉补强 | 稳定性提升 |
+| **页面操作方式** | 手写 CDP 指令（Page.navigate 等） | 结构化观测优先，必要时 aiAct()/视觉断言 | -90% |
 | **大模型** | MiniMax abab6.5（纯文本 ❌） | MiniMax-VL / Qwen3-VL / UI-TARS（视觉 ✅） | 配置修改 |
 | **测试用例格式** | JSON + cdp_hints 数组 | YAML 自然语言（Midscene 标准格式） | 简化 |
-| **测试报告** | 自研截图上传系统 | Midscene HTML Report → 本地文件 | -80% |
+| **测试报告** | 自研截图上传系统 | Midscene/Playwright Evidence → 本地 runs/ | -80% |
 | **性能测试** | Lighthouse（保留） | Lighthouse CI（保留 ✅） | 不变 |
 | **压力测试** | k6（保留） | k6（保留 ✅） | 不变 |
 | **数据存储** | Notion（云端 ❌） | 本地文件系统（本地 ✅） | 替换 |
@@ -986,6 +1057,7 @@ qinAegis export --project My App --format html
 
 - [ ] steel-browser Docker 容器管理（启动 · 健康检查 · 停止）
 - [ ] Playwright 通过 CDP 连接 steel-browser
+- [ ] MCP-style Observer 输出 accessibility snapshot、DOM 摘要、console、network
 - [ ] Midscene.js 集成（aiAct / aiQuery / aiAssert 验证）
 - [ ] MiniMax VL 视觉模型对接测试
 - [ ] 本地 Qwen3-VL 备选模型测试（Ollama）
@@ -993,10 +1065,11 @@ qinAegis export --project My App --format html
 ### Week 5–6：AI 探索 + 用例生成
 
 - [ ] 项目探索流水线（爬路由 · 截图 · 结构理解）
-- [ ] 规格书写入本地 spec.md
+- [ ] 规格书写入本地 spec/product.md、routes.json、ui-map.json
 - [ ] 测试用例生成（LLM Prompt 工程 · YAML 输出）
-- [ ] 测试用例写入本地 cases/
+- [ ] 测试用例写入本地 cases/draft/
 - [ ] AI Critic 自动审核逻辑
+- [ ] reviewed / approved / flaky / archived 状态流转
 
 ### Week 7–8：核心测试执行
 
@@ -1004,15 +1077,16 @@ qinAegis export --project My App --format html
 - [ ] Midscene YAML 执行引擎封装
 - [ ] 冒烟测试流程端到端打通
 - [ ] 功能测试流程端到端打通
-- [ ] Midscene HTML Report 写入本地 reports/
+- [ ] Midscene/Playwright evidence 写入本地 runs/
 
 ### Week 9–10：性能 + 压测
 
 - [ ] Lighthouse CI 容器内集成
-- [ ] 性能测试结果解析 + 写入本地 reports/
+- [ ] 性能测试结果解析 + 写入本地 runs/
 - [ ] k6 压测脚本 AI 生成
 - [ ] k6 容器内执行 + 结果解析
-- [ ] 压测结果写入本地 reports/
+- [ ] 压测结果写入本地 runs/
+- [ ] gate 阈值配置与 CI exit code
 
 ### Week 11–12：打磨 + 分发
 
@@ -1126,5 +1200,5 @@ cd sandbox && pnpm test
 
 ---
 
-*文档版本：v0.3（移除 Notion，替换为本地文件系统存储）*
-*最后更新：2026-04*
+*文档版本：v0.4（GitHub 同类项目对标后，升级为本地优先 AI 质量工程平台）*
+*最后更新：2026-05-07*

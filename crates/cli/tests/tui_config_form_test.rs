@@ -1,7 +1,7 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-//! ConfigForm render snapshot tests
+//! Config form TUI component tests
 
 use ratatui::{backend::TestBackend, buffer::Buffer, prelude::Rect, Frame, Terminal};
 use qinAegis_lib::tui::app::App;
@@ -39,7 +39,14 @@ fn buffer_to_string(buffer: &Buffer) -> String {
 }
 
 #[test]
-fn test_config_form_with_real_config() {
+fn test_config_form_empty() {
+    let app = App::new();
+    let output = render_to_string(&app, config_form::render);
+    insta::assert_snapshot!("config_form_empty", output);
+}
+
+#[test]
+fn test_config_form_with_config() {
     let mut app = App::new();
     app.config = Some(Config {
         llm: LlmConfig {
@@ -49,8 +56,6 @@ fn test_config_form_with_real_config() {
             model: "MiniMax-VL-01".into(),
         },
         sandbox: SandboxConfig {
-            compose_file: "/path/to/compose.yml".into(),
-            steel_port: 3333,
             cdp_port: 9222,
         },
         exploration: ExplorationConfig {

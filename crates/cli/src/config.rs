@@ -22,8 +22,6 @@ pub struct LlmConfig {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SandboxConfig {
-    pub compose_file: String,
-    pub steel_port: u16,
     pub cdp_port: u16,
 }
 
@@ -51,12 +49,7 @@ impl Default for LlmConfig {
 
 impl Default for SandboxConfig {
     fn default() -> Self {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("qinAegis");
         Self {
-            compose_file: config_dir.join("docker-compose.sandbox.yml").to_string_lossy().to_string(),
-            steel_port: 3333,
             cdp_port: 9222,
         }
     }

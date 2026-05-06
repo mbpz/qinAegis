@@ -46,12 +46,16 @@ pub struct LlmConfigSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxConfigSection {
-    /// Path to docker-compose file for sandbox services
-    pub compose_file: String,
-    /// Port for Steel browser
-    pub steel_port: u16,
     /// Port for CDP (Chrome DevTools Protocol)
     pub cdp_port: u16,
+}
+
+impl Default for SandboxConfigSection {
+    fn default() -> Self {
+        Self {
+            cdp_port: 9222,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,16 +85,6 @@ impl Default for LlmConfigSection {
             base_url: "https://api.minimax.chat/v1".to_string(),
             api_key: String::new(),
             model: "MiniMax-VL-01".to_string(),
-        }
-    }
-}
-
-impl Default for SandboxConfigSection {
-    fn default() -> Self {
-        Self {
-            compose_file: String::new(),
-            steel_port: 3333,
-            cdp_port: 9222,
         }
     }
 }
@@ -158,12 +152,6 @@ impl AppConfig {
             self.llm.model = other.llm.model;
         }
         // Sandbox
-        if !other.sandbox.compose_file.is_empty() {
-            self.sandbox.compose_file = other.sandbox.compose_file;
-        }
-        if other.sandbox.steel_port != 0 {
-            self.sandbox.steel_port = other.sandbox.steel_port;
-        }
         if other.sandbox.cdp_port != 0 {
             self.sandbox.cdp_port = other.sandbox.cdp_port;
         }

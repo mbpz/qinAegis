@@ -20,7 +20,6 @@ mod tests {
         assert_eq!(config.llm.provider, "minimax");
         assert_eq!(config.llm.base_url, "https://api.minimax.chat/v1");
         assert_eq!(config.llm.model, "MiniMax-VL-01");
-        assert_eq!(config.sandbox.steel_port, 3333);
         assert_eq!(config.sandbox.cdp_port, 9222);
         assert_eq!(config.exploration.max_depth, 3);
         assert_eq!(config.exploration.max_pages_per_seed, 20);
@@ -37,9 +36,7 @@ mod tests {
     #[test]
     fn test_sandbox_config_section_default() {
         let config = SandboxConfigSection::default();
-        assert_eq!(config.steel_port, 3333);
         assert_eq!(config.cdp_port, 9222);
-        assert!(config.compose_file.is_empty());
     }
 
     #[test]
@@ -71,8 +68,6 @@ mod tests {
             model = "gpt-4"
 
             [sandbox]
-            compose_file = "/path/to/compose.yml"
-            steel_port = 4444
             cdp_port = 9333
 
             [exploration]
@@ -82,7 +77,6 @@ mod tests {
         let config: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.llm.provider, "openai");
         assert_eq!(config.llm.model, "gpt-4");
-        assert_eq!(config.sandbox.steel_port, 4444);
         assert_eq!(config.sandbox.cdp_port, 9333);
         assert_eq!(config.exploration.max_depth, 5);
     }
@@ -104,7 +98,6 @@ mod tests {
                 model = "test-model"
 
                 [sandbox]
-                steel_port = 1234
                 cdp_port = 5678
                 "#,
             )
@@ -113,7 +106,7 @@ mod tests {
         let config = AppConfig::load_from(temp_file.path()).unwrap();
         assert_eq!(config.llm.provider, "test-provider");
         assert_eq!(config.llm.model, "test-model");
-        assert_eq!(config.sandbox.steel_port, 1234);
+        assert_eq!(config.sandbox.cdp_port, 5678);
     }
 
     #[test]

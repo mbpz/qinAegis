@@ -1,5 +1,6 @@
 ---
 source: crates/cli/tests/tui_config_form_test.rs
+assertion_line: 74
 expression: output
 ---
 Settings                                                                        

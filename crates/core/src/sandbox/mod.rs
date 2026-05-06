@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 pub use adapter::{
-    SandboxAdapter, SandboxError, SandboxHealth, ShellBrowserAdapter, SteelBrowserAdapter,
-    PlaywrightBrowserAdapter,
+    SandboxAdapter, SandboxError, SandboxHealth, PlaywrightBrowserAdapter,
 };
 
 pub mod adapter;
