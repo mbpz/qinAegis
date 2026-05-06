@@ -1,6 +1,6 @@
 # qinAegis 项目上下文
 
-> 本地优先的 AI 质量工程平台 — 面向 Web 项目的测试资产、沙箱执行、失败复盘和质量门禁工作台
+> 本地优先的 AI 质量工程平台 — 面向 Web 项目的测试资产，浏览器沙箱执行、失败复盘和质量门禁工作台
 
 ---
 
@@ -9,13 +9,13 @@
 qinAegis 是一款运行在 macOS 本地的 **TUI/CLI AI 质量工程平台**，专为前端 Web 项目设计。
 
 **核心特性：**
-- 完全本地沙箱化：测试执行在 Docker/Steel Browser 容器内进行
+- 浏览器沙箱隔离：测试执行在 Playwright 管理的独立浏览器进程中进行
 - AI 驱动但可控：结构化页面观测优先，视觉模型处理复杂 UI
-- 本地文件系统存储：项目规格书、需求、测试用例、运行结果、质量知识库全在本地
+- 本地文件系统存储：项目规格书、需求、测试用例、运行结果，质量知识库全在本地
 - 测试资产治理：draft / reviewed / approved / flaky / archived
 - 失败复盘：截图、trace、console、network、模型摘要统一沉淀
-- 质量门禁：E2E、性能、压测统一输出 gate 结果
-- brew 一键安装
+- 质量门禁：E2E，性能、压测统一输出 gate 结果
+- brew 一键安装，零外部依赖
 
 ---
 
@@ -25,7 +25,7 @@ qinAegis 是一款运行在 macOS 本地的 **TUI/CLI AI 质量工程平台**，
 |------|------|------|
 | **CLI/TUI** | Rust + ratatui | TUI 客户端，跨平台终端界面 |
 | **核心逻辑** | Rust + tokio | 异步运行时，业务逻辑处理 |
-| **浏览器沙箱** | steel-browser (Docker) | 浏览器会话、页面、CDP 生命周期 |
+| **浏览器沙箱** | Playwright | 浏览器进程管理、会话隔离、CDP 生命周期 |
 | **稳定执行** | Playwright | 确定性动作、trace、console、network |
 | **结构化观测** | MCP-style observer | accessibility snapshot、DOM、页面状态 |
 | **AI 执行引擎** | Midscene.js | 视觉驱动的动作、断言、抽取 |
@@ -63,15 +63,12 @@ qinAegis/
 │   │       ├── critic.rs      # AI Critic 审核
 │   │       ├── llm.rs        # LLM 客户端
 │   │       ├── storage/      # 本地存储抽象
-│   │       ├── automation/   # 浏览器自动化
+│   │       ├── automation/    # 浏览器自动化
 │   │       └── sandbox/      # 沙箱适配器
 │   │
 │   └── sandbox/            # Node.js 沙箱执行层
 │       ├── package.json
 │       └── src/            # TypeScript 代码
-│
-├── docker/
-│   └── docker-compose.sandbox.yml  # 沙箱配置
 │
 ├── Formula/
 │   └── qinAegis.rb         # Homebrew Formula
@@ -167,7 +164,6 @@ base_url = "https://api.minimax.chat/v1"
 model = "MiniMax-VL-01"
 
 [sandbox]
-steel_port = 3333
 cdp_port = 9222
 ```
 
@@ -197,8 +193,8 @@ export MIDSCENE_MODEL_NAME="qwen3-vl:7b"
 git clone https://github.com/yourorg/qinAegis.git
 cd qinAegis
 
-# 启动沙箱
-docker compose -f docker/docker-compose.sandbox.yml up -d
+# 安装 Playwright 浏览器（首次）
+cd sandbox && pnpm install && pnpm exec playwright install chromium
 
 # 运行开发版
 cargo run -p qinAegis
