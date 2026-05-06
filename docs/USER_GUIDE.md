@@ -349,13 +349,15 @@ docker info
 
 ### Q: 沙箱启动失败
 
-```bash
-# 手动启动沙箱
-cd /Users/jinguo.zeng/dmall/project/qinAegis
-docker compose -f docker/docker-compose.sandbox.yml up -d
+确保 Playwright 浏览器已安装：
 
-# 查看日志
-docker compose -f docker/docker-compose.sandbox.yml logs -f
+```bash
+# 手动安装 Playwright 浏览器
+cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
+pnpm exec playwright install chromium
+
+# 检查浏览器状态
+qinAegis status
 ```
 
 ### Q: 性能测试超时

@@ -6,7 +6,7 @@
 
 ## 核心价值
 
-- **完全本地沙箱化**：测试运行在 Docker 容器内，与宿主机隔离
+- **完全本地沙箱化**：测试运行在 Playwright 管理的独立浏览器进程中，与宿主机隔离
 - **AI 视觉驱动**：使用视觉大模型（MiniMax-VL、Qwen3-VL）理解页面，生成和执行测试，无需维护 CSS selector
 - **本地存储**：所有数据存储在本地文件系统 `~/.qinAegis/`
 - **brew 一键安装**：对标 `gh` / `lazygit` 等成熟 CLI 工具体验
@@ -21,7 +21,7 @@
 | 项目 | 用途 |
 |------|------|
 | [web-infra-dev/midscene](https://github.com/web-infra-dev/midscene) | AI 视觉执行引擎（aiAct/aiQuery/aiAssert） |
-| [steel-dev/steel-browser](https://github.com/steel-dev/steel-browser) | 浏览器沙箱（CDP） |
+| [microsoft/playwright](https://github.com/microsoft/playwright) | 浏览器沙箱（CDP） |
 | [GoogleChrome/lighthouse](https://github.com/GoogleChrome/lighthouse) | 性能测试 |
 | [grafana/k6](https://github.com/grafana/k6) | 压力测试 |
 | [ratatui](https://github.com/ratatui/ratatui) | TUI 框架 |
@@ -47,7 +47,6 @@ qinAegis/
 │   │       ├── sandbox/          # 沙箱适配器
 │   │       └── ...
 │   └── sandbox/                  # Node.js 执行层（TypeScript）
-├── docker/                       # Docker 配置文件
 ├── Formula/                      # Homebrew Formula
 └── .github/workflows/            # CI/CD
 ```
@@ -128,8 +127,6 @@ model = "MiniMax-VL-01"
 # api_key 存储在 macOS Keychain
 
 [sandbox]
-compose_file = "~/.config/qinAegis/docker-compose.sandbox.yml"
-steel_port = 3333
 cdp_port = 9222
 
 [exploration]
