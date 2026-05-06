@@ -7,6 +7,10 @@ edition.workspace = true
 name = "qinAegis"
 path = "src/main.rs"
 
+[lib]
+name = "qinAegis_lib"
+path = "src/lib.rs"
+
 [dependencies]
 tokio.workspace = true
 reqwest.workspace = true
@@ -25,3 +29,6 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 qin_aegis_core = { path = "../core" }
 open = "5"
+
+[dev-dependencies]
+insta = { version = "1.40", features = ["yaml"] }

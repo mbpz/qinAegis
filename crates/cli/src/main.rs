@@ -1,9 +1,9 @@
 use clap::Parser;
 
-mod commands;
-mod oauth_server;
-mod config;
-mod tui;
+// Modules are now in the library crate
+use qinAegis_lib::commands;
+use qinAegis_lib::config;
+use qinAegis_lib::tui;
 
 #[derive(Parser, Debug)]
 #[command(name = "qinAegis")]
