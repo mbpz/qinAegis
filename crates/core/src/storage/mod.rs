@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 pub use self::trait_def::{
-    ProjectConfig, Storage, StorageCredentials, StorageError, StorageTransaction, TestCase,
+    CaseStatus, ProjectConfig, Storage, StorageCredentials, StorageError, StorageTransaction,
+    TestCase,
 };
 pub use self::local::{LocalStorage, LocalStorageInstance};
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use qin_aegis_core::{TestExecutor, TestCaseRef, Reporter, LlmConfig, SandboxConfig};
+use qin_aegis_core::knowledge::KnowledgeBase;
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
 
@@ -79,6 +80,44 @@ pub async fn run_tests(
     let passed = results.iter().filter(|r| r.passed).count();
     let failed = results.len() - passed;
     println!("\nRun complete: {}/{} passed", passed, failed);
+
+    // Record knowledge base artifacts
+    let kb = KnowledgeBase::new(project_name);
+    if let Err(e) = kb.record_failures(&results, &run_id) {
+        eprintln!("Warning: Failed to record failure patterns: {}", e);
+    }
+    if let Err(e) = kb.record_flakiness(&results) {
+        eprintln!("Warning: Failed to record flakiness: {}", e);
+    }
+
+    // Print knowledge insights
+    if failed > 0 {
+        match kb.load_failure_patterns() {
+            Ok(patterns) => {
+                if let Some(dominant) = patterns.dominant_category() {
+                    println!("\n📊 Knowledge insight: dominant failure category is '{}'", dominant.as_str());
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    // Flag flaky cases
+    match kb.load_flakiness() {
+        Ok(index) => {
+            let flaky_cases: Vec<_> = index.cases.iter()
+                .filter(|(_, r)| r.flaky_score > 30.0 && r.total_runs >= 3)
+                .collect();
+            if !flaky_cases.is_empty() {
+                println!("\n⚠️  Flaky cases detected (score > 30):");
+                for (id, record) in flaky_cases {
+                    println!("  - {}: flaky_score={:.0}, {}/{} passes",
+                        id, record.flaky_score, record.total_passes, record.total_runs);
+                }
+            }
+        }
+        Err(_) => {}
+    }
 
     Ok(())
 }

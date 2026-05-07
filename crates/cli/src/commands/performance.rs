@@ -1,13 +1,20 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use qin_aegis_core::{PerformanceComparison, StressTestConfig, LighthouseResult};
+use qin_aegis_core::{
+    BrowserAutomation, LighthouseResult, LocustResult, MidsceneAutomation,
+    PerformanceComparison, SandboxConfig, StressTestConfig,
+};
+use crate::config::Config;
 
 pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Result<()> {
+    let config = Config::load()?
+        .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
+
     println!("Running Lighthouse performance test for {}", url);
 
-    // Run Lighthouse via JSON-RPC
-    let result = run_lighthouse_rpc(url).await?;
+    // Run Lighthouse via JSON-RPC to sandbox executor
+    let result = run_lighthouse_rpc(url, &config).await?;
 
     let run_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -20,8 +27,8 @@ pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Resul
     let report_path = report_dir.join("lighthouse_report.json");
     std::fs::write(&report_path, serde_json::to_string_pretty(&result)?)?;
 
-    // Compare with baseline - local baseline storage pending
-    if let Some(baseline) = fetch_baseline(url).await? {
+    // Compare with baseline
+    if let Some(baseline) = fetch_baseline(url, &config).await? {
         let comparison = PerformanceComparison::compare(result.clone(), baseline, threshold_percent);
 
         if !comparison.passed {
@@ -48,12 +55,15 @@ pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Resul
 }
 
 pub async fn run_stress(config: StressTestConfig) -> anyhow::Result<()> {
+    let app_config = Config::load()?
+        .ok_or_else(|| anyhow::anyhow!("run qinAegis init first"))?;
+
     println!(
         "Running stress test: {} users, {} spawn rate, {}s duration",
         config.users, config.spawn_rate, config.duration_seconds
     );
 
-    let result = run_locust_rpc(&config).await?;
+    let result = run_locust_rpc(&config, &app_config).await?;
 
     let run_id = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -83,52 +93,33 @@ pub async fn run_stress(config: StressTestConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_lighthouse_rpc(url: &str) -> anyhow::Result<qin_aegis_core::LighthouseResult> {
-    // TODO: Implement JSON-RPC call to sandbox executor.ts
-    // For now, return a placeholder that indicates integration is pending
-    println!("Note: Lighthouse JSON-RPC integration pending - using mock result");
-    Ok(qin_aegis_core::LighthouseResult {
-        url: url.to_string(),
-        score: 0.85,
-        metrics: qin_aegis_core::LighthouseMetrics {
-            performance: 0.85,
-            accessibility: 0.9,
-            best_practices: 0.95,
-            seo: 0.88,
-            first_contentful_paint: 1200.0,
-            largest_contentful_paint: 2500.0,
-            cumulative_layout_shift: 0.05,
-            total_blocking_time: 200.0,
-            speed_index: 3.5,
-            ttfb: 180.0,
-        },
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        report_path: None,
-    })
+async fn run_lighthouse_rpc(url: &str, config: &Config) -> anyhow::Result<LighthouseResult> {
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: config.sandbox.cdp_port,
+    });
+    let automation = MidsceneAutomation::new(None, sandbox_config).await?;
+    let result = automation.run_lighthouse(url).await
+        .map_err(|e| anyhow::anyhow!("Lighthouse RPC failed: {}", e))?;
+    automation.shutdown().await.ok();
+    Ok(result)
 }
 
-async fn run_locust_rpc(config: &StressTestConfig) -> anyhow::Result<qin_aegis_core::LocustResult> {
-    println!("Note: Locust JSON-RPC integration pending - using mock result");
-    Ok(qin_aegis_core::LocustResult {
-        target_url: config.target_url.clone(),
-        stats: qin_aegis_core::LocustStats {
-            total_requests: 1000,
-            total_failures: 5,
-            median_response_time: 150.0,
-            avg_response_time: 200.0,
-            p95_response_time: 450.0,
-            p99_response_time: 800.0,
-            rps: 50.0,
-            duration: config.duration_seconds as f64,
-        },
-        timestamp: chrono::Utc::now().to_rfc3339(),
-        errors: vec![],
-    })
+async fn run_locust_rpc(stress_config: &StressTestConfig, app_config: &Config) -> anyhow::Result<LocustResult> {
+    let sandbox_config = Some(SandboxConfig {
+        cdp_port: app_config.sandbox.cdp_port,
+    });
+    let automation = MidsceneAutomation::new(None, sandbox_config).await?;
+    let result = automation.run_stress(stress_config).await
+        .map_err(|e| anyhow::anyhow!("Locust RPC failed: {}", e))?;
+    automation.shutdown().await.ok();
+    Ok(result)
 }
 
 async fn fetch_baseline(
     _url: &str,
+    _config: &Config,
 ) -> anyhow::Result<Option<LighthouseResult>> {
+    // TODO: Load baseline from ~/.qinAegis/projects/<name>/knowledge/baseline.json
     Ok(None)
 }
 

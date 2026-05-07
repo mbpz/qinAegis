@@ -9,6 +9,61 @@ use thiserror::Error;
 // Storage data types
 // ============================================================================
 
+/// Test case lifecycle status.
+///
+/// ```text
+/// Draft ──review──▶ Reviewed ──approve──▶ Approved ──run──▶ Passed / Failed
+/// Failed ──triage──▶ Approved / Draft / Flaky
+/// Flaky ──stabilize──▶ Approved
+/// Approved ──archive──▶ Archived
+/// Flaky ──archive──▶ Archived
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaseStatus {
+    Draft,
+    Reviewed,
+    Approved,
+    Flaky,
+    Archived,
+}
+
+impl CaseStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CaseStatus::Draft => "draft",
+            CaseStatus::Reviewed => "reviewed",
+            CaseStatus::Approved => "approved",
+            CaseStatus::Flaky => "flaky",
+            CaseStatus::Archived => "archived",
+        }
+    }
+
+    pub fn dir_name(&self) -> &'static str {
+        self.as_str()
+    }
+
+    /// Valid transitions from this status.
+    pub fn can_transition_to(&self, target: CaseStatus) -> bool {
+        matches!(
+            (self, target),
+            (CaseStatus::Draft, CaseStatus::Reviewed)
+                | (CaseStatus::Reviewed, CaseStatus::Approved)
+                | (CaseStatus::Reviewed, CaseStatus::Draft)
+                | (CaseStatus::Approved, CaseStatus::Archived)
+                | (CaseStatus::Approved, CaseStatus::Flaky)
+                | (CaseStatus::Flaky, CaseStatus::Approved)
+                | (CaseStatus::Flaky, CaseStatus::Archived)
+        )
+    }
+}
+
+impl std::fmt::Display for CaseStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     pub name: String,
@@ -27,6 +82,12 @@ pub struct TestCase {
     pub yaml_script: String,
     pub priority: String,
     pub created_at: String,
+    #[serde(default = "default_status")]
+    pub status: CaseStatus,
+}
+
+fn default_status() -> CaseStatus {
+    CaseStatus::Draft
 }
 
 // ============================================================================
@@ -116,7 +177,13 @@ pub trait Storage: Send + Sync {
 
     async fn load_cases(&self, name: &str) -> Result<Vec<TestCase>, StorageError>;
 
+    /// Load cases filtered by status.
+    async fn load_cases_by_status(&self, name: &str, status: CaseStatus) -> Result<Vec<TestCase>, StorageError>;
+
     async fn delete_case(&self, name: &str, case_id: &str) -> Result<(), StorageError>;
+
+    /// Move a case from one status to another (atomic file move).
+    async fn move_case(&self, name: &str, case_id: &str, from: CaseStatus, to: CaseStatus) -> Result<(), StorageError>;
 
     // Transaction support
     async fn begin_transaction(&self) -> Result<Box<dyn StorageTransaction>, StorageError>;

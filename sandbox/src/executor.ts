@@ -56,29 +56,33 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
     // Only ensure connected for methods that need the executor's page/agent
     // 'explore' creates its own browser connection in explorer.ts
-    if (req.method !== 'explore') {
+    // 'lighthouse' and 'stress' run external tools (don't need Playwright browser)
+    if (!['explore', 'lighthouse', 'stress'].includes(req.method)) {
       await ensureConnected();
     }
 
     switch (req.method) {
       case 'aiQuery': {
-        const [prompt] = req.args as [string];
+        // Rust AiQuery(String) serializes args as a plain string
+        const prompt = req.args as string;
         const data = await agent!.aiQuery(prompt);
         return { id: req.id, ok: true, data };
       }
       case 'aiAct': {
-        const [action] = req.args as [string];
+        // Rust AiAct(String) serializes args as a plain string
+        const action = req.args as string;
         await agent!.aiAct(action);
         return { id: req.id, ok: true, data: null };
       }
       case 'aiAssert': {
-        const [assertion] = req.args as [string];
+        // Rust AiAssert(String) serializes args as a plain string
+        const assertion = req.args as string;
         await agent!.aiAssert(assertion);
         return { id: req.id, ok: true, data: null };
       }
       case 'goto': {
-        const args = req.args as [{ url: string }];
-        const url = args[0].url;
+        // Rust Goto { url } serializes args as { url: "..." }
+        const { url } = req.args as { url: string };
         await page!.goto(url);
         return { id: req.id, ok: true, data: null };
       }
@@ -88,21 +92,22 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       }
       case 'explore': {
         // Rust serializes Explore { url, depth } as {"url":..., "depth":...} object
-        const args = req.args as { url: string; depth: number };
+        const { url, depth } = req.args as { url: string; depth: number };
         const { exploreProject, toMarkdown } = await import('./explorer.js');
-        const pages = await exploreProject([args.url], args.depth);
+        const pages = await exploreProject([url], depth);
         const md = toMarkdown(pages);
         return { id: req.id, ok: true, data: { pages, markdown: md } };
       }
       case 'run_yaml': {
-        const [yamlScript, caseId] = req.args as [string, string];
+        // Rust RunYaml { yaml_script, case_id } serializes as object
+        const { yaml_script, case_id } = req.args as { yaml_script: string; case_id: string };
         if (!browser) await ensureConnected();
         // Create new isolated context for each test
         const testContext = await browser!.newContext();
         const testPage = await testContext.newPage();
         try {
           const { runYaml } = await import('./yaml_runner.js');
-          const result = await runYaml(yamlScript, caseId, testPage);
+          const result = await runYaml(yaml_script, case_id, testPage);
           return { id: req.id, ok: true, data: result };
         } finally {
           await testPage.close();
@@ -110,7 +115,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         }
       }
       case 'lighthouse': {
-        const [url] = req.args as [string];
+        const { url } = req.args as { url: string };
         // Validate URL before passing to runLighthouse
         try {
           new URL(url);
@@ -126,9 +131,9 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id, ok: true, data: result };
       }
       case 'stress': {
-        const [targetUrl, users, spawnRate, duration] = req.args as [string, number, number, number];
+        const { target_url, users, spawn_rate, duration } = req.args as { target_url: string; users: number; spawn_rate: number; duration: number };
         const { runLocust } = await import('./locust_runner.js');
-        const result = await runLocust(targetUrl, users, spawnRate, duration);
+        const result = await runLocust(target_url, users, spawn_rate, duration);
         return { id: req.id, ok: true, data: result };
       }
       case 'shutdown': {
