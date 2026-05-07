@@ -1,51 +1,88 @@
 # qinAegis 安装指南
 
+## 前置要求
+
+- macOS 12.0 或更高版本
+- Node.js 18+（用于沙箱层）
+- Homebrew（用于 Homebrew 安装方式）
+
 ## 通过 Homebrew 安装（推荐）
+
+### 方式一：直接安装
 
 ```bash
 brew install yourorg/qinAegis/qinAegis
 ```
 
-或先添加 tap：
+### 方式二：先添加 tap
 
 ```bash
 brew tap yourorg/qinAegis
 brew install qinAegis
 ```
 
+安装完成后，Playwright 浏览器会在首次运行时自动安装。
+
 ## 从源码安装
 
 ```bash
+# 克隆项目
 git clone https://github.com/yourorg/qinAegis.git
 cd qinAegis
+
+# 构建 Release 版本
+cargo build --release
+
+# 安装到 PATH
 cargo install --path crates/cli
+
+# 或直接使用构建好的二进制
+./target/release/qinAegis --help
 ```
 
-## 系统要求
-
-- macOS 12.0 或更高版本
-- Node.js 18+（用于沙箱层）
-- Playwright（自动管理，无需手动安装）
+## 安装 Playwright 浏览器
 
 ```bash
-# Playwright 浏览器在首次运行时自动安装
-# 如需手动安装：
-cd sandbox && pnpm exec playwright install chromium
+# 如果使用 Homebrew 安装，Playwright 会在首次运行时自动下载
+# 手动安装（可选）：
+cd sandbox
+pnpm install
+pnpm exec playwright install chromium
 ```
 
 ## 安装后配置
 
-安装完成后，运行初始化命令：
-
 ```bash
+# 初始化配置（引导设置 AI 模型等）
 qinAegis init
+
+# 添加项目
+qinAegis project add --name my-app --url http://localhost:3000
+
+# 探索项目
+qinAegis explore --project my-app
 ```
 
-这将引导你完成：
-1. AI 模型配置
-2. 配置目录设置
-3. Playwright 浏览器安装（仅首次）
+## 常见问题
 
-## 无 Docker 要求
+### Q: 安装失败怎么办？
 
-qinAegis 使用 Playwright 直接管理浏览器实例，无需 Docker 或容器运行时。
+1. 确认 Homebrew 已正确安装
+2. 确认 macOS 版本 >= 12.0
+3. 尝试手动安装 Playwright：`pnpm exec playwright install chromium`
+
+### Q: Playwright 下载慢？
+
+可以使用国内镜像：
+```bash
+PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com npx playwright install chromium
+```
+
+### Q: 需要 Docker 吗？
+
+**不需要**。qinAegis 使用 Playwright 直接管理浏览器实例，无需 Docker 或任何容器运行时。
+
+## 更多信息
+
+- 用户手册：[docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
+- 完整文档：[README_zh.md](./README_zh.md)

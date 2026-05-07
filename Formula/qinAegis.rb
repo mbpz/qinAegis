@@ -15,13 +15,9 @@ class QinAegis < Formula
   end
 
   depends_on :macos
-  depends_on "docker" => :recommended
 
   def install
     bin.install "qinAegis"
-
-    # Install sandbox docker-compose template
-    (etc/"qinAegis").install "docker/docker-compose.sandbox.yml"
   end
 
   def post_install
@@ -30,14 +26,14 @@ class QinAegis < Formula
 
   def caveats
     <<~EOS
-      To get started:
+      快速开始：
         qinAegis init
 
-      Docker is required for sandbox execution:
-        brew install --cask docker
+      Playwright 浏览器会在首次运行时自动安装。
+      无需 Docker 或容器运行时。
 
-      For full documentation:
-        https://github.com/yourorg/qinAegis
+      完整文档：
+        https://github.com/yourorg/qinAegis/blob/main/README_zh.md
     EOS
   end
 
