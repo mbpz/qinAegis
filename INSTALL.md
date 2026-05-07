@@ -3,20 +3,20 @@
 ## Via Homebrew (Recommended)
 
 ```bash
-brew install yourorg/qinAegis/qinAegis
+brew install mbpz/qinAegis/qinAegis
 ```
 
 Or add the tap first:
 
 ```bash
-brew tap yourorg/qinAegis
+brew tap mbpz/qinAegis
 brew install qinAegis
 ```
 
 ## From Source
 
 ```bash
-git clone https://github.com/yourorg/qinAegis.git
+git clone https://github.com/mbpz/qinAegis.git
 cd qinAegis
 cargo install --path crates/cli
 ```

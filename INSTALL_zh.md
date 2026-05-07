@@ -11,13 +11,13 @@
 ### 方式一：直接安装
 
 ```bash
-brew install yourorg/qinAegis/qinAegis
+brew install mbpz/qinAegis/qinAegis
 ```
 
 ### 方式二：先添加 tap
 
 ```bash
-brew tap yourorg/qinAegis
+brew tap mbpz/qinAegis
 brew install qinAegis
 ```
 
@@ -27,7 +27,7 @@ brew install qinAegis
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourorg/qinAegis.git
+git clone https://github.com/mbpz/qinAegis.git
 cd qinAegis
 
 # 构建 Release 版本
