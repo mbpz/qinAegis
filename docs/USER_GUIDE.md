@@ -281,12 +281,8 @@ model = "MiniMax-VL-01"
 # api_key 存储在 macOS Keychain
 
 [sandbox]
-# 无 Docker 模式（默认）：使用本地 Chrome
+# Playwright 浏览器沙箱（无需 Docker）
 cdp_port = 9222
-
-# Docker 模式（可选）：
-# compose_file = "~/.config/qinAegis/docker-compose.sandbox.yml"
-# steel_port = 3333
 ```
 
 ### 环境变量
@@ -320,25 +316,17 @@ export MIDSCENE_MODEL_FAMILY="openai"
 
 ## 常见问题
 
-### Q: 浏览器未运行
+### Q: Playwright 浏览器未安装
 
-如果使用无 Docker 模式（推荐），确保 Chrome 在运行：
-
-```bash
-# 检查浏览器是否在运行
-curl -s http://localhost:9222/json/version | head -1
-
-# 如果未运行，qinAegis 会自动启动
-```
-
-### Q: Docker 未运行（传统模式）
+如果浏览器未安装，qinAegis 会自动下载，或手动安装：
 
 ```bash
-# 启动 Docker Desktop
-open -a Docker
+# 安装 Playwright Chromium
+cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
+pnpm exec playwright install chromium
 
-# 或检查状态
-docker info
+# 检查浏览器状态
+qinAegis status
 ```
 
 ### Q: Notion 授权失败

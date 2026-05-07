@@ -6,9 +6,9 @@
 
 **Architecture:** Two parallel workstreams:
 - **1A**: Rust OAuth2 HTTP server (axum) + Notion API client + interactive DB init wizard
-- **1B**: steel-browser Docker setup + CDP WebSocket test + MiniMax VL API test + Midscene.js integration
+- **1B**: Playwright browser setup + CDP WebSocket test + MiniMax VL API test + Midscene.js integration
 
-**Tech Stack:** Rust (tokio, axum, reqwest, keyring, ratatui) · Node.js (midscene, playwright) · Docker · macOS Keychain
+**Tech Stack:** Rust (tokio, axum, reqwest, keyring, ratatui) · Node.js (midscene, playwright) · Playwright · macOS Keychain
 
 ---
 
@@ -34,21 +34,16 @@ qinAegis/
 │   ├── sandbox/
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── docker.rs                # container lifecycle
-│   │       ├── steel.rs                 # steel-browser REST API
-│   │       └── health.rs                # health check polling
+│   │       ├── playwright.rs              # Playwright browser lifecycle
+│   │       └── health.rs                 # health check polling
 │   └── core/
 │       └── src/
 │           ├── lib.rs
 │           └── llm.rs                   # MiniMax VL client
-├── sandbox/                             # Node.js layer
-│   ├── package.json
-│   └── src/
-│       └── midscene_test.ts             # Midscene smoke test
-├── docker/
-│   └── docker-compose.sandbox.yml
-└── docs/superpowers/plans/
-    └── 2026-04-24-phase1-implementation-plan.md
+└── sandbox/                             # Node.js layer
+    ├── package.json
+    └── src/
+        └── midscene_test.ts             # Midscene smoke test
 ```
 
 ---

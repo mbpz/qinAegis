@@ -4,9 +4,9 @@
 
 **Goal:** Set up Homebrew distribution with GitHub Actions CI/CD for cross-platform macOS builds (ARM64 + x86_64).
 
-**Architecture:** GitHub Actions builds release binaries on tag push. Homebrew formula in a separate tap repo. Docker Compose template installed with formula for sandbox setup.
+**Architecture:** GitHub Actions builds release binaries on tag push. Homebrew formula in a separate tap repo. Playwright manages browser sandbox (no Docker required).
 
-**Tech Stack:** GitHub Actions · Homebrew · Rust cross-compilation · cosign (optional signing)
+**Tech Stack:** GitHub Actions · Homebrew · Rust cross-compilation · Playwright
 
 ---
 
@@ -19,11 +19,8 @@ qinAegis/
 │       └── release.yml           # Build + release on tag push
 ├── Formula/
 │   └── qinAegis.rb              # Homebrew formula
-├── docker/
-│   └── docker-compose.sandbox.yml  # Sandbox template
-└── .github/
-    └── workflows/
-        └── release.yml
+└── sandbox/
+    └── (Playwright manages browsers)
 ```
 
 ---
@@ -65,6 +62,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install Playwright
+        run: |
+          cd sandbox && npm install && npx playwright install chromium
 
       - name: Build Release
         run: |
@@ -142,7 +143,6 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `Formula/qinAegis.rb`
-- Create: `docker/docker-compose.sandbox.yml`
 
 - [ ] **Step 1: Create `Formula/qinAegis.rb`**
 
@@ -164,13 +164,9 @@ class QinAegis < Formula
   end
 
   depends_on :macos
-  depends_on "docker" => :recommended
 
   def install
     bin.install "qinAegis"
-
-    # Install sandbox docker-compose template
-    (etc/"qinAegis").install "docker/docker-compose.sandbox.yml"
   end
 
   def post_install
@@ -182,8 +178,8 @@ class QinAegis < Formula
       To get started:
         qinAegis init
 
-      Docker is required for sandbox execution:
-        brew install --cask docker
+      Playwright browsers are installed automatically on first run.
+      No Docker or container runtime required.
 
       For full documentation:
         https://github.com/yourorg/qinAegis
@@ -196,40 +192,14 @@ class QinAegis < Formula
 end
 ```
 
-- [ ] **Step 2: Create `docker/docker-compose.sandbox.yml`**
-
-```yaml
-# docker/docker-compose.sandbox.yml
-version: "3.9"
-
-services:
-  steel:
-    image: ghcr.io/steel-dev/steel-browser:latest
-    ports:
-      - "3333:3333"    # Steel REST API
-      - "9222:9222"    # Chrome CDP WebSocket
-    environment:
-      STEEL_API_KEY: "local-dev-key"
-    volumes:
-      - steel-data:/data
-    networks: [sandbox]
-
-networks:
-  sandbox:
-    driver: bridge
-
-volumes:
-  steel-data:
-```
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-mkdir -p Formula docker
-git add Formula/qinAegis.rb docker/docker-compose.sandbox.yml && git commit -m "feat: add Homebrew formula and sandbox template
+mkdir -p Formula
+git add Formula/qinAegis.rb && git commit -m "feat: add Homebrew formula
 
 - Formula/qinAegis.rb: Homebrew formula
-- docker-compose.sandbox.yml: Steel browser sandbox config
+- Playwright handles browser sandbox (no Docker)
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```
@@ -330,11 +300,8 @@ cargo install --path crates/cli
 ## Requirements
 
 - macOS 12.0 or later
-- Docker (for sandbox execution)
-
-```bash
-brew install --cask docker
-```
+- Node.js 18+ (for sandbox layer)
+- Playwright (automatically managed, no manual install needed)
 
 ## Post-Installation
 
@@ -345,9 +312,14 @@ qinAegis init
 ```
 
 This will:
-1. Authenticate with Notion via OAuth2
+1. Guide you through AI model configuration
 2. Set up the configuration directory
-3. Guide you through initial setup
+3. Install Playwright browsers (first run only)
+
+## No Docker Required
+
+qinAegis uses Playwright to manage browser instances directly on your machine.
+No Docker or container runtime required.
 ```
 
 - [ ] **Step 2: Commit**
@@ -357,7 +329,8 @@ git add INSTALL.md && git commit -m "docs: add installation instructions
 
 - Homebrew tap installation
 - Source installation via cargo
-- Requirements (macOS, Docker)
+- Requirements (macOS, Node.js, Playwright)
+- No Docker required
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```
@@ -383,7 +356,7 @@ git add -A && git commit -m "test: Phase 5 distribution setup complete
 
 - GitHub Actions release workflow
 - Homebrew formula
-- docker-compose sandbox template
+- Playwright browser sandbox (no Docker)
 - Version bump script
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
@@ -396,7 +369,7 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 - [x] Homebrew Formula → Task 2 (Formula/qinAegis.rb)
 - [x] GitHub Actions CI/CD → Task 1 (release.yml)
 - [x] ARM64 + x86_64 builds → Task 1 (matrix builds)
-- [x] docker-compose sandbox template → Task 2 (docker-compose.sandbox.yml)
+- [x] Playwright browser sandbox → (built into sandbox layer)
 - [x] Version bump script → Task 3 (bump-version.sh)
 - [x] Installation instructions → Task 4 (INSTALL.md)
 
@@ -411,7 +384,7 @@ All placeholder scan: No TBD/TODO found in implementation sections. All code sho
 | Task | Description | Files |
 |---|---|---|
 | 1 | GitHub Actions Release Workflow | .github/workflows/release.yml |
-| 2 | Homebrew Formula + Sandbox Template | Formula/qinAegis.rb, docker/docker-compose.sandbox.yml |
+| 2 | Homebrew Formula | Formula/qinAegis.rb |
 | 3 | Version Bump Script | scripts/bump-version.sh |
 | 4 | Installation Instructions | INSTALL.md |
 | 5 | Build Verification | — |

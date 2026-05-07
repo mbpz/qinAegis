@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Performance testing with Lighthouse CI integration
   - Stress testing with k6 integration
   - Local filesystem storage for projects, specs, cases, and reports
-  - Docker sandbox support (steel-browser)
+  - Playwright-based browser sandbox (no Docker required)
   - Homebrew installation support
   - GitHub Actions CI/CD for automated releases
 
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ratatui for TUI
 - tokio for async runtime
 - Midscene.js for browser automation
-- steel-browser (Docker) for sandboxing
+- Playwright for sandbox isolation (no Docker)
 
 ---
 

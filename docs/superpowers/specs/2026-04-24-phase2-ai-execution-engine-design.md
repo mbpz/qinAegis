@@ -36,12 +36,12 @@ Phase 2 implements the AI-driven test execution engine: project exploration, tes
 │   Node.js Midscene Process                  │
 │   sandbox/src/executor.ts                   │
 │   - aiAct() / aiQuery() / aiAssert()       │
-│   - CDP connect to steel-browser           │
+│   - Playwright chromium.launch()           │
 └──────────────────┬──────────────────────────┘
                    │ CDP WebSocket
                    ▼
 ┌─────────────────────────────────────────────┐
-│   steel-browser (Docker, localhost:9222)    │
+│   Playwright Browser (local, :9222)         │
 └──────────────────┬──────────────────────────┘
                    │ HTTP (reqwest)
                    ▼
