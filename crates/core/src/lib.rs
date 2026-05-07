@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 pub mod explorer;
 pub mod generator;
 pub mod critic;
@@ -13,6 +16,8 @@ pub mod service;
 pub mod prompts;
 pub mod sandbox;
 pub mod config;
+pub mod gate;
+
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
@@ -23,6 +28,8 @@ pub use reporter::Reporter;
 pub use performance::{LighthouseMetrics, LighthouseResult, PerformanceComparison};
 pub use stress::{LocustStats, LocustResult, StressTestConfig};
 pub use service::TestCaseService;
+// Gate service
+pub use gate::{GateService, GateResult, GateThresholds, GateStatus, E2EGateResult, PerfGateResult, StressGateResult};
 // Automation — new BrowserAutomation trait and implementations
 pub use automation::{
     AutomationError, AutomationCommand, AutomationResponse, BrowserAutomation,

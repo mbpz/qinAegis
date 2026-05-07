@@ -50,6 +50,16 @@ impl LocalStorage {
         Self::reports_dir(name).join(run_id)
     }
 
+    /// Runs directory for a project (reports dir)
+    pub fn runs_dir(name: &str) -> PathBuf {
+        Self::reports_dir(name)
+    }
+
+    /// Run directory for a specific run
+    pub fn run_dir(name: &str, run_id: &str) -> PathBuf {
+        Self::report_dir(name, run_id)
+    }
+
     /// Blocking shim for CLI compatibility — delegates to LocalStorageInstance.
     pub fn init_project(
         name: &str,

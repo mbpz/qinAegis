@@ -63,6 +63,27 @@ enum Cmd {
         #[arg(long, default_value = "60")]
         duration: u32,
     },
+    /// Run quality gate checks
+    Gate {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        run_id: Option<String>,
+        #[arg(long, default_value = "100")]
+        e2e_threshold: f64,
+        #[arg(long, default_value = "10")]
+        perf_threshold: f64,
+        #[arg(long, default_value = "100")]
+        stress_rps_min: f64,
+        #[arg(long, default_value = "2000")]
+        stress_p95_max: f64,
+        #[arg(long, default_value = "5")]
+        stress_error_max: f64,
+        #[arg(long)]
+        output_json: bool,
+        #[arg(long, short)]
+        verbose: bool,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -138,6 +159,21 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Stress { target, users, spawn_rate, duration } => {
             commands::performance::run_stress(qin_aegis_core::StressTestConfig::new(&target, users, spawn_rate, duration)).await?
+        }
+        Cmd::Gate { project, run_id, e2e_threshold, perf_threshold, stress_rps_min, stress_p95_max, stress_error_max, output_json, verbose } => {
+            let gate_cmd = commands::gate::GateCommand {
+                project,
+                run_id,
+                e2e_threshold,
+                perf_threshold,
+                stress_rps_min,
+                stress_p95_max,
+                stress_error_max,
+                output_json,
+                verbose,
+            };
+            let exit_code = gate_cmd.execute().await?;
+            std::process::exit(exit_code);
         }
     }
     Ok(())
