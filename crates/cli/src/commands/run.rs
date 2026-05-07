@@ -77,6 +77,12 @@ pub async fn run_tests(
     let summary_path = Reporter::save_summary(&run_id, &results)?;
     println!("Summary saved: {}", summary_path.display());
 
+    // Generate HTML report
+    match Reporter::generate_run_report(project_name, &run_id, &results, None, None) {
+        Ok(html_path) => println!("HTML report saved: {}", html_path.display()),
+        Err(e) => eprintln!("Warning: HTML report generation failed: {}", e),
+    }
+
     let passed = results.iter().filter(|r| r.passed).count();
     let failed = results.len() - passed;
     println!("\nRun complete: {}/{} passed", passed, failed);
