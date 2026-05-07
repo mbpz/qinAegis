@@ -1,5 +1,5 @@
 // sandbox/src/executor.ts
-import { chromium, Browser, Page } from 'playwright';
+import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
 import * as readline from 'readline';
 
@@ -10,36 +10,46 @@ interface JsonRpcRequest {
 }
 
 let browser: Browser | null = null;
+let context: BrowserContext | null = null;
 let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
-const CDP_HOST = process.env.CDP_HOST || 'localhost';
-const CDP_PORT = process.env.CDP_PORT || '9222';
-const CDP_URL = `ws://${CDP_HOST}:${CDP_PORT}`;
+const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 
-async function resolveCdpUrl(): Promise<string> {
-  try {
-    // Get browser WebSocket URL from /json/version
-    const response = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/version`);
-    if (!response.ok) {
-      throw new Error(`CDP /json/version returned ${response.status}`);
-    }
-    const info = await response.json();
-    console.error(`[executor] Connecting to browser: ${info.webSocketDebuggerUrl}`);
-    return info.webSocketDebuggerUrl;
-  } catch (e) {
-    throw new Error(`Failed to resolve CDP URL: ${e}`);
+async function ensureBrowser() {
+  if (!browser) {
+    console.error(`[executor] Launching Chromium on port ${CDP_PORT}...`);
+
+    // Launch browser with headless mode and debugging port
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        `--remote-debugging-port=${CDP_PORT}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-popup-blocking',
+        '--disable-translate',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+      ],
+    });
+
+    // Create isolated context for each session
+    context = await browser.newContext({
+      // No stored state - fresh browser
+      ignoreHTTPSErrors: true,
+    });
+
+    page = await context.newPage();
+    agent = new PlaywrightAgent(page);
+
+    console.error(`[executor] Browser launched successfully`);
   }
 }
 
 async function ensureConnected() {
-  if (!browser) {
-    const wsUrl = await resolveCdpUrl();
-    console.error(`[executor] Connecting to CDP via: ${wsUrl}`);
-    browser = await chromium.connectOverCDP(wsUrl);
-    page = await browser.newPage();
-    agent = new PlaywrightAgent(page);
-  }
+  await ensureBrowser();
 }
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
@@ -87,13 +97,16 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       case 'run_yaml': {
         const [yamlScript, caseId] = req.args as [string, string];
         if (!browser) await ensureConnected();
-        const runPage = await browser!.newPage();
+        // Create new isolated context for each test
+        const testContext = await browser!.newContext();
+        const testPage = await testContext.newPage();
         try {
           const { runYaml } = await import('./yaml_runner.js');
-          const result = await runYaml(yamlScript, caseId, runPage);
+          const result = await runYaml(yamlScript, caseId, testPage);
           return { id: req.id, ok: true, data: result };
         } finally {
-          await runPage.close();
+          await testPage.close();
+          await testContext.close();
         }
       }
       case 'lighthouse': {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::protocol::{JsonRpcRequest, MidsceneProcess, LlmConfig, SandboxConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

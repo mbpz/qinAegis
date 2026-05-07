@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use ratatui::{Frame, prelude::Rect, layout::Layout, layout::Constraint, widgets::{Block, Borders, Paragraph}, style::Stylize};
 
 /// Renders a title bar at the top of the area

@@ -36,3 +36,12 @@ pub use automation::{
     ExploreResult, PageInfo, FormInfo,
     MidsceneAutomation, BfsExplorer,
 };
+// Sandbox adapters
+pub use sandbox::PlaywrightBrowserAdapter;
+#[cfg(test)]
+mod basic_test {
+    #[test]
+    fn test_simple() {
+        assert_eq!(2 + 2, 4);
+    }
+}

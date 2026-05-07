@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use crate::generator::TestCaseGenerator;
 use crate::critic::Critic;
 use crate::llm::ArcLlmClient;

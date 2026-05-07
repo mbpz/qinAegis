@@ -1,4 +1,7 @@
-use crate::sandbox::{SandboxAdapter, SteelBrowserAdapter};
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
+use crate::sandbox::{SandboxAdapter, PlaywrightBrowserAdapter};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -191,16 +194,13 @@ impl MidsceneProcess {
         })
     }
 
-    /// Spawn with SandboxConfig (legacy, creates SteelBrowserAdapter internally).
+    /// Spawn with SandboxConfig (creates PlaywrightBrowserAdapter).
     pub async fn spawn(
         llm_config: Option<LlmConfig>,
         sandbox_config: Option<SandboxConfig>,
     ) -> anyhow::Result<Self> {
         let cfg = sandbox_config.unwrap_or_default();
-        let adapter: Arc<dyn SandboxAdapter> = Arc::new(SteelBrowserAdapter::new(format!(
-            "ws://localhost:{}",
-            cfg.cdp_port
-        )));
+        let adapter: Arc<dyn SandboxAdapter> = Arc::new(PlaywrightBrowserAdapter::new(cfg.cdp_port));
         Self::with_adapter(llm_config, adapter).await
     }
 

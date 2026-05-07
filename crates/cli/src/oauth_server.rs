@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 // crates/cli/src/oauth_server.rs
 use axum::{
     extract::Query,

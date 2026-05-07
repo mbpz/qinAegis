@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use qin_aegis_core::{PerformanceComparison, StressTestConfig, LighthouseResult};
 
 pub async fn run_performance(url: &str, threshold_percent: f64) -> anyhow::Result<()> {

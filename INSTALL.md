@@ -24,10 +24,13 @@ cargo install --path crates/cli
 ## Requirements
 
 - macOS 12.0 or later
-- Docker (for sandbox execution)
+- Node.js 18+ (for sandbox layer)
+- Playwright (automatically managed, no manual install needed)
 
 ```bash
-brew install --cask docker
+# Playwright browsers are installed automatically on first run
+# If you need to install manually:
+cd sandbox && pnpm exec playwright install chromium
 ```
 
 ## Post-Installation
@@ -39,6 +42,10 @@ qinAegis init
 ```
 
 This will:
-1. Authenticate with Notion via OAuth2
+1. Guide you through AI model configuration
 2. Set up the configuration directory
-3. Guide you through initial setup
+3. Install Playwright browsers (first run only)
+
+## No Docker Required
+
+qinAegis uses Playwright to manage browser instances directly on your machine. No Docker or container runtime required.

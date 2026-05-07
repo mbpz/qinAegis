@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 // crates/cli/src/commands/init.rs
 use crate::config::{Config, prompt_for_config};
 use qin_aegis_core::storage::LocalStorage;

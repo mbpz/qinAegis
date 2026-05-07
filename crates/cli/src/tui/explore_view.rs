@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use ratatui::{Frame, prelude::Rect, widgets::{Block, Borders, Paragraph}};
 use crate::tui::app::{App, AppState};
 use crate::tui::components;

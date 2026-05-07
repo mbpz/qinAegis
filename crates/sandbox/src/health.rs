@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use std::time::Duration;
 
 pub async fn wait_for_healthy<F, Fut>(mut check: F, timeout: Duration, interval: Duration) -> anyhow::Result<bool>

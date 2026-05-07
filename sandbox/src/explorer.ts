@@ -1,16 +1,6 @@
-import { chromium, Page } from 'playwright';
+import { chromium, Page, BrowserContext } from 'playwright';
 
-const CDP_HOST = process.env.CDP_HOST || 'localhost';
-const CDP_PORT = process.env.CDP_PORT || '9222';
-
-async function getBrowserWsUrl(): Promise<string> {
-  const response = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/version`);
-  if (!response.ok) {
-    throw new Error(`CDP /json/version returned ${response.status}`);
-  }
-  const info = await response.json();
-  return info.webSocketDebuggerUrl;
-}
+const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 
 export interface PageInfo {
   url: string;
@@ -35,17 +25,31 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
   const results: PageInfo[] = [];
   const queue: { url: string; depth: number }[] = seedUrls.map(u => ({ url: u, depth: 0 }));
 
-  // Get browser WebSocket URL
-  const browserWsUrl = await getBrowserWsUrl();
-  console.error(`[explorer] Connecting to browser via: ${browserWsUrl}`);
+  // Launch a dedicated browser for exploration
+  console.error(`[explorer] Launching Chromium for exploration on port ${CDP_PORT}...`);
 
-  // Connect to the browser via CDP
-  const browser = await chromium.connectOverCDP(browserWsUrl);
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      `--remote-debugging-port=${CDP_PORT}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-popup-blocking',
+      '--disable-translate',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+    ],
+  });
 
-  // Create a new page for exploration
+  // Create isolated context for exploration
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true,
+  });
+
   let page: Page;
   try {
-    page = await browser.newPage();
+    page = await context.newPage();
     console.error(`[explorer] Created new page`);
   } catch (e) {
     throw new Error(`Failed to create new page: ${e}`);

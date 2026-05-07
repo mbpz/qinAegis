@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use ratatui::{Frame, prelude::Rect, widgets::{Block, Borders, List, ListItem}};
 use qin_aegis_core::storage::LocalStorage;
 use crate::tui::app::App;

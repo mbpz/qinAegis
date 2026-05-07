@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 pub mod app;
 pub mod dashboard;
 pub mod project_list;

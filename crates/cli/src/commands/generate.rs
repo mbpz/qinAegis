@@ -1,3 +1,6 @@
+// Copyright (c) 2026 QinAegis Team
+// SPDX-License-Identifier: MIT
+
 use qin_aegis_core::{ArcLlmClient, MiniMaxClient, TestCaseService};
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
