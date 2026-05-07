@@ -33,6 +33,10 @@ pub enum JsonRpcRequest {
         yaml_script: String,
         case_id: String,
     },
+    #[serde(rename = "lighthouse")]
+    Lighthouse { url: String },
+    #[serde(rename = "stress")]
+    Stress { target_url: String, users: u32, spawn_rate: u32, duration: u32 },
     #[serde(rename = "shutdown")]
     Shutdown,
 }

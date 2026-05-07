@@ -17,6 +17,7 @@ pub mod prompts;
 pub mod sandbox;
 pub mod config;
 pub mod gate;
+pub mod knowledge;
 
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
@@ -36,6 +37,9 @@ pub use automation::{
     ExploreResult, PageInfo, FormInfo,
     MidsceneAutomation, BfsExplorer,
 };
+// Storage
+pub use storage::{CaseStatus, LocalStorage, LocalStorageInstance};
+
 // Sandbox adapters
 pub use sandbox::PlaywrightBrowserAdapter;
 #[cfg(test)]

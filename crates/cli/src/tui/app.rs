@@ -20,6 +20,7 @@ use crate::tui::config_form;
 use crate::tui::explore_view;
 use crate::tui::generate_view;
 use crate::tui::run_view;
+use crate::tui::review_view;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppState {
@@ -29,6 +30,16 @@ pub enum AppState {
     ExploreView { project_name: String },
     GenerateView { project_name: String },
     RunView { project_name: String },
+    ReviewView { project_name: String },
+}
+
+/// Lightweight case info for TUI display (avoids storing full TestCase).
+#[derive(Debug, Clone)]
+pub struct ReviewCaseEntry {
+    pub id: String,
+    pub name: String,
+    pub priority: String,
+    pub status: String,
 }
 
 #[derive(Debug)]
@@ -45,6 +56,9 @@ pub struct App {
     pub explore_depth: u32,
     pub explore_input_mode: bool,
     pub explore_depth_input: bool,
+    // ReviewView state
+    pub review_cases: Vec<ReviewCaseEntry>,
+    pub review_selected: Option<usize>,
 }
 
 impl App {
@@ -60,6 +74,8 @@ impl App {
             explore_depth: 3,
             explore_input_mode: false,
             explore_depth_input: false,
+            review_cases: Vec::new(),
+            review_selected: None,
         }
     }
 }
@@ -98,12 +114,18 @@ fn run_app<B: ratatui::backend::Backend>(
                 AppState::ExploreView { .. } => explore_view::render(frame, app, area),
                 AppState::GenerateView { .. } => generate_view::render(frame, app, area),
                 AppState::RunView { .. } => run_view::render(frame, app, area),
+                AppState::ReviewView { .. } => review_view::render(frame, app, area),
             }
         })?;
 
         // Call on_enter when transitioning to ProjectList
         if let AppState::ProjectList = &app.current_state {
             project_list::on_enter(app);
+        }
+
+        // Load cases when entering ReviewView
+        if let AppState::ReviewView { project_name } = &app.current_state.clone() {
+            review_view::on_enter(app, project_name);
         }
 
         // Load config when entering ConfigForm
@@ -136,7 +158,7 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                         AppState::Dashboard | AppState::ProjectList => {
                             return Ok(false);
                         }
-                        AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } => {
+                        AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
                             app.current_state = AppState::Dashboard;
                         }
                     }
@@ -150,7 +172,7 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                                 app.current_state = AppState::Dashboard;
                             }
                         }
-                        AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } => {
+                        AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
                             app.current_state = AppState::Dashboard;
                         }
                         _ => {}
@@ -198,28 +220,101 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                     }
                 }
                 KeyCode::Down => {
-                    if let AppState::ProjectList = &app.current_state {
-                        if let Some(idx) = app.selected_project {
-                            if idx + 1 < app.projects.len() {
-                                app.selected_project = Some(idx + 1);
+                    match &app.current_state {
+                        AppState::ProjectList => {
+                            if let Some(idx) = app.selected_project {
+                                if idx + 1 < app.projects.len() {
+                                    app.selected_project = Some(idx + 1);
+                                }
+                            } else if !app.projects.is_empty() {
+                                app.selected_project = Some(0);
                             }
-                        } else if !app.projects.is_empty() {
-                            app.selected_project = Some(0);
                         }
+                        AppState::ReviewView { .. } => {
+                            if let Some(idx) = app.review_selected {
+                                if idx + 1 < app.review_cases.len() {
+                                    app.review_selected = Some(idx + 1);
+                                }
+                            } else if !app.review_cases.is_empty() {
+                                app.review_selected = Some(0);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 KeyCode::Up => {
-                    if let AppState::ProjectList = &app.current_state {
-                        if let Some(idx) = app.selected_project {
-                            if idx > 0 {
-                                app.selected_project = Some(idx - 1);
+                    match &app.current_state {
+                        AppState::ProjectList => {
+                            if let Some(idx) = app.selected_project {
+                                if idx > 0 {
+                                    app.selected_project = Some(idx - 1);
+                                }
                             }
                         }
+                        AppState::ReviewView { .. } => {
+                            if let Some(idx) = app.review_selected {
+                                if idx > 0 {
+                                    app.review_selected = Some(idx - 1);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 KeyCode::Char('a') => {
-                    if let AppState::ProjectList = &app.current_state {
-                        app.message = Some("Use CLI: qinAegis project add".to_string());
+                    match &app.current_state {
+                        AppState::ProjectList => {
+                            app.message = Some("Use CLI: qinAegis project add".to_string());
+                        }
+                        AppState::ReviewView { project_name } => {
+                            let project = project_name.clone();
+                            if let Some(idx) = app.review_selected {
+                                if let Some(case) = app.review_cases.get(idx) {
+                                    let case_id = case.id.clone();
+                                    app.message = Some(format!("Approving {}...", case_id));
+                                    let handle = tokio::runtime::Handle::current();
+                                    std::thread::spawn(move || {
+                                        let result = handle.block_on(
+                                            crate::commands::review::run_review(
+                                                &project,
+                                                Some(crate::commands::review::ReviewAction::Approve { case_id }),
+                                            )
+                                        );
+                                        if let Err(e) = result {
+                                            eprintln!("Approve error: {}", e);
+                                        }
+                                    });
+                                    app.review_cases.remove(idx);
+                                    app.review_selected = None;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Char('r') => {
+                    if let AppState::ReviewView { project_name } = &app.current_state {
+                        let project = project_name.clone();
+                        if let Some(idx) = app.review_selected {
+                            if let Some(case) = app.review_cases.get(idx) {
+                                let case_id = case.id.clone();
+                                app.message = Some(format!("Rejecting {}...", case_id));
+                                let handle = tokio::runtime::Handle::current();
+                                std::thread::spawn(move || {
+                                    let result = handle.block_on(
+                                        crate::commands::review::run_review(
+                                            &project,
+                                            Some(crate::commands::review::ReviewAction::Reject { case_id }),
+                                        )
+                                    );
+                                    if let Err(e) = result {
+                                        eprintln!("Reject error: {}", e);
+                                    }
+                                });
+                                app.review_cases.remove(idx);
+                                app.review_selected = None;
+                            }
+                        }
                     }
                 }
                 KeyCode::Char('1') => {
@@ -235,6 +330,11 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 KeyCode::Char('3') => {
                     if let AppState::Dashboard = &app.current_state {
                         app.current_state = AppState::ConfigForm;
+                    }
+                }
+                KeyCode::Char('4') => {
+                    if let AppState::Dashboard = &app.current_state {
+                        app.current_state = AppState::ReviewView { project_name: String::new() };
                     }
                 }
                 KeyCode::Char('+') | KeyCode::Char('=') => {

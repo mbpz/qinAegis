@@ -5,9 +5,11 @@ use crate::automation::{
     AutomationCommand, AutomationError, AutomationResponse, BrowserAutomation,
     ExploreResult, PageInfo, TestResult,
 };
+use crate::performance::LighthouseResult;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
 use crate::prompts::ExplorerPrompt;
 use crate::sandbox::{SandboxAdapter, PlaywrightBrowserAdapter};
+use crate::stress::{LocustResult, StressTestConfig};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -54,6 +56,35 @@ impl MidsceneAutomation {
             .call(req)
             .await
             .map_err(|e| AutomationError::ProcessDied(e.to_string()))
+    }
+
+    /// Run a Lighthouse performance audit via the TS sandbox.
+    pub async fn run_lighthouse(&self, url: &str) -> Result<LighthouseResult, AutomationError> {
+        let req = JsonRpcRequest::Lighthouse { url: url.to_string() };
+        let resp = self.call(req).await?;
+        if resp.ok {
+            serde_json::from_value(resp.data.unwrap_or_default())
+                .map_err(|e| AutomationError::ParseError(e.to_string()))
+        } else {
+            Err(AutomationError::Internal(resp.error.unwrap_or_default()))
+        }
+    }
+
+    /// Run a Locust stress test via the TS sandbox.
+    pub async fn run_stress(&self, config: &StressTestConfig) -> Result<LocustResult, AutomationError> {
+        let req = JsonRpcRequest::Stress {
+            target_url: config.target_url.clone(),
+            users: config.users,
+            spawn_rate: config.spawn_rate,
+            duration: config.duration_seconds,
+        };
+        let resp = self.call(req).await?;
+        if resp.ok {
+            serde_json::from_value(resp.data.unwrap_or_default())
+                .map_err(|e| AutomationError::ParseError(e.to_string()))
+        } else {
+            Err(AutomationError::Internal(resp.error.unwrap_or_default()))
+        }
     }
 
     fn explore_result_from_response(resp: JsonRpcResponse) -> Result<ExploreResult, AutomationError> {

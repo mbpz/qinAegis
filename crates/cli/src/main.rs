@@ -41,6 +41,13 @@ enum Cmd {
         #[arg(long)]
         spec: String,
     },
+    /// Review, approve, reject, or archive test cases
+    Review {
+        #[arg(long)]
+        project: String,
+        #[command(subcommand)]
+        action: Option<ReviewAction>,
+    },
     Run {
         #[arg(long)]
         project: String,
@@ -86,6 +93,35 @@ enum Cmd {
         output_json: bool,
         #[arg(long, short)]
         verbose: bool,
+    },
+}
+
+#[derive(Parser, Debug)]
+enum ReviewAction {
+    /// Approve a case (draft → approved, ready to run)
+    Approve {
+        #[arg(long)]
+        case_id: String,
+    },
+    /// Reject a case back to draft for rewrite
+    Reject {
+        #[arg(long)]
+        case_id: String,
+    },
+    /// Archive a case
+    Archive {
+        #[arg(long)]
+        case_id: String,
+    },
+    /// Mark a case as flaky
+    Flaky {
+        #[arg(long)]
+        case_id: String,
+    },
+    /// Stabilize a flaky case back to approved
+    Stabilize {
+        #[arg(long)]
+        case_id: String,
     },
 }
 
@@ -152,6 +188,16 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Generate { project, requirement, spec } => {
             commands::generate::run_generate(&project, &requirement, std::path::Path::new(&spec)).await?
+        }
+        Cmd::Review { project, action } => {
+            let review_action = action.map(|a| match a {
+                ReviewAction::Approve { case_id } => commands::review::ReviewAction::Approve { case_id },
+                ReviewAction::Reject { case_id } => commands::review::ReviewAction::Reject { case_id },
+                ReviewAction::Archive { case_id } => commands::review::ReviewAction::Archive { case_id },
+                ReviewAction::Flaky { case_id } => commands::review::ReviewAction::Flaky { case_id },
+                ReviewAction::Stabilize { case_id } => commands::review::ReviewAction::Stabilize { case_id },
+            });
+            commands::review::run_review(&project, review_action).await?
         }
         Cmd::Run { project, test_type, concurrency } => {
             commands::run::run_tests(&project, &test_type, concurrency).await?

@@ -4,7 +4,7 @@
 use crate::generator::TestCaseGenerator;
 use crate::critic::Critic;
 use crate::llm::ArcLlmClient;
-use crate::storage::{LocalStorageInstance, Storage, TestCase as StorageTestCase};
+use crate::storage::{CaseStatus, LocalStorageInstance, Storage, TestCase as StorageTestCase};
 
 pub struct TestCaseService {
     llm: ArcLlmClient,
@@ -49,6 +49,7 @@ impl TestCaseService {
                 yaml_script: tc.yaml_script.clone(),
                 priority: tc.priority.clone(),
                 created_at: chrono::Utc::now().to_rfc3339(),
+                status: CaseStatus::Draft,
             };
 
             self.storage.save_case(project_name, &storage_case).await?;
@@ -63,6 +64,66 @@ impl TestCaseService {
         }
 
         Ok(results)
+    }
+
+    /// Review a draft case (accepts it, moving to reviewed or approved based on score).
+    pub async fn review_case(
+        &self,
+        project_name: &str,
+        case_id: &str,
+        approved: bool,
+    ) -> anyhow::Result<()> {
+        if approved {
+            self.storage
+                .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Approved)
+                .await?;
+        } else {
+            self.storage
+                .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Reviewed)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Approve a reviewed case (moves to approved, ready to run).
+    pub async fn approve_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
+        self.storage
+            .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Approved)
+            .await?;
+        Ok(())
+    }
+
+    /// Reject a reviewed case back to draft for rewrite.
+    pub async fn reject_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
+        self.storage
+            .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Draft)
+            .await?;
+        Ok(())
+    }
+
+    /// Mark a flaky case as stabilized (back to approved).
+    pub async fn stabilize_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
+        self.storage
+            .move_case(project_name, case_id, CaseStatus::Flaky, CaseStatus::Approved)
+            .await?;
+        Ok(())
+    }
+
+    /// Archive a case (from approved or flaky).
+    pub async fn archive_case(&self, project_name: &str, case_id: &str, current_status: CaseStatus) -> anyhow::Result<()> {
+        self.storage
+            .move_case(project_name, case_id, current_status, CaseStatus::Archived)
+            .await?;
+        Ok(())
+    }
+
+    /// List cases by status.
+    pub async fn list_by_status(
+        &self,
+        project_name: &str,
+        status: CaseStatus,
+    ) -> anyhow::Result<Vec<StorageTestCase>> {
+        Ok(self.storage.load_cases_by_status(project_name, status).await?)
     }
 }
 
