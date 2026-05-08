@@ -155,3 +155,10 @@ cargo run -p qinAegis -- --help
 - [User Guide](./docs/USER_GUIDE.md)
 - [Install Guide](./INSTALL.md)
 
+## Integrations
+
+- [OWASP ZAP Security Scanning](./docs/integrations/owasp-zap.md)
+- [Stagehand AI Browser Automation](./docs/integrations/stagehand.md)
+- [Playwright Test Agents Reference](./docs/integrations/playwright-test-agents.md)
+- [Testplane Visual Regression](./docs/integrations/testplane.md)
+

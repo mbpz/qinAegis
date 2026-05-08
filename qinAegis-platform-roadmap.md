@@ -1036,57 +1036,70 @@ qinAegis export --project My App --format html
 
 ## 11. 开发里程碑
 
-### Week 1–2：基础骨架
+> 更新日期：2026-05-08
 
-- [ ] Rust 项目初始化（cargo workspace）
-- [ ] ratatui 基础 TUI 框架搭建（导航 · 布局 · 输入）
-- [ ] 本地配置文件初始化（config.toml 读写）
-- [ ] 本地存储抽象（Storage trait + LocalStorageInstance）
-- [ ] qinAegis init 向导（AI 模型配置）
+### Week 1–2：基础骨架 ✅
 
-### Week 3–4：沙箱 + Midscene 集成
+- [x] Rust 项目初始化（cargo workspace）
+- [x] ratatui 基础 TUI 框架搭建（导航 · 布局 · 输入）
+- [x] 本地配置文件初始化（config.toml 读写）
+- [x] 本地存储抽象（Storage trait + LocalStorageInstance）
+- [x] qinAegis init 向导（AI 模型配置）
 
-- [ ] Playwright 浏览器进程管理（启动 · 健康检查 · 关闭）
-- [ ] Playwright trace、screenshot、console、network 证据采集
-- [ ] MCP-style Observer 输出 accessibility snapshot、DOM 摘要、console、network
-- [ ] Midscene.js 集成（aiAct / aiQuery / aiAssert 验证）
-- [ ] MiniMax VL 视觉模型对接测试
-- [ ] 本地 Qwen3-VL 备选模型测试（Ollama）
+### Week 3–4：沙箱 + Midscene 集成 ✅
 
-### Week 5–6：AI 探索 + 用例生成
+- [x] Playwright 浏览器进程管理（启动 · 健康检查 · 关闭）
+- [x] Playwright trace、screenshot、console、network 证据采集
+- [x] MCP-style Observer 输出 accessibility snapshot、DOM 摘要、console、network
+- [x] Midscene.js 集成（aiAct / aiQuery / aiAssert 验证）
+- [x] MiniMax VL 视觉模型对接测试
+- [x] 本地 Qwen3-VL 备选模型测试（Ollama）
 
-- [ ] 项目探索流水线（爬路由 · 截图 · 结构理解）
-- [ ] 规格书写入本地 spec/product.md、routes.json、ui-map.json
-- [ ] 测试用例生成（LLM Prompt 工程 · YAML 输出）
-- [ ] 测试用例写入本地 cases/draft/
-- [ ] AI Critic 自动审核逻辑
-- [ ] reviewed / approved / flaky / archived 状态流转
+### Week 5–6：AI 探索 + 用例生成 ✅
 
-### Week 7–8：核心测试执行
+- [x] 项目探索流水线（爬路由 · 截图 · 结构理解）
+- [x] 规格书写入本地 spec/product.md、routes.json、ui-map.json
+- [x] 测试用例生成（LLM Prompt 工程 · YAML 输出）
+- [x] 测试用例写入本地 cases/draft/
+- [x] AI Critic 自动审核逻辑
+- [x] reviewed / approved / flaky / archived 状态流转
 
-- [ ] YAML 用例从本地加载 + 解析
-- [ ] Midscene YAML 执行引擎封装
-- [ ] 冒烟测试流程端到端打通
-- [ ] 功能测试流程端到端打通
-- [ ] Midscene/Playwright evidence 写入本地 runs/
+### Week 7–8：核心测试执行 ✅
 
-### Week 9–10：性能 + 压测
+- [x] YAML 用例从本地加载 + 解析
+- [x] Midscene YAML 执行引擎封装
+- [x] 冒烟测试流程端到端打通
+- [x] 功能测试流程端到端打通
+- [x] Midscene/Playwright evidence 写入本地 runs/
 
-- [ ] Lighthouse CI 集成（通过 Playwright）
-- [ ] 性能测试结果解析 + 写入本地 runs/
-- [ ] k6 压测脚本 AI 生成
-- [ ] k6 直接执行 + 结果解析
-- [ ] 压测结果写入本地 runs/
-- [ ] gate 阈值配置与 CI exit code
+### Week 9–10：性能 + 压测 ✅
 
-### Week 11–12：打磨 + 分发
+- [x] Lighthouse CI 集成（通过 Playwright）
+- [x] 性能测试结果解析 + 写入本地 runs/
+- [x] k6 压测脚本 AI 生成
+- [x] k6 直接执行 + 结果解析
+- [x] 压测结果写入本地 runs/
+- [x] gate 阈值配置与 CI exit code
 
-- [ ] TUI Dashboard（通过率 · 失败用例 · 历史趋势）
-- [ ] 错误处理 · 重试机制 · 日志系统
-- [ ] Homebrew Formula 编写
-- [ ] GitHub Actions CI/CD（aarch64 + x86_64 双架构打包）
-- [ ] README + 快速上手文档
-- [ ] Beta 测试 + Bug 修复
+### Week 11–12：打磨 + 分发 ✅
+
+- [x] TUI Dashboard（通过率 · 失败用例 · 历史趋势）
+- [x] 错误处理 · 重试机制 · 日志系统
+- [x] Homebrew Formula 编写
+- [x] GitHub Actions CI/CD（aarch64 + x86_64 双架构打包）
+- [x] README + 快速上手文档
+
+### Week 13+：持续迭代 🏗️
+
+- [x] Export 命令（html/md/json 格式）
+- [x] 性能基线加载与回归对比
+- [x] Case name 正确加载
+- [x] 51 tests 测试覆盖
+- [x] StorageCredentials 云存储支持
+- [ ] 集成 OWASP ZAP 安全扫描（文档已完成）
+- [ ] 集成 Stagehand（文档已完成）
+- [ ] 集成 Testplane 视觉回归（文档已完成）
+- [ ] Playwright Test Agents 参考（文档已完成）
 
 ---
 
