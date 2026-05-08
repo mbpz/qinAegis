@@ -9,6 +9,7 @@
 //! - `coverage.json` — page → case mapping
 
 use crate::executor::TestResult;
+use crate::storage::{LocalStorage, TestCase};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -291,13 +292,24 @@ impl KnowledgeBase {
     /// Record failures from a test run.
     pub fn record_failures(
         &self,
+        project_name: &str,
         results: &[TestResult],
         run_id: &str,
     ) -> anyhow::Result<()> {
         let mut patterns = self.load_failure_patterns()?;
         for r in results.iter().filter(|r| !r.passed) {
             if let Some(ref err) = r.error_message {
-                patterns.record(&r.case_id, &r.case_id /* TODO: load case name */, err, run_id);
+                // Try to load the case name from storage
+                let case_name = if let Some(case_path) = LocalStorage::find_case_path(project_name, &r.case_id) {
+                    std::fs::read_to_string(&case_path)
+                        .ok()
+                        .and_then(|c| serde_json::from_str::<TestCase>(&c).ok())
+                        .map(|c| c.name)
+                        .unwrap_or_else(|| r.case_id.clone())
+                } else {
+                    r.case_id.clone()
+                };
+                patterns.record(&r.case_id, &case_name, err, run_id);
             }
         }
         self.save_failure_patterns(&patterns)?;
@@ -359,4 +371,98 @@ fn chrono_lite_now() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}", now.as_secs())
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_failure_category_as_str() {
+        assert_eq!(FailureCategory::ProductBug.as_str(), "product_bug");
+        assert_eq!(FailureCategory::TestIssue.as_str(), "test_issue");
+        assert_eq!(FailureCategory::Environment.as_str(), "environment");
+        assert_eq!(FailureCategory::ModelHallucination.as_str(), "model_hallucination");
+        assert_eq!(FailureCategory::Unknown.as_str(), "unknown");
+    }
+
+    #[test]
+    fn test_failure_category_classify_environment() {
+        assert_eq!(FailureCategory::classify("connection timeout"), FailureCategory::Environment);
+        assert_eq!(FailureCategory::classify("DNS lookup failed"), FailureCategory::Environment);
+        assert_eq!(FailureCategory::classify("connection refused"), FailureCategory::Environment);
+    }
+
+    #[test]
+    fn test_failure_category_classify_test_issue() {
+        assert_eq!(FailureCategory::classify("element not found"), FailureCategory::TestIssue);
+        assert_eq!(FailureCategory::classify("selector not found: #login-btn"), FailureCategory::TestIssue);
+    }
+
+    #[test]
+    fn test_failure_patterns_record_new() {
+        let mut patterns = FailurePatterns::default();
+        // Use a clear environment error message to avoid classification ambiguity
+        patterns.record("case-1", "Login Test", "request timeout after 30s", "run-1");
+
+        assert_eq!(patterns.patterns.len(), 1);
+        assert_eq!(patterns.patterns[0].case_id, "case-1");
+        assert_eq!(patterns.patterns[0].case_name, "Login Test");
+        assert_eq!(patterns.patterns[0].count, 1);
+        assert!(patterns.summary.get("environment").is_some());
+    }
+
+    #[test]
+    fn test_failure_patterns_record_increments_existing() {
+        let mut patterns = FailurePatterns::default();
+        patterns.record("case-1", "Login Test", "timeout error", "run-1");
+        patterns.record("case-1", "Login Test", "timeout error", "run-2");
+
+        assert_eq!(patterns.patterns.len(), 1);
+        assert_eq!(patterns.patterns[0].count, 2);
+        assert_eq!(patterns.patterns[0].run_id, "run-2");
+    }
+
+    #[test]
+    fn test_failure_patterns_record_different_categories() {
+        let mut patterns = FailurePatterns::default();
+        patterns.record("case-1", "Test 1", "timeout error", "run-1");
+        patterns.record("case-2", "Test 2", "assertion failed", "run-1");
+
+        assert_eq!(patterns.patterns.len(), 2);
+    }
+
+    #[test]
+    fn test_failure_patterns_dominant_category() {
+        let mut patterns = FailurePatterns::default();
+        patterns.record("case-1", "Test 1", "timeout error", "run-1");
+        patterns.record("case-2", "Test 2", "timeout error", "run-1");
+        patterns.record("case-3", "Test 3", "assertion failed", "run-1");
+
+        assert_eq!(patterns.dominant_category(), Some(FailureCategory::Environment));
+    }
+
+    #[test]
+    fn test_failure_patterns_dominant_category_empty() {
+        let patterns = FailurePatterns::default();
+        assert_eq!(patterns.dominant_category(), None);
+    }
+
+    #[test]
+    fn test_flakiness_index_record() {
+        let mut index = FlakinessIndex::default();
+        index.record("case-1", "case-1", true);
+        index.record("case-1", "case-1", false);
+        index.record("case-1", "case-1", true);
+
+        assert_eq!(index.cases.len(), 1);
+        let case = &index.cases["case-1"];
+        assert_eq!(case.total_runs, 3);
+        assert_eq!(case.total_passes, 2);
+        assert_eq!(case.total_failures, 1);
+    }
 }

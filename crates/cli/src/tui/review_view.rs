@@ -3,7 +3,7 @@
 
 use qin_aegis_core::storage::Storage;
 use ratatui::{
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, prelude::Rect,
 };
 use crate::tui::app::{App, ReviewCaseEntry};

@@ -57,6 +57,13 @@ enum Cmd {
         concurrency: usize,
     },
     Report,
+    /// Export project to various formats
+    Export {
+        #[arg(long)]
+        project: String,
+        #[arg(long, default_value = "html")]
+        format: String,
+    },
     Performance {
         #[arg(long)]
         url: String,
@@ -203,6 +210,9 @@ async fn main() -> anyhow::Result<()> {
             commands::run::run_tests(&project, &test_type, concurrency).await?
         }
         Cmd::Report => println!("report"),
+        Cmd::Export { project, format } => {
+            let _ = commands::export::export_project(&project, &format).await?;
+        }
         Cmd::Performance { url, threshold } => {
             commands::performance::run_performance(&url, threshold).await?
         }

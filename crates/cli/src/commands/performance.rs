@@ -116,10 +116,30 @@ async fn run_locust_rpc(stress_config: &StressTestConfig, app_config: &Config) -
 }
 
 async fn fetch_baseline(
-    _url: &str,
+    url: &str,
     _config: &Config,
 ) -> anyhow::Result<Option<LighthouseResult>> {
-    // TODO: Load baseline from ~/.qinAegis/projects/<name>/knowledge/baseline.json
+    use qin_aegis_core::storage::{LocalStorageInstance, Storage};
+
+    let storage = LocalStorageInstance::new();
+    let projects = storage.list_projects().await?;
+
+    // Find project matching the URL
+    for project_name in projects {
+        if let Ok(project) = storage.load_project(&project_name).await {
+            if project.url == url {
+                let baseline_path = LocalStorageInstance::baseline_path(&project_name);
+                if baseline_path.exists() {
+                    let content = tokio::fs::read_to_string(&baseline_path).await?;
+                    let baseline: LighthouseResult = serde_json::from_str(&content)?;
+                    println!("Loaded baseline from {}", baseline_path.display());
+                    return Ok(Some(baseline));
+                }
+            }
+        }
+    }
+
+    // No matching project or baseline found
     Ok(None)
 }
 

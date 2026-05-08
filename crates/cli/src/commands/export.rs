@@ -22,7 +22,7 @@ pub async fn export_project(name: &str, format: &str) -> anyhow::Result<PathBuf>
     Ok(output_path)
 }
 
-fn export_html(name: &str, project_dir: &std::path::Path) -> anyhow::Result<PathBuf> {
+fn export_html(name: &str, _project_dir: &std::path::Path) -> anyhow::Result<PathBuf> {
     let spec_path = LocalStorage::project_spec_path(name);
     let spec = if spec_path.exists() {
         std::fs::read_to_string(&spec_path)?

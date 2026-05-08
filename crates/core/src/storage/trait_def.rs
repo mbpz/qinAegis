@@ -116,7 +116,7 @@ pub enum StorageError {
 // Storage credentials
 // ============================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageCredentials {
     Local,
     S3 {

@@ -85,7 +85,7 @@ impl Reporter {
 // HTML Builder Helpers
 // ============================================================================
 
-fn build_html_header(project: &str, run_id: &str, timestamp: &str) -> String {
+fn build_html_header(project: &str, run_id: &str, _timestamp: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -336,10 +336,69 @@ fn chrono_lite_now() -> String {
         .unwrap_or_default();
     let secs = now.as_secs();
     // Simple ISO-ish format
-    let days_since_epoch = secs / 86400;
+    let _days_since_epoch = secs / 86400;
     let time_of_day = secs % 86400;
     let hours = time_of_day / 3600;
     let minutes = (time_of_day % 3600) / 60;
     let seconds = time_of_day % 60;
     format!("{:02}:{:02}:{:02} UTC", hours, minutes, seconds)
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_html_escape_basic() {
+        assert_eq!(html_escape("hello"), "hello");
+        assert_eq!(html_escape("a & b"), "a &amp; b");
+        assert_eq!(html_escape("<tag>"), "&lt;tag&gt;");
+        assert_eq!(html_escape("\"quote\""), "&quot;quote&quot;");
+    }
+
+    #[test]
+    fn test_html_escape_complex() {
+        assert_eq!(
+            html_escape("A & B <C> \"D\" 'E'"),
+            "A &amp; B &lt;C&gt; &quot;D&quot; &#39;E&#39;"
+        );
+    }
+
+    #[test]
+    fn test_build_html_header() {
+        let header = build_html_header("my-project", "run-123", "2024-01-01");
+        assert!(header.contains("my-project"));
+        assert!(header.contains("run-123"));
+        assert!(header.contains("<!DOCTYPE html>"));
+        assert!(header.contains("<title>qinAegis Report"));
+    }
+
+    #[test]
+    fn test_build_summary_cards() {
+        let cards = build_summary_cards(8, 2, 5000, 80.0);
+        assert!(cards.contains("8"));
+        assert!(cards.contains("2"));
+        assert!(cards.contains("80%"));
+        assert!(cards.contains("5.0s")); // 5000ms = 5s
+    }
+
+    #[test]
+    fn test_build_summary_cards_empty() {
+        let cards = build_summary_cards(0, 0, 0, 100.0);
+        assert!(cards.contains("0"));
+        assert!(cards.contains("100%"));
+    }
+
+    #[test]
+    fn test_build_css_contains_theme() {
+        let css = build_css();
+        assert!(css.contains("--bg:"));
+        assert!(css.contains("--green:"));
+        assert!(css.contains("--red:"));
+        assert!(css.contains("font-family:"));
+    }
 }

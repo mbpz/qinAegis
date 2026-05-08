@@ -5,7 +5,7 @@ use ratatui::{Frame, prelude::Rect, widgets::{Block, Borders, Paragraph}};
 use crate::tui::app::App;
 use crate::tui::components;
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
     let [top, middle, bottom] = components::three_panel(area);
     components::title_bar(frame, top, "Run Tests");
 

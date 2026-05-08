@@ -228,24 +228,3 @@ struct ChatRequest {
     messages: Vec<Message>,
     max_tokens: Option<u32>,
 }
-
-// Additional message content types
-#[derive(Serialize, Clone)]
-#[serde(untagged)]
-pub enum Content {
-    Text(String),
-    Parts(Vec<ContentPart>),
-}
-
-#[derive(Serialize, Clone)]
-pub struct ContentPart {
-    #[serde(rename = "type")]
-    pub part_type: String,
-    pub text: Option<String>,
-    pub image_url: Option<ImageUrl>,
-}
-
-#[derive(Serialize, Clone)]
-pub struct ImageUrl {
-    pub url: String,
-}

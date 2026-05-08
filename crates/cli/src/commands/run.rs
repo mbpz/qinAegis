@@ -89,7 +89,7 @@ pub async fn run_tests(
 
     // Record knowledge base artifacts
     let kb = KnowledgeBase::new(project_name);
-    if let Err(e) = kb.record_failures(&results, &run_id) {
+    if let Err(e) = kb.record_failures(project_name, &results, &run_id) {
         eprintln!("Warning: Failed to record failure patterns: {}", e);
     }
     if let Err(e) = kb.record_flakiness(&results) {

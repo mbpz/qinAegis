@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::storage::trait_def::{
-    CaseStatus, ProjectConfig, Storage, StorageError, StorageTransaction, TestCase,
+    CaseStatus, ProjectConfig, Storage, StorageCredentials, StorageError, StorageTransaction, TestCase,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -86,6 +86,21 @@ impl LocalStorage {
     /// Run directory for a specific run
     pub fn run_dir(name: &str, run_id: &str) -> PathBuf {
         Self::report_dir(name, run_id)
+    }
+
+    /// Knowledge directory for a project (stores baseline, coverage, etc.)
+    pub fn knowledge_dir(name: &str) -> PathBuf {
+        Self::project_dir(name).join("knowledge")
+    }
+
+    /// Baseline performance data path
+    pub fn baseline_path(name: &str) -> PathBuf {
+        Self::knowledge_dir(name).join("baseline.json")
+    }
+
+    /// Cloud credentials path (local storage only, not synced to cloud)
+    pub fn credentials_path() -> PathBuf {
+        Self::base_path().join("credentials.json")
     }
 
     /// Blocking shim for CLI compatibility — delegates to LocalStorageInstance.
@@ -198,6 +213,53 @@ impl LocalStorageInstance {
 impl Default for LocalStorageInstance {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl LocalStorageInstance {
+    /// Knowledge directory for a project
+    pub fn knowledge_dir(name: &str) -> PathBuf {
+        LocalStorage::knowledge_dir(name)
+    }
+
+    /// Baseline performance data path
+    pub fn baseline_path(name: &str) -> PathBuf {
+        LocalStorage::baseline_path(name)
+    }
+
+    /// Save cloud credentials locally (credentials are stored locally only).
+    pub fn save_credentials(credentials: &StorageCredentials) -> anyhow::Result<()> {
+        if matches!(credentials, StorageCredentials::Local) {
+            // Remove credentials file if switching to local
+            let path = LocalStorage::credentials_path();
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
+            return Ok(());
+        }
+        let path = LocalStorage::credentials_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(credentials)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+
+    /// Load cloud credentials from local storage.
+    pub fn load_credentials() -> anyhow::Result<StorageCredentials> {
+        let path = LocalStorage::credentials_path();
+        if !path.exists() {
+            return Ok(StorageCredentials::default());
+        }
+        let content = std::fs::read_to_string(path)?;
+        let creds: StorageCredentials = serde_json::from_str(&content)?;
+        Ok(creds)
+    }
+
+    /// Check if cloud credentials are configured (not Local).
+    pub fn has_cloud_credentials() -> bool {
+        !matches!(Self::load_credentials().unwrap_or_default(), StorageCredentials::Local)
     }
 }
 
