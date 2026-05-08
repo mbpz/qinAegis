@@ -154,6 +154,28 @@ cargo run -p qinAegis -- --help
 - [Architecture Design](./docs/superpowers/specs/2026-04-24-qinaegis-architecture-design.md)
 - [User Guide](./docs/USER_GUIDE.md)
 - [Install Guide](./INSTALL.md)
+- [CI/CD Orchestration](./docs/orchestration.md)
+
+## CI/CD Integration
+
+qinAegis can be integrated into your CI/CD pipeline for automated quality gates:
+
+```yaml
+# .github/workflows/qinAegis.yml
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qinAegis
+        run: curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-unknown-linux-gnu.tar.gz | tar xz
+      - name: Run Tests
+        run: |
+          ./qinAegis run --project my-webapp --test-type smoke
+          ./qinAegis gate --project my-webapp --e2e-threshold 95
+```
+
+See [orchestration docs](./docs/orchestration.md) for full pipeline: explore → generate → review → run → gate.
 
 ## Integrations
 

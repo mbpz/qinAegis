@@ -1096,6 +1096,7 @@ qinAegis export --project My App --format html
 - [x] Case name 正确加载
 - [x] 51 tests 测试覆盖
 - [x] StorageCredentials 云存储支持
+- [x] CI/CD 编排工作流 (GitHub Actions 全流程自动化)
 - [ ] 集成 OWASP ZAP 安全扫描（文档已完成）
 - [ ] 集成 Stagehand（文档已完成）
 - [ ] 集成 Testplane 视觉回归（文档已完成）

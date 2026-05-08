@@ -151,164 +151,137 @@ fn run_app<B: ratatui::backend::Backend>(
 
 fn handle_events(app: &mut App) -> anyhow::Result<bool> {
     if let Event::Key(key) = event::read()? {
-        if key.kind == KeyEventKind::Press {
-            match key.code {
-                KeyCode::Char('q') => {
-                    match &app.current_state {
-                        AppState::Dashboard | AppState::ProjectList => {
-                            return Ok(false);
-                        }
-                        AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
-                            app.current_state = AppState::Dashboard;
-                        }
+        // Handle both Press and repeat events for navigation keys
+        match key.code {
+            KeyCode::Char('q') => {
+                match &app.current_state {
+                    AppState::Dashboard | AppState::ProjectList => {
+                        return Ok(false);
                     }
-                }
-                KeyCode::Esc => {
-                    match &app.current_state {
-                        AppState::ExploreView { .. } => {
-                            if app.explore_input_mode {
-                                app.explore_input_mode = false;
-                            } else {
-                                app.current_state = AppState::Dashboard;
-                            }
-                        }
-                        AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
-                            app.current_state = AppState::Dashboard;
-                        }
-                        _ => {}
-                    }
-                }
-                KeyCode::Enter => {
-                    if let AppState::ConfigForm = &app.current_state {
+                    AppState::ConfigForm | AppState::ExploreView { .. } | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
                         app.current_state = AppState::Dashboard;
-                        app.message = Some("Settings saved".to_string());
-                    } else if let AppState::Dashboard = &app.current_state {
-                        app.current_state = AppState::ProjectList;
-                    } else if let AppState::ProjectList = &app.current_state {
-                        if let Some(idx) = app.selected_project.clone() {
-                            let name = app.projects[idx].clone();
-                            app.explore_input_mode = false;
-                            app.explore_url.clear();
-                            app.current_state = AppState::ExploreView { project_name: name };
-                        }
-                    } else if let AppState::ExploreView { .. } = &app.current_state {
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                match &app.current_state {
+                    AppState::ExploreView { .. } => {
                         if app.explore_input_mode {
                             app.explore_input_mode = false;
-                            // Start explore
-                            let url = app.explore_url.clone();
-                            let depth = app.explore_depth;
-                            let project_name = match &app.current_state {
-                                AppState::ExploreView { project_name } => project_name.clone(),
-                                _ => String::new(),
-                            };
-                            app.is_loading = true;
-                            app.message = Some("Exploring...".to_string());
-                            // Run async command in background
-                            let handle = tokio::runtime::Handle::current();
-                            std::thread::spawn(move || {
-                                let result = handle.block_on(
-                                    crate::commands::explore::run_explore(&project_name, Some(url), depth)
-                                );
-                                if let Err(e) = result {
-                                    eprintln!("Explore error: {}", e);
-                                }
-                            });
-                            app.current_state = AppState::Dashboard;
                         } else {
-                            app.explore_input_mode = true;
+                            app.current_state = AppState::Dashboard;
                         }
                     }
+                    AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
+                        app.current_state = AppState::Dashboard;
+                    }
+                    _ => {}
                 }
-                KeyCode::Down => {
-                    match &app.current_state {
-                        AppState::ProjectList => {
-                            if let Some(idx) = app.selected_project {
-                                if idx + 1 < app.projects.len() {
-                                    app.selected_project = Some(idx + 1);
-                                }
-                            } else if !app.projects.is_empty() {
-                                app.selected_project = Some(0);
+            }
+            KeyCode::Enter => {
+                if let AppState::ConfigForm = &app.current_state {
+                    app.current_state = AppState::Dashboard;
+                    app.message = Some("Settings saved".to_string());
+                } else if let AppState::Dashboard = &app.current_state {
+                    app.current_state = AppState::ProjectList;
+                } else if let AppState::ProjectList = &app.current_state {
+                    if let Some(idx) = app.selected_project.clone() {
+                        let name = app.projects[idx].clone();
+                        app.explore_input_mode = false;
+                        app.explore_url.clear();
+                        app.current_state = AppState::ExploreView { project_name: name };
+                    }
+                } else if let AppState::ExploreView { .. } = &app.current_state {
+                    if app.explore_input_mode {
+                        app.explore_input_mode = false;
+                        // Start explore
+                        let url = app.explore_url.clone();
+                        let depth = app.explore_depth;
+                        let project_name = match &app.current_state {
+                            AppState::ExploreView { project_name } => project_name.clone(),
+                            _ => String::new(),
+                        };
+                        app.is_loading = true;
+                        app.message = Some("Exploring...".to_string());
+                        // Run async command in background
+                        let handle = tokio::runtime::Handle::current();
+                        std::thread::spawn(move || {
+                            let result = handle.block_on(
+                                crate::commands::explore::run_explore(&project_name, Some(url), depth)
+                            );
+                            if let Err(e) = result {
+                                eprintln!("Explore error: {}", e);
                             }
-                        }
-                        AppState::ReviewView { .. } => {
-                            if let Some(idx) = app.review_selected {
-                                if idx + 1 < app.review_cases.len() {
-                                    app.review_selected = Some(idx + 1);
-                                }
-                            } else if !app.review_cases.is_empty() {
-                                app.review_selected = Some(0);
-                            }
-                        }
-                        _ => {}
+                        });
+                        app.current_state = AppState::Dashboard;
+                    } else {
+                        app.explore_input_mode = true;
                     }
                 }
-                KeyCode::Up => {
-                    match &app.current_state {
-                        AppState::ProjectList => {
-                            if let Some(idx) = app.selected_project {
-                                if idx > 0 {
-                                    app.selected_project = Some(idx - 1);
-                                }
+            }
+            KeyCode::Down => {
+                match &app.current_state {
+                    AppState::ProjectList => {
+                        if let Some(idx) = app.selected_project {
+                            if idx + 1 < app.projects.len() {
+                                app.selected_project = Some(idx + 1);
                             }
+                        } else if !app.projects.is_empty() {
+                            app.selected_project = Some(0);
                         }
-                        AppState::ReviewView { .. } => {
-                            if let Some(idx) = app.review_selected {
-                                if idx > 0 {
-                                    app.review_selected = Some(idx - 1);
-                                }
-                            }
-                        }
-                        _ => {}
                     }
-                }
-                KeyCode::Char('a') => {
-                    match &app.current_state {
-                        AppState::ProjectList => {
-                            app.message = Some("Use CLI: qinAegis project add".to_string());
+                    AppState::ReviewView { .. } => {
+                        if let Some(idx) = app.review_selected {
+                            if idx + 1 < app.review_cases.len() {
+                                app.review_selected = Some(idx + 1);
+                            }
+                        } else if !app.review_cases.is_empty() {
+                            app.review_selected = Some(0);
                         }
-                        AppState::ReviewView { project_name } => {
-                            let project = project_name.clone();
-                            if let Some(idx) = app.review_selected {
-                                if let Some(case) = app.review_cases.get(idx) {
-                                    let case_id = case.id.clone();
-                                    app.message = Some(format!("Approving {}...", case_id));
-                                    let handle = tokio::runtime::Handle::current();
-                                    std::thread::spawn(move || {
-                                        let result = handle.block_on(
-                                            crate::commands::review::run_review(
-                                                &project,
-                                                Some(crate::commands::review::ReviewAction::Approve { case_id }),
-                                            )
-                                        );
-                                        if let Err(e) = result {
-                                            eprintln!("Approve error: {}", e);
-                                        }
-                                    });
-                                    app.review_cases.remove(idx);
-                                    app.review_selected = None;
-                                }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Up => {
+                match &app.current_state {
+                    AppState::ProjectList => {
+                        if let Some(idx) = app.selected_project {
+                            if idx > 0 {
+                                app.selected_project = Some(idx - 1);
                             }
                         }
-                        _ => {}
                     }
+                    AppState::ReviewView { .. } => {
+                        if let Some(idx) = app.review_selected {
+                            if idx > 0 {
+                                app.review_selected = Some(idx - 1);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                KeyCode::Char('r') => {
-                    if let AppState::ReviewView { project_name } = &app.current_state {
+            }
+            KeyCode::Char('a') => {
+                match &app.current_state {
+                    AppState::ProjectList => {
+                        app.message = Some("Use CLI: qinAegis project add".to_string());
+                    }
+                    AppState::ReviewView { project_name } => {
                         let project = project_name.clone();
                         if let Some(idx) = app.review_selected {
                             if let Some(case) = app.review_cases.get(idx) {
                                 let case_id = case.id.clone();
-                                app.message = Some(format!("Rejecting {}...", case_id));
+                                app.message = Some(format!("Approving {}...", case_id));
                                 let handle = tokio::runtime::Handle::current();
                                 std::thread::spawn(move || {
                                     let result = handle.block_on(
                                         crate::commands::review::run_review(
                                             &project,
-                                            Some(crate::commands::review::ReviewAction::Reject { case_id }),
+                                            Some(crate::commands::review::ReviewAction::Approve { case_id }),
                                         )
                                     );
                                     if let Err(e) = result {
-                                        eprintln!("Reject error: {}", e);
+                                        eprintln!("Approve error: {}", e);
                                     }
                                 });
                                 app.review_cases.remove(idx);
@@ -316,59 +289,85 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                             }
                         }
                     }
+                    _ => {}
                 }
-                KeyCode::Char('1') => {
-                    if let AppState::Dashboard = &app.current_state {
-                        app.current_state = AppState::ProjectList;
-                    }
-                }
-                KeyCode::Char('2') => {
-                    if let AppState::Dashboard = &app.current_state {
-                        app.current_state = AppState::GenerateView { project_name: String::new() };
-                    }
-                }
-                KeyCode::Char('3') => {
-                    if let AppState::Dashboard = &app.current_state {
-                        app.current_state = AppState::ConfigForm;
-                    }
-                }
-                KeyCode::Char('4') => {
-                    if let AppState::Dashboard = &app.current_state {
-                        app.current_state = AppState::ReviewView { project_name: String::new() };
-                    }
-                }
-                KeyCode::Char('+') | KeyCode::Char('=') => {
-                    if let AppState::ExploreView { .. } = &app.current_state {
-                        if app.explore_depth < 10 {
-                            app.explore_depth += 1;
-                        }
-                    }
-                }
-                KeyCode::Char('-') => {
-                    if let AppState::ExploreView { .. } = &app.current_state {
-                        if app.explore_depth > 1 {
-                            app.explore_depth -= 1;
-                        }
-                    }
-                }
-                KeyCode::Char(c) => {
-                    if let AppState::ExploreView { .. } = &app.current_state {
-                        if app.explore_input_mode {
-                            app.explore_url.push(c);
-                        } else if c == 'i' {
-                            app.explore_input_mode = true;
-                        }
-                    }
-                }
-                KeyCode::Backspace => {
-                    if let AppState::ExploreView { .. } = &app.current_state {
-                        if app.explore_input_mode {
-                            app.explore_url.pop();
-                        }
-                    }
-                }
-                _ => {}
             }
+            KeyCode::Char('r') => {
+                if let AppState::ReviewView { project_name } = &app.current_state {
+                    let project = project_name.clone();
+                    if let Some(idx) = app.review_selected {
+                        if let Some(case) = app.review_cases.get(idx) {
+                            let case_id = case.id.clone();
+                            app.message = Some(format!("Rejecting {}...", case_id));
+                            let handle = tokio::runtime::Handle::current();
+                            std::thread::spawn(move || {
+                                let result = handle.block_on(
+                                    crate::commands::review::run_review(
+                                        &project,
+                                        Some(crate::commands::review::ReviewAction::Reject { case_id }),
+                                    )
+                                );
+                                if let Err(e) = result {
+                                    eprintln!("Reject error: {}", e);
+                                }
+                            });
+                            app.review_cases.remove(idx);
+                            app.review_selected = None;
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('1') => {
+                if let AppState::Dashboard = &app.current_state {
+                    app.current_state = AppState::ProjectList;
+                }
+            }
+            KeyCode::Char('2') => {
+                if let AppState::Dashboard = &app.current_state {
+                    app.current_state = AppState::GenerateView { project_name: String::new() };
+                }
+            }
+            KeyCode::Char('3') => {
+                if let AppState::Dashboard = &app.current_state {
+                    app.current_state = AppState::ConfigForm;
+                }
+            }
+            KeyCode::Char('4') => {
+                if let AppState::Dashboard = &app.current_state {
+                    app.current_state = AppState::RunView { project_name: String::new() };
+                }
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                if let AppState::ExploreView { .. } = &app.current_state {
+                    if app.explore_depth < 10 {
+                        app.explore_depth += 1;
+                    }
+                }
+            }
+            KeyCode::Char('-') => {
+                if let AppState::ExploreView { .. } = &app.current_state {
+                    if app.explore_depth > 1 {
+                        app.explore_depth -= 1;
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                if let AppState::ExploreView { .. } = &app.current_state {
+                    if app.explore_input_mode {
+                        app.explore_url.push(c);
+                    } else if c == 'i' {
+                        app.explore_input_mode = true;
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                if let AppState::ExploreView { .. } = &app.current_state {
+                    if app.explore_input_mode {
+                        app.explore_url.pop();
+                    }
+                }
+            }
+            _ => {}
         }
     }
     Ok(true)
