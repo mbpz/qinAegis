@@ -191,16 +191,15 @@ impl MidsceneProcess {
                     continue;
                 }
                 println!("[protocol] Received JSON line: {} chars", line.len());
-                if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&line) {
-                    println!("[protocol] Parsed OK, sending to channel");
-                    let _ = resp_tx.send(resp).await;
-                } else {
-                    // Try to parse with error details
-                    match serde_json::from_str::<serde_json::Value>(&line) {
-                        Ok(_) => println!("[protocol] WARN: Parsed as Value but not as JsonRpcResponse - check field types"),
-                        Err(e) => println!("[protocol] WARN: JSON parse error: {}", e),
+                match serde_json::from_str::<JsonRpcResponse>(&line) {
+                    Ok(resp) => {
+                        println!("[protocol] Parsed OK, sending to channel");
+                        let _ = resp_tx.send(resp).await;
                     }
-                    println!("[protocol] WARN: Raw line: {}", &line[..line.len().min(300)]);
+                    Err(e) => {
+                        println!("[protocol] WARN: JsonRpcResponse parse error: {}", e);
+                        println!("[protocol] WARN: Raw line (first 300): {}", &line[..line.len().min(300)]);
+                    }
                 }
             }
             println!("[protocol] Reader loop ended");
