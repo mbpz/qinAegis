@@ -165,9 +165,8 @@ rl.on('line', async (line) => {
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
     console.error(`[executor] Sending response: ${respJson.substring(0, 100)}...`);
-    console.log(respJson);
-    // Flush stdout to ensure response is sent
-    process.stdout.flush();
+    // Use write instead of flush - console.log already flushes
+    process.stdout.write(respJson + '\n');
   } catch (e) {
     console.error(JSON.stringify({ id: '?', ok: false, error: String(e) }));
   }
