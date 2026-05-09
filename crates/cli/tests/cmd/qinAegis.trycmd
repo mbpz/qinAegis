@@ -1,0 +1,32 @@
+[cmd]
+$ qinAegis --help
+stdout ```
+Usage: qinAegis <COMMAND>
+
+Commands:
+  tui          Start interactive TUI
+  setup        Setup or reconfigure QinAegis (interactive)
+  init         Initialize QinAegis configuration
+  project      Manage projects
+  config       Show current configuration
+  explore
+  generate
+  review       Review, approve, reject, or archive test cases
+  run
+  report
+  export       Export project to various formats
+  performance
+  stress
+  gate         Run quality gate checks
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+```
+
+[cmd]
+$ qinAegis --version
+stdout ```
+qinAegis 0.1.0
+```
