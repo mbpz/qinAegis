@@ -58,6 +58,7 @@ pub struct ExploreResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     pub url: String,
     pub title: String,
@@ -79,10 +80,107 @@ pub struct PageInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormInfo {
-    pub method: String,
+    #[serde(default)]
     pub action: String,
     #[serde(default)]
+    pub method: String,
+    #[serde(default)]
     pub fields: Vec<String>,
+}
+
+impl From<AiFormInfo> for FormInfo {
+    fn from(ai: AiFormInfo) -> Self {
+        // Old format: form with actions and fields array
+        if !ai.actions.is_empty() {
+            let action = ai.actions.get(0).cloned().unwrap_or_default();
+            let fields: Vec<String> = ai.fields.into_iter().map(|f| {
+                // Try to parse as object with label, or use string directly
+                if let Some(obj) = f.as_object() {
+                    obj.get("label")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| f.to_string())
+                } else {
+                    f.as_str().map(String::from).unwrap_or_else(|| f.to_string())
+                }
+            }).collect();
+            return FormInfo {
+                action,
+                method: String::new(),
+                fields,
+            };
+        }
+        // New format: flat UI elements with type/label/text
+        FormInfo {
+            action: if !ai.text.is_empty() { ai.text } else { ai.label.clone() },
+            method: ai.ui_type,
+            fields: vec![ai.label],
+        }
+    }
+}
+
+// Intermediate struct to match Midscene's actual response format
+// Handles two formats:
+// 1. Old: { actions: [...], fields: [...] } - form with action and field list
+// 2. New: { type: "input|button|checkbox", label: "...", text: "..." } - flat UI elements
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiFormInfo {
+    // Old format fields
+    #[serde(alias = "actions", default)]
+    actions: Vec<String>,
+    #[serde(alias = "submitButtonText", default)]
+    submit_button_text: String,
+    #[serde(alias = "checkboxes", default)]
+    checkboxes: Vec<String>,
+    #[serde(alias = "fields", default)]
+    fields: Vec<serde_json::Value>,
+    // New format fields (flat UI elements)
+    #[serde(rename = "type", default)]
+    ui_type: String,
+    #[serde(alias = "label", default)]
+    label: String,
+    #[serde(alias = "text", default)]
+    text: String,
+    #[serde(alias = "placeholder", default)]
+    placeholder: String,
+}
+
+// Same for PageInfo
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiPageInfo {
+    title: String,
+    #[serde(alias = "primaryNav")]
+    primary_nav: Vec<String>,
+    #[serde(alias = "mainFeatures")]
+    main_features: Vec<String>,
+    #[serde(alias = "authRequired")]
+    auth_required: bool,
+    #[serde(alias = "techStack")]
+    tech_stack: Vec<String>,
+    #[serde(alias = "forms")]
+    forms: Vec<AiFormInfo>,
+    #[serde(alias = "keyElements")]
+    key_elements: Vec<String>,
+    #[serde(alias = "links")]
+    links: Vec<String>,
+}
+
+impl From<AiPageInfo> for PageInfo {
+    fn from(ai: AiPageInfo) -> Self {
+        PageInfo {
+            url: String::new(),
+            title: ai.title,
+            primary_nav: ai.primary_nav,
+            main_features: ai.main_features,
+            auth_required: ai.auth_required,
+            tech_stack: ai.tech_stack,
+            forms: ai.forms.into_iter().map(FormInfo::from).collect(),
+            key_elements: ai.key_elements,
+            links: ai.links,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

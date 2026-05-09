@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 use crate::automation::{
-    AutomationCommand, AutomationError, AutomationResponse, BrowserAutomation,
-    ExploreResult, PageInfo, TestResult,
+    AutomationCommand, AutomationError, AutomationResponse,
+    BrowserAutomation, ExploreResult, PageInfo, TestResult,
 };
+use super::trait_def::AiPageInfo;
 use crate::performance::LighthouseResult;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
 use crate::prompts::ExplorerPrompt;
@@ -172,20 +173,10 @@ impl BrowserAutomation for MidsceneAutomation {
         let req = JsonRpcRequest::AiQuery(prompt.to_string());
         let resp = self.call(req).await?;
         if resp.ok {
-            // resp.data is Option<Value>, unwrap to get Value
             let data = resp.data.unwrap_or_default();
-            println!("[ai_query] resp.data type: {:?}", data);
-            // If data is a string, return it directly; otherwise serialize to string
             let json_str = match data {
-                serde_json::Value::String(s) => {
-                    println!("[ai_query] data is String: {}", s);
-                    s
-                }
-                other => {
-                    let s = serde_json::to_string(&other).unwrap_or_default();
-                    println!("[ai_query] data converted to String: {}", s);
-                    s
-                }
+                serde_json::Value::String(s) => s,
+                other => serde_json::to_string(&other).unwrap_or_default(),
             };
             Ok(json_str)
         } else {
@@ -256,28 +247,34 @@ impl BfsExplorer {
                 pages_crawled + 1, seed_urls.len(), url, depth);
             pages_crawled += 1;
 
+            // First navigate to the URL
+            println!("[explorer] Navigating to: {}", url);
+            if let Err(e) = self.automation.goto(&url).await {
+                println!("[explorer] WARN: goto failed for {}: {}", url, e);
+                continue;
+            }
+
             // Use ai_query to extract page info + links
             let prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
-            println!("[explorer] Sending ai_query for: {}", url);
 
             match self.automation.ai_query(&prompt).await {
                 Ok(json_str) => {
-                    println!("[explorer] Received ai_query response ({} chars)", json_str.len());
-                    if let Ok(info) = serde_json::from_str::<PageInfo>(&json_str) {
-                        println!("[explorer] Page info: title='{}', links={}", info.title, info.links.len());
-                        pages.push(info.clone());
+                    match serde_json::from_str::<AiPageInfo>(&json_str) {
+                        Ok(ai_info) => {
+                            let mut info = PageInfo::from(ai_info);
+                            info.url = url.clone();
+                            pages.push(info.clone());
 
-                        // Queue discovered links
-                        let mut queued = 0;
-                        for link in info.links.iter().take(10) {
-                            if !visited.contains(link) {
-                                queue.push((link.clone(), depth + 1));
-                                queued += 1;
+                            // Queue discovered links
+                            for link in info.links.iter().take(10) {
+                                if !visited.contains(link) {
+                                    queue.push((link.clone(), depth + 1));
+                                }
                             }
                         }
-                        println!("[explorer] Queued {} new links (queue size: {})", queued, queue.len());
-                    } else {
-                        println!("[explorer] WARN: Failed to parse PageInfo from response");
+                        Err(e) => {
+                            println!("[explorer] WARN: Failed to parse page info for {}: {}", url, e);
+                        }
                     }
                 }
                 Err(e) => {
