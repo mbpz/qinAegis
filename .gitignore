@@ -13,3 +13,5 @@ release/
 .claude/
 node_modules/
 package-lock.json
+# Test artifacts
+tests/snapshots/

@@ -209,8 +209,23 @@ impl MidsceneProcess {
     }
 
     pub async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
+        let method_name = match &req {
+            JsonRpcRequest::AiQuery(_) => "aiQuery",
+            JsonRpcRequest::AiAct(_) => "aiAct",
+            JsonRpcRequest::AiAssert(_) => "aiAssert",
+            JsonRpcRequest::Explore { .. } => "explore",
+            JsonRpcRequest::Goto { .. } => "goto",
+            JsonRpcRequest::Screenshot => "screenshot",
+            JsonRpcRequest::RunYaml { .. } => "run_yaml",
+            JsonRpcRequest::Lighthouse { .. } => "lighthouse",
+            JsonRpcRequest::Stress { .. } => "stress",
+            JsonRpcRequest::Shutdown => "shutdown",
+        };
+        println!("[protocol] Sending {} request...", method_name);
         self.request_tx.send(req).await?;
+        println!("[protocol] Waiting for response...");
         let resp = self.response_rx.lock().await.recv().await;
+        println!("[protocol] Response received");
         resp.ok_or_else(|| anyhow::anyhow!("process died"))
     }
 }

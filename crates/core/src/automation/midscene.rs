@@ -226,6 +226,11 @@ impl BfsExplorer {
         let mut visited = std::collections::HashSet::new();
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
+        let mut pages_crawled = 0;
+
+        println!("[explorer] Starting BFS exploration...");
+        println!("[explorer] Seed URLs: {:?}", seed_urls);
+        println!("[explorer] Max depth: {}", max_depth);
 
         while let Some((url, depth)) = queue.pop() {
             if visited.contains(&url) || depth > max_depth {
@@ -233,28 +238,41 @@ impl BfsExplorer {
             }
             visited.insert(url.clone());
 
+            println!("[explorer] [{}/{}] Crawling: {} (depth: {})",
+                pages_crawled + 1, seed_urls.len(), url, depth);
+            pages_crawled += 1;
+
             // Use ai_query to extract page info + links
             let prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
+            println!("[explorer] Sending ai_query for: {}", url);
 
             match self.automation.ai_query(&prompt).await {
                 Ok(json_str) => {
+                    println!("[explorer] Received ai_query response ({} chars)", json_str.len());
                     if let Ok(info) = serde_json::from_str::<PageInfo>(&json_str) {
+                        println!("[explorer] Page info: title='{}', links={}", info.title, info.links.len());
                         pages.push(info.clone());
 
                         // Queue discovered links
+                        let mut queued = 0;
                         for link in info.links.iter().take(10) {
                             if !visited.contains(link) {
                                 queue.push((link.clone(), depth + 1));
+                                queued += 1;
                             }
                         }
+                        println!("[explorer] Queued {} new links (queue size: {})", queued, queue.len());
+                    } else {
+                        println!("[explorer] WARN: Failed to parse PageInfo from response");
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("ai_query failed for {}: {}", url, e);
+                    println!("[explorer] WARN: ai_query failed for {}: {}", url, e);
                 }
             }
         }
 
+        println!("[explorer] Exploration complete! Crawled {} pages, total visited: {}", pages.len(), visited.len());
         let markdown = to_markdown(&pages);
         Ok(ExploreResult { pages, markdown })
     }

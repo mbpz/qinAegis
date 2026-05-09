@@ -103,58 +103,127 @@ impl LocalStorage {
         Self::base_path().join("credentials.json")
     }
 
-    /// Blocking shim for CLI compatibility — delegates to LocalStorageInstance.
+    /// Initialize a new project synchronously (for CLI compatibility)
     pub fn init_project(
         name: &str,
         url: &str,
         tech_stack: Vec<String>,
     ) -> anyhow::Result<ProjectConfig> {
-        tokio::runtime::Handle::current().block_on(
-            LocalStorageInstance::new().init_project(name, url, tech_stack),
-        )
-        .map_err(|e| anyhow::anyhow!("{}", e))
+        // Use blocking fs operations to avoid nested runtime issue
+        let base_dir = Self::project_dir(name);
+        std::fs::create_dir_all(&base_dir)?;
+
+        let config = ProjectConfig {
+            name: name.to_string(),
+            url: url.to_string(),
+            tech_stack,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let config_path = Self::project_config_path(name);
+        let yaml = serde_yaml::to_string(&config)
+            .map_err(|e| anyhow::anyhow!("yaml error: {}", e))?;
+        std::fs::write(&config_path, yaml)?;
+
+        // Create directories
+        std::fs::create_dir_all(Self::cases_dir(name))?;
+        std::fs::create_dir_all(Self::reports_dir(name))?;
+        std::fs::create_dir_all(Self::knowledge_dir(name))?;
+
+        // Create spec directory
+        std::fs::create_dir_all(Self::project_dir(name).join("spec"))?;
+
+        // Initialize cases subdirectories
+        for status in [
+            CaseStatus::Draft,
+            CaseStatus::Reviewed,
+            CaseStatus::Approved,
+            CaseStatus::Flaky,
+            CaseStatus::Archived,
+        ] {
+            std::fs::create_dir_all(Self::case_status_dir(name, status))?;
+        }
+
+        Ok(config)
     }
 
     pub fn list_projects() -> anyhow::Result<Vec<String>> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().list_projects())
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let dir = Self::projects_dir();
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
+        let mut projects = vec![];
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let config_path = Self::project_config_path(&name);
+            if config_path.exists() {
+                projects.push(name);
+            }
+        }
+        Ok(projects)
     }
 
     pub fn load_project(name: &str) -> anyhow::Result<ProjectConfig> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().load_project(name))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let config_path = Self::project_config_path(name);
+        let content = std::fs::read_to_string(&config_path)?;
+        let config: ProjectConfig = serde_yaml::from_str(&content)?;
+        Ok(config)
     }
 
     pub fn delete_project(name: &str) -> anyhow::Result<()> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().delete_project(name))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let dir = Self::project_dir(name);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        Ok(())
     }
 
     pub fn save_spec(name: &str, markdown: &str) -> anyhow::Result<()> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().save_spec(name, markdown))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let spec_path = Self::project_spec_path(name);
+        std::fs::create_dir_all(spec_path.parent().unwrap())?;
+        std::fs::write(&spec_path, markdown)?;
+        Ok(())
     }
 
     pub fn load_spec(name: &str) -> anyhow::Result<String> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().load_spec(name))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let spec_path = Self::project_spec_path(name);
+        Ok(std::fs::read_to_string(&spec_path)?)
     }
 
     pub fn save_case(name: &str, case: &TestCase) -> anyhow::Result<()> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().save_case(name, case))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let status_dir = Self::case_status_dir(name, case.status.clone());
+        std::fs::create_dir_all(&status_dir)?;
+        let path = status_dir.join(format!("{}.json", case.id));
+        let json = serde_json::to_string_pretty(case)?;
+        std::fs::write(&path, json)?;
+        Ok(())
     }
 
     pub fn load_cases(name: &str) -> anyhow::Result<Vec<TestCase>> {
-        tokio::runtime::Handle::current()
-            .block_on(LocalStorageInstance::new().load_cases(name))
-            .map_err(|e| anyhow::anyhow!("{}", e))
+        let mut all_cases = Vec::new();
+        for status in [
+            CaseStatus::Draft,
+            CaseStatus::Reviewed,
+            CaseStatus::Approved,
+            CaseStatus::Flaky,
+            CaseStatus::Archived,
+        ] {
+            let dir = Self::case_status_dir(name, status);
+            if !dir.exists() {
+                continue;
+            }
+            for entry in std::fs::read_dir(&dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    let content = std::fs::read_to_string(&path)?;
+                    let case: TestCase = serde_json::from_str(&content)?;
+                    all_cases.push(case);
+                }
+            }
+        }
+        Ok(all_cases)
     }
 }
 

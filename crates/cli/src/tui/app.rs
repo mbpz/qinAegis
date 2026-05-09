@@ -5,7 +5,7 @@ use std::io::stdout;
 
 use ratatui::{
     crossterm::{
-        event::{self, Event, KeyCode, KeyEventKind},
+        event::{self, Event, KeyCode},
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
@@ -16,7 +16,7 @@ use ratatui::{
 use crate::config::Config;
 use crate::tui::dashboard;
 use crate::tui::project_list;
-use crate::tui::config_form;
+use crate::tui::config_form::{self, ConfigFormState, Field};
 use crate::tui::explore_view;
 use crate::tui::generate_view;
 use crate::tui::run_view;
@@ -59,23 +59,81 @@ pub struct App {
     // ReviewView state
     pub review_cases: Vec<ReviewCaseEntry>,
     pub review_selected: Option<usize>,
+    // ConfigForm state
+    pub config_form: ConfigFormState,
 }
 
 impl App {
     pub fn new() -> Self {
+        let config = Config::load().ok().flatten();
+        let mut form_state = ConfigFormState::default();
+
+        // Pre-fill from existing config or defaults
+        if let Some(cfg) = &config {
+            form_state.provider = cfg.llm.provider.clone();
+            form_state.base_url = cfg.llm.base_url.clone();
+            form_state.api_key = cfg.llm.api_key.clone();
+            form_state.model = cfg.llm.model.clone();
+        } else {
+            form_state.provider = "minimax".to_string();
+            form_state.base_url = "https://api.minimax.chat/v1".to_string();
+            form_state.model = "MiniMax-VL-01".to_string();
+        }
+
         Self {
             current_state: AppState::Dashboard,
             projects: Vec::new(),
             selected_project: None,
             message: None,
             is_loading: false,
-            config: Config::load().ok().flatten(),
+            config,
             explore_url: String::new(),
             explore_depth: 3,
             explore_input_mode: false,
             explore_depth_input: false,
             review_cases: Vec::new(),
             review_selected: None,
+            config_form: form_state,
+        }
+    }
+
+    pub fn config_form_state(&self) -> &ConfigFormState {
+        &self.config_form
+    }
+
+    pub fn save_config(&mut self) -> anyhow::Result<()> {
+        let config = Config {
+            llm: crate::config::LlmConfig {
+                provider: self.config_form.provider.clone(),
+                base_url: self.config_form.base_url.clone(),
+                api_key: self.config_form.api_key.clone(),
+                model: self.config_form.model.clone(),
+            },
+            sandbox: crate::config::SandboxConfig::default(),
+            exploration: crate::config::ExplorationConfig::default(),
+        };
+        config.save()?;
+        self.config = Some(config);
+        self.config_form.editing_field = None;
+        self.config_form.message = Some("Configuration saved!".to_string());
+        Ok(())
+    }
+
+    pub fn get_current_field(&self) -> Field {
+        match &self.config_form.editing_field {
+            Some(f) => f.clone(),
+            None => Field::Provider,
+        }
+    }
+}
+
+impl ConfigFormState {
+    pub fn get_current_value(&self) -> String {
+        match self.editing_field.clone().unwrap_or(Field::Provider) {
+            Field::Provider => self.provider.clone(),
+            Field::BaseUrl => self.base_url.clone(),
+            Field::ApiKey => self.api_key.clone(),
+            Field::Model => self.model.clone(),
         }
     }
 }
@@ -172,51 +230,77 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                             app.current_state = AppState::Dashboard;
                         }
                     }
-                    AppState::ConfigForm | AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
+                    AppState::ConfigForm => {
+                        app.config_form.editing_field = None;
+                        app.config_form.input_buffer.clear();
+                        app.current_state = AppState::Dashboard;
+                    }
+                    AppState::GenerateView { .. } | AppState::RunView { .. } | AppState::ReviewView { .. } => {
                         app.current_state = AppState::Dashboard;
                     }
                     _ => {}
                 }
             }
             KeyCode::Enter => {
-                if let AppState::ConfigForm = &app.current_state {
-                    app.current_state = AppState::Dashboard;
-                    app.message = Some("Settings saved".to_string());
-                } else if let AppState::Dashboard = &app.current_state {
-                    app.current_state = AppState::ProjectList;
-                } else if let AppState::ProjectList = &app.current_state {
-                    if let Some(idx) = app.selected_project.clone() {
-                        let name = app.projects[idx].clone();
-                        app.explore_input_mode = false;
-                        app.explore_url.clear();
-                        app.current_state = AppState::ExploreView { project_name: name };
-                    }
-                } else if let AppState::ExploreView { .. } = &app.current_state {
-                    if app.explore_input_mode {
-                        app.explore_input_mode = false;
-                        // Start explore
-                        let url = app.explore_url.clone();
-                        let depth = app.explore_depth;
-                        let project_name = match &app.current_state {
-                            AppState::ExploreView { project_name } => project_name.clone(),
-                            _ => String::new(),
-                        };
-                        app.is_loading = true;
-                        app.message = Some("Exploring...".to_string());
-                        // Run async command in background
-                        let handle = tokio::runtime::Handle::current();
-                        std::thread::spawn(move || {
-                            let result = handle.block_on(
-                                crate::commands::explore::run_explore(&project_name, Some(url), depth)
-                            );
-                            if let Err(e) = result {
-                                eprintln!("Explore error: {}", e);
+                match &app.current_state {
+                    AppState::ConfigForm => {
+                        if app.config_form.editing_field.is_some() {
+                            // Save input to field
+                            let field = app.config_form.editing_field.clone().unwrap();
+                            match field {
+                                Field::Provider => app.config_form.provider = app.config_form.input_buffer.clone(),
+                                Field::BaseUrl => app.config_form.base_url = app.config_form.input_buffer.clone(),
+                                Field::ApiKey => app.config_form.api_key = app.config_form.input_buffer.clone(),
+                                Field::Model => app.config_form.model = app.config_form.input_buffer.clone(),
                             }
-                        });
-                        app.current_state = AppState::Dashboard;
-                    } else {
-                        app.explore_input_mode = true;
+                            app.config_form.editing_field = None;
+                            app.config_form.input_buffer.clear();
+                        } else {
+                            // Start editing current field
+                            let field = app.get_current_field();
+                            app.config_form.editing_field = Some(field);
+                            app.config_form.input_buffer = app.config_form.get_current_value();
+                        }
                     }
+                    AppState::Dashboard => {
+                        app.current_state = AppState::ProjectList;
+                    }
+                    AppState::ProjectList => {
+                        if let Some(idx) = app.selected_project.clone() {
+                            let name = app.projects[idx].clone();
+                            app.explore_input_mode = false;
+                            app.explore_url.clear();
+                            app.current_state = AppState::ExploreView { project_name: name };
+                        }
+                    }
+                    AppState::ExploreView { .. } => {
+                        if app.explore_input_mode {
+                            app.explore_input_mode = false;
+                            // Start explore
+                            let url = app.explore_url.clone();
+                            let depth = app.explore_depth;
+                            let project_name = match &app.current_state {
+                                AppState::ExploreView { project_name } => project_name.clone(),
+                                _ => String::new(),
+                            };
+                            app.is_loading = true;
+                            app.message = Some("Exploring...".to_string());
+                            // Run async command in background
+                            let handle = tokio::runtime::Handle::current();
+                            std::thread::spawn(move || {
+                                let result = handle.block_on(
+                                    crate::commands::explore::run_explore(&project_name, Some(url), depth)
+                                );
+                                if let Err(e) = result {
+                                    eprintln!("Explore error: {}", e);
+                                }
+                            });
+                            app.current_state = AppState::Dashboard;
+                        } else {
+                            app.explore_input_mode = true;
+                        }
+                    }
+                    _ => {}
                 }
             }
             KeyCode::Down => {
@@ -239,6 +323,19 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                             app.review_selected = Some(0);
                         }
                     }
+                    AppState::ConfigForm => {
+                        if app.config_form.editing_field.is_none() {
+                            // Navigate fields
+                            let current = app.get_current_field();
+                            let next = match current {
+                                Field::Provider => Field::BaseUrl,
+                                Field::BaseUrl => Field::ApiKey,
+                                Field::ApiKey => Field::Model,
+                                Field::Model => Field::Provider,
+                            };
+                            app.config_form.editing_field = Some(next);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -258,7 +355,27 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                             }
                         }
                     }
+                    AppState::ConfigForm => {
+                        if app.config_form.editing_field.is_none() {
+                            // Navigate fields reverse
+                            let current = app.get_current_field();
+                            let prev = match current {
+                                Field::Provider => Field::Model,
+                                Field::BaseUrl => Field::Provider,
+                                Field::ApiKey => Field::BaseUrl,
+                                Field::Model => Field::ApiKey,
+                            };
+                            app.config_form.editing_field = Some(prev);
+                        }
+                    }
                     _ => {}
+                }
+            }
+            KeyCode::Char('s') => {
+                if let AppState::ConfigForm = &app.current_state {
+                    if let Err(e) = app.save_config() {
+                        app.config_form.message = Some(format!("Error: {}", e));
+                    }
                 }
             }
             KeyCode::Char('a') => {
@@ -352,19 +469,35 @@ fn handle_events(app: &mut App) -> anyhow::Result<bool> {
                 }
             }
             KeyCode::Char(c) => {
-                if let AppState::ExploreView { .. } = &app.current_state {
-                    if app.explore_input_mode {
-                        app.explore_url.push(c);
-                    } else if c == 'i' {
-                        app.explore_input_mode = true;
+                match &app.current_state {
+                    AppState::ExploreView { .. } => {
+                        if app.explore_input_mode {
+                            app.explore_url.push(c);
+                        } else if c == 'i' {
+                            app.explore_input_mode = true;
+                        }
                     }
+                    AppState::ConfigForm => {
+                        if let Some(_) = app.config_form.editing_field {
+                            app.config_form.input_buffer.push(c);
+                        }
+                    }
+                    _ => {}
                 }
             }
             KeyCode::Backspace => {
-                if let AppState::ExploreView { .. } = &app.current_state {
-                    if app.explore_input_mode {
-                        app.explore_url.pop();
+                match &app.current_state {
+                    AppState::ExploreView { .. } => {
+                        if app.explore_input_mode {
+                            app.explore_url.pop();
+                        }
                     }
+                    AppState::ConfigForm => {
+                        if let Some(_) = app.config_form.editing_field {
+                            app.config_form.input_buffer.pop();
+                        }
+                    }
+                    _ => {}
                 }
             }
             _ => {}

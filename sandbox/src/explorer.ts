@@ -65,9 +65,11 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
       await page.goto(url, { timeout: 30000 });
       console.error(`[explorer] Navigated to ${url}`);
 
+      console.error(`[explorer] Extracting page info with AI...`);
       let info;
       try {
         info = await extractPageInfo(page);
+        console.error(`[explorer] AI extraction complete for ${url}`);
         results.push(info);
 
         // Find links on the page

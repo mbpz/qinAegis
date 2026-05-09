@@ -2,26 +2,26 @@
 source: crates/cli/tests/tui_config_form_test.rs
 expression: output
 ---
-Settings                                                                        
+LLM Configuration                                                               
                                                                                 
 ────────────────────────────────────────────────────────────────────────────────
-┌Settings──────────────────────────────────────────────────────────────────────┐
-│LLM Configuration                                                             │
+┌LLM Settings──────────────────────────────────────────────────────────────────┐
+│Current Configuration                                                         │
 │                                                                              │
 │Provider:  minimax                                                            │
 │Base URL:  https://api.minimax.chat/v1                                        │
 │API Key:   sk-a****                                                           │
 │Model:     MiniMax-VL-01                                                      │
 │                                                                              │
-│Sandbox Configuration                                                         │
+│[↑↓] Select  [Enter] Edit  [s] Save  [Esc] Back                               │
 │                                                                              │
-│CDP Port:    9222                                                             │
 │                                                                              │
-│Exploration                                                                   │
 │                                                                              │
-│Max Depth:        5                                                           │
-│Max Pages/Seed:   30                                                          │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ────────────────────────────────────────────────────────────────────────────────
-[Esc] Back
+[↑↓] Navigate  [Enter] Select/Edit  [s] Save  [Esc] Cancel

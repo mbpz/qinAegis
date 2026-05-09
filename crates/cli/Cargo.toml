@@ -32,3 +32,5 @@ open = "5"
 
 [dev-dependencies]
 insta = { version = "1.40", features = ["yaml"] }
+ratatui-testlib = "0.1.0"
+trycmd = "1.2.0"
