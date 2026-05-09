@@ -2,6 +2,7 @@
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
 import * as readline from 'readline';
+import * as fs from 'fs';
 
 interface JsonRpcRequest {
   id: string;
@@ -15,12 +16,20 @@ let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
+const DEBUG = process.env.DEBUG === '1';
+
+// Debug log that writes to stderr via native syscall
+function debug(...args: any[]) {
+  if (DEBUG) {
+    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    fs.writeSync(2, msg + '\n');
+  }
+}
 
 async function ensureBrowser() {
   if (!browser) {
-    console.error(`[executor] Launching Chromium on port ${CDP_PORT}...`);
+    debug(`[executor] Launching Chromium on port ${CDP_PORT}...`);
 
-    // Launch browser with headless mode and debugging port
     browser = await chromium.launch({
       headless: true,
       args: [
@@ -35,16 +44,14 @@ async function ensureBrowser() {
       ],
     });
 
-    // Create isolated context for each session
     context = await browser.newContext({
-      // No stored state - fresh browser
       ignoreHTTPSErrors: true,
     });
 
     page = await context.newPage();
     agent = new PlaywrightAgent(page);
 
-    console.error(`[executor] Browser launched successfully`);
+    debug(`[executor] Browser launched successfully`);
   }
 }
 
@@ -54,39 +61,30 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
-    // Only ensure connected for methods that need the executor's page/agent
-    // 'explore' creates its own browser connection in explorer.ts
-    // 'lighthouse' and 'stress' run external tools (don't need Playwright browser)
     if (!['explore', 'lighthouse', 'stress'].includes(req.method)) {
       await ensureConnected();
     }
 
     switch (req.method) {
       case 'aiQuery': {
-        // Rust AiQuery(String) expects a JSON string response
-        console.error(`[executor] aiQuery: Starting...`);
         const prompt = req.args as string;
-        console.error(`[executor] aiQuery: Calling agent.aiQuery with prompt length ${prompt.length}`);
+        debug(`[executor] aiQuery: prompt length ${prompt.length}`);
         const data = await agent!.aiQuery(prompt);
-        // Midscene returns an object, but Rust expects a JSON string
         const dataStr = JSON.stringify(data);
-        console.error(`[executor] aiQuery: Got response, data length: ${dataStr.length}`);
+        debug(`[executor] aiQuery: response length ${dataStr.length}`);
         return { id: req.id, ok: true, data: dataStr };
       }
       case 'aiAct': {
-        // Rust AiAct(String) serializes args as a plain string
         const action = req.args as string;
         await agent!.aiAct(action);
         return { id: req.id, ok: true, data: null };
       }
       case 'aiAssert': {
-        // Rust AiAssert(String) serializes args as a plain string
         const assertion = req.args as string;
         await agent!.aiAssert(assertion);
         return { id: req.id, ok: true, data: null };
       }
       case 'goto': {
-        // Rust Goto { url } serializes args as { url: "..." }
         const { url } = req.args as { url: string };
         await page!.goto(url);
         return { id: req.id, ok: true, data: null };
@@ -96,7 +94,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id, ok: true, data: buf };
       }
       case 'explore': {
-        // Rust serializes Explore { url, depth } as {"url":..., "depth":...} object
         const { url, depth } = req.args as { url: string; depth: number };
         const { exploreProject, toMarkdown } = await import('./explorer.js');
         const pages = await exploreProject([url], depth);
@@ -104,10 +101,8 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id, ok: true, data: { pages, markdown: md } };
       }
       case 'run_yaml': {
-        // Rust RunYaml { yaml_script, case_id } serializes as object
         const { yaml_script, case_id } = req.args as { yaml_script: string; case_id: string };
         if (!browser) await ensureConnected();
-        // Create new isolated context for each test
         const testContext = await browser!.newContext();
         const testPage = await testContext.newPage();
         try {
@@ -121,7 +116,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       }
       case 'lighthouse': {
         const { url } = req.args as { url: string };
-        // Validate URL before passing to runLighthouse
         try {
           new URL(url);
           if (!['http:', 'https:'].includes(new URL(url).protocol)) {
@@ -164,10 +158,10 @@ rl.on('line', async (line) => {
     const req: JsonRpcRequest = JSON.parse(line);
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
-    console.error(`[executor] Sending response: ${respJson.substring(0, 100)}...`);
-    // Use write instead of flush - console.log already flushes
+    // ONLY write JSON to stdout - no other output
     process.stdout.write(respJson + '\n');
   } catch (e) {
-    console.error(JSON.stringify({ id: '?', ok: false, error: String(e) }));
+    const errResp = JSON.stringify({ id: '?', ok: false, error: String(e) });
+    process.stdout.write(errResp + '\n');
   }
 });
