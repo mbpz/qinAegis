@@ -185,7 +185,12 @@ impl MidsceneProcess {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
-                println!("[protocol] Received line: {} chars", line.len());
+                // Skip non-JSON lines (e.g., Midscene report output)
+                let trimmed = line.trim();
+                if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
+                    continue;
+                }
+                println!("[protocol] Received JSON line: {} chars", line.len());
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&line) {
                     println!("[protocol] Parsed OK, sending to channel");
                     let _ = resp_tx.send(resp).await;
