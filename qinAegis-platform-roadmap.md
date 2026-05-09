@@ -1100,6 +1100,10 @@ qinAegis export --project My App --format html
 - [ ] 集成 OWASP ZAP 安全扫描（文档已完成）
 - [ ] 集成 Stagehand（文档已完成）
 - [ ] 集成 Testplane 视觉回归（文档已完成）
+- [ ] TUI 自动化测试
+  - [ ] trycmd — CLI 命令输出测试（help、参数解析等）
+  - [ ] insta — 快照测试 UI 渲染结果
+  - [ ] ratatui-testlib 或手动 PTY — 用户交互流程测试（按键、输入）
 - [ ] Playwright Test Agents 参考（文档已完成）
 
 ---
