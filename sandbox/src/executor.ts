@@ -63,13 +63,15 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
 
     switch (req.method) {
       case 'aiQuery': {
-        // Rust AiQuery(String) serializes args as a plain string
+        // Rust AiQuery(String) expects a JSON string response
         console.error(`[executor] aiQuery: Starting...`);
         const prompt = req.args as string;
         console.error(`[executor] aiQuery: Calling agent.aiQuery with prompt length ${prompt.length}`);
         const data = await agent!.aiQuery(prompt);
-        console.error(`[executor] aiQuery: Got response, data length: ${data?.length || 0}`);
-        return { id: req.id, ok: true, data };
+        // Midscene returns an object, but Rust expects a JSON string
+        const dataStr = JSON.stringify(data);
+        console.error(`[executor] aiQuery: Got response, data length: ${dataStr.length}`);
+        return { id: req.id, ok: true, data: dataStr };
       }
       case 'aiAct': {
         // Rust AiAct(String) serializes args as a plain string
