@@ -86,33 +86,33 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const data = await agent!.aiQuery(prompt);
         const dataStr = JSON.stringify(data);
         debug(`[executor] aiQuery: response length ${dataStr.length}`);
-        return { id: req.id, ok: true, data: dataStr };
+        return { id: req.id || '0' || '0', ok: true, data: dataStr };
       }
       case 'aiAct': {
         const action = req.args as string;
         await agent!.aiAct(action);
-        return { id: req.id, ok: true, data: null };
+        return { id: req.id || '0' || '0', ok: true, data: null };
       }
       case 'aiAssert': {
         const assertion = req.args as string;
         await agent!.aiAssert(assertion);
-        return { id: req.id, ok: true, data: null };
+        return { id: req.id || '0' || '0', ok: true, data: null };
       }
       case 'goto': {
         const { url } = req.args as { url: string };
         await page!.goto(url);
-        return { id: req.id, ok: true, data: null };
+        return { id: req.id || '0', ok: true, data: null };
       }
       case 'screenshot': {
         const buf = await page!.screenshot({ encoding: 'base64' } as any);
-        return { id: req.id, ok: true, data: buf };
+        return { id: req.id || '0', ok: true, data: buf };
       }
       case 'explore': {
         const { url, depth } = req.args as { url: string; depth: number };
         const { exploreProject, toMarkdown } = await import('./explorer.js');
         const pages = await exploreProject([url], depth);
         const md = toMarkdown(pages);
-        return { id: req.id, ok: true, data: { pages, markdown: md } };
+        return { id: req.id || '0', ok: true, data: { pages, markdown: md } };
       }
       case 'run_yaml': {
         const { yaml_script, case_id } = req.args as { yaml_script: string; case_id: string };
@@ -122,7 +122,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         try {
           const { runYaml } = await import('./yaml_runner.js');
           const result = await runYaml(yaml_script, case_id, testPage);
-          return { id: req.id, ok: true, data: result };
+          return { id: req.id || '0', ok: true, data: result };
         } finally {
           await testPage.close();
           await testContext.close();
@@ -136,28 +136,28 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
             throw new Error('Only http/https URLs are allowed');
           }
         } catch (e) {
-          return { id: req.id, ok: false, error: `Invalid URL: ${url}` };
+          return { id: req.id || '0', ok: false, error: `Invalid URL: ${url}` };
         }
         const outputPath = `/tmp/lighthouse_${Date.now()}.json`;
         const { runLighthouse } = await import('./lighthouse_runner.js');
         const result = await runLighthouse(url, outputPath);
-        return { id: req.id, ok: true, data: result };
+        return { id: req.id || '0', ok: true, data: result };
       }
       case 'stress': {
         const { target_url, users, spawn_rate, duration } = req.args as { target_url: string; users: number; spawn_rate: number; duration: number };
         const { runLocust } = await import('./locust_runner.js');
         const result = await runLocust(target_url, users, spawn_rate, duration);
-        return { id: req.id, ok: true, data: result };
+        return { id: req.id || '0', ok: true, data: result };
       }
       case 'shutdown': {
         await browser?.close();
         process.exit(0);
       }
       default:
-        return { id: req.id, ok: false, error: `Unknown method: ${req.method}` };
+        return { id: req.id || '0', ok: false, error: `Unknown method: ${req.method}` };
     }
   } catch (e) {
-    return { id: req.id, ok: false, error: String(e) };
+    return { id: req.id || '0', ok: false, error: String(e) };
   }
 }
 
