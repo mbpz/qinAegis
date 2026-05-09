@@ -1,4 +1,18 @@
 // sandbox/src/executor.ts
+// IMPORTANT: Override console methods BEFORE any other imports
+const originalError = console.error;
+const originalLog = console.log;
+const originalWarn = console.warn;
+console.error = (...args: any[]) => {
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  // Only allow our own debug messages through
+  if (msg.includes('[executor]') || msg.includes('[midscene]')) {
+    originalError.apply(console, args);
+  }
+};
+console.log = () => {};  // Silence all console.log
+console.warn = () => {}; // Silence all console.warn
+
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
 import * as readline from 'readline';
@@ -158,6 +172,8 @@ rl.on('line', async (line) => {
     const req: JsonRpcRequest = JSON.parse(line);
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
+    // Debug: write to stderr (fd 2) so Rust protocol reader doesn't see it
+    fs.writeSync(2, `[executor] Response JSON (${respJson.length} chars): ${respJson.substring(0, 100)}...\n`);
     // ONLY write JSON to stdout - no other output
     process.stdout.write(respJson + '\n');
   } catch (e) {
