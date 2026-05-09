@@ -170,10 +170,10 @@ rl.on('line', async (line) => {
   if (!line.trim()) return;
   try {
     const req: JsonRpcRequest = JSON.parse(line);
+    fs.writeSync(2, `[executor] Received request id: '${req.id}', method: ${req.method}\n`);
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
-    // Debug: write to stderr (fd 2) so Rust protocol reader doesn't see it
-    fs.writeSync(2, `[executor] Response JSON (${respJson.length} chars): ${respJson.substring(0, 100)}...\n`);
+    fs.writeSync(2, `[executor] Response JSON (${respJson.length} chars): ${respJson}\n`);
     // ONLY write JSON to stdout - no other output
     process.stdout.write(respJson + '\n');
   } catch (e) {
