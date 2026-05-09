@@ -83,20 +83,21 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       case 'aiQuery': {
         const prompt = req.args as string;
         debug(`[executor] aiQuery: prompt length ${prompt.length}`);
-        const data = await agent!.aiQuery(prompt);
+        // Include screenshot for page analysis
+        const data = await agent!.aiQuery(prompt, { screenshotIncluded: true });
         const dataStr = JSON.stringify(data);
         debug(`[executor] aiQuery: response length ${dataStr.length}`);
-        return { id: req.id || '0' || '0', ok: true, data: dataStr };
+        return { id: req.id || '0', ok: true, data: dataStr };
       }
       case 'aiAct': {
         const action = req.args as string;
         await agent!.aiAct(action);
-        return { id: req.id || '0' || '0', ok: true, data: null };
+        return { id: req.id || '0', ok: true, data: null };
       }
       case 'aiAssert': {
         const assertion = req.args as string;
         await agent!.aiAssert(assertion);
-        return { id: req.id || '0' || '0', ok: true, data: null };
+        return { id: req.id || '0', ok: true, data: null };
       }
       case 'goto': {
         const { url } = req.args as { url: string };

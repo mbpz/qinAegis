@@ -172,8 +172,22 @@ impl BrowserAutomation for MidsceneAutomation {
         let req = JsonRpcRequest::AiQuery(prompt.to_string());
         let resp = self.call(req).await?;
         if resp.ok {
-            serde_json::from_value(resp.data.unwrap_or_default())
-                .map_err(|e| AutomationError::ParseError(e.to_string()))
+            // resp.data is Option<Value>, unwrap to get Value
+            let data = resp.data.unwrap_or_default();
+            println!("[ai_query] resp.data type: {:?}", data);
+            // If data is a string, return it directly; otherwise serialize to string
+            let json_str = match data {
+                serde_json::Value::String(s) => {
+                    println!("[ai_query] data is String: {}", s);
+                    s
+                }
+                other => {
+                    let s = serde_json::to_string(&other).unwrap_or_default();
+                    println!("[ai_query] data converted to String: {}", s);
+                    s
+                }
+            };
+            Ok(json_str)
         } else {
             Err(AutomationError::LlmQueryFailed(
                 resp.error.unwrap_or_default(),
