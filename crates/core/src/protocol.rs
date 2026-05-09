@@ -185,10 +185,15 @@ impl MidsceneProcess {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
+                println!("[protocol] Received line: {} chars", line.len());
                 if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&line) {
+                    println!("[protocol] Parsed OK, sending to channel");
                     let _ = resp_tx.send(resp).await;
+                } else {
+                    println!("[protocol] WARN: Failed to parse JSON: {}", &line[..line.len().min(200)]);
                 }
             }
+            println!("[protocol] Reader loop ended");
         });
 
         Ok(Self {

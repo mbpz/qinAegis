@@ -163,7 +163,11 @@ rl.on('line', async (line) => {
   try {
     const req: JsonRpcRequest = JSON.parse(line);
     const resp = await handleRequest(req);
-    console.log(JSON.stringify(resp));
+    const respJson = JSON.stringify(resp);
+    console.error(`[executor] Sending response: ${respJson.substring(0, 100)}...`);
+    console.log(respJson);
+    // Flush stdout to ensure response is sent
+    process.stdout.flush();
   } catch (e) {
     console.error(JSON.stringify({ id: '?', ok: false, error: String(e) }));
   }
