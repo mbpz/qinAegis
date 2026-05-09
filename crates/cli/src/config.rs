@@ -10,6 +10,8 @@ pub struct Config {
     pub sandbox: SandboxConfig,
     #[serde(default)]
     pub exploration: ExplorationConfig,
+    #[serde(default)]
+    pub auth: Option<AuthConfig>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -31,6 +33,15 @@ pub struct ExplorationConfig {
     pub max_depth: u32,
     #[serde(default = "default_max_pages_per_seed")]
     pub max_pages_per_seed: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AuthConfig {
+    pub username: String,
+    pub password: String,
+    /// Optional: custom login instruction for AI
+    #[serde(default)]
+    pub login_prompt: Option<String>,
 }
 
 fn default_max_depth() -> u32 { 3 }
@@ -109,6 +120,7 @@ pub fn prompt_for_config() -> anyhow::Result<Config> {
         llm: LlmConfig::default(),
         sandbox: SandboxConfig::default(),
         exploration: ExplorationConfig::default(),
+        auth: None,
     };
 
     // LLM Configuration
@@ -117,6 +129,19 @@ pub fn prompt_for_config() -> anyhow::Result<Config> {
     config.llm.base_url = prompt_with_default("  Base URL", "https://api.minimax.chat/v1")?;
     config.llm.model = prompt_with_default("  Model", "MiniMax-VL-01")?;
     config.llm.api_key = prompt("  API Key")?;
+
+    println!("\nAuth Configuration (optional, for exploring behind login):");
+    let add_auth = prompt_with_default("  Add auth config", "n")?;
+    if add_auth == "y" || add_auth == "yes" {
+        let username = prompt("  Username (email/phone)")?;
+        let password = prompt("  Password")?;
+        let login_prompt = prompt_with_default("  Login prompt (optional, enter to skip)", "")?;
+        config.auth = Some(AuthConfig {
+            username,
+            password,
+            login_prompt: if login_prompt.is_empty() { None } else { Some(login_prompt) },
+        });
+    }
 
     println!("\n✓ Configuration complete!\n");
 

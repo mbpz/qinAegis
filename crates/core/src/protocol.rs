@@ -148,6 +148,7 @@ impl MidsceneProcess {
                 cmd.env("MIDSCENE_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
                 cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
+                cmd.env("MIDSCENE_MODEL_FAMILY", "qwen3.6");
             }
         }
 

@@ -219,11 +219,20 @@ impl BrowserAutomation for MidsceneAutomation {
 /// using the Midscene TS process only for AI page extraction.
 pub struct BfsExplorer {
     automation: Box<dyn BrowserAutomation>,
+    auth: Option<AuthConfig>,
+}
+
+/// Auth configuration for exploring behind login
+#[derive(Debug, Clone)]
+pub struct AuthConfig {
+    pub username: String,
+    pub password: String,
+    pub login_prompt: Option<String>,
 }
 
 impl BfsExplorer {
-    pub fn new(automation: Box<dyn BrowserAutomation>) -> Self {
-        Self { automation }
+    pub fn new(automation: Box<dyn BrowserAutomation>, auth: Option<AuthConfig>) -> Self {
+        Self { automation, auth }
     }
 
     /// Perform BFS exploration starting from seed URLs.
@@ -232,6 +241,7 @@ impl BfsExplorer {
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
         let mut pages_crawled = 0;
+        let mut logged_in = false;
 
         println!("[explorer] Starting BFS exploration...");
         println!("[explorer] Seed URLs: {:?}", seed_urls);
@@ -252,6 +262,24 @@ impl BfsExplorer {
             if let Err(e) = self.automation.goto(&url).await {
                 println!("[explorer] WARN: goto failed for {}: {}", url, e);
                 continue;
+            }
+
+            // Auto-login if auth is configured and we haven't logged in yet
+            if !logged_in && self.auth.is_some() {
+                if let Some(auth) = &self.auth {
+                    let login_prompt = auth.login_prompt.clone()
+                        .unwrap_or_else(|| format!("输入{}并输入{}然后点击登录", auth.username, auth.password));
+                    let full_action = format!("{}，点击登录按钮", login_prompt);
+                    println!("[explorer] Attempting auto-login...");
+                    if self.automation.ai_act(&full_action).await.is_ok() {
+                        logged_in = true;
+                        println!("[explorer] Auto-login successful");
+                        // Small delay for page transition after login
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    } else {
+                        println!("[explorer] WARN: Auto-login failed, continuing anyway");
+                    }
+                }
             }
 
             // Use ai_query to extract page info + links

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use qin_aegis_core::{Explorer, LlmConfig, SandboxConfig};
+use qin_aegis_core::{Explorer, LlmConfig, SandboxConfig, AuthConfig};
 use qin_aegis_core::storage::LocalStorage;
 use crate::config::Config;
 
@@ -33,7 +33,13 @@ pub async fn run_explore(project_name: &str, seed_url: Option<String>, max_depth
         cdp_port: config.sandbox.cdp_port,
     });
 
-    let mut explorer = Explorer::new(llm_config, sandbox_config).await?;
+    let auth = config.auth.map(|a| AuthConfig {
+        username: a.username,
+        password: a.password,
+        login_prompt: a.login_prompt,
+    });
+
+    let mut explorer = Explorer::new(llm_config, sandbox_config, auth).await?;
 
     let result = explorer.explore(&url, max_depth).await?;
 
@@ -71,7 +77,13 @@ pub async fn run_explore_direct(seed_url: &str, max_depth: u32) -> anyhow::Resul
         cdp_port: config.sandbox.cdp_port,
     });
 
-    let mut explorer = Explorer::new(llm_config, sandbox_config).await?;
+    let auth = config.auth.map(|a| AuthConfig {
+        username: a.username,
+        password: a.password,
+        login_prompt: a.login_prompt,
+    });
+
+    let mut explorer = Explorer::new(llm_config, sandbox_config, auth).await?;
 
     let result = explorer.explore(seed_url, max_depth).await?;
 

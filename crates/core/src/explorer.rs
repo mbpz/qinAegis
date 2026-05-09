@@ -1,21 +1,26 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use crate::automation::{AutomationError, BfsExplorer, BrowserAutomation, ExploreResult, MidsceneAutomation};
+use crate::automation::{AuthConfig, AutomationError, BfsExplorer, BrowserAutomation, ExploreResult, MidsceneAutomation};
 use crate::protocol::{LlmConfig, SandboxConfig};
 
 pub struct Explorer {
     automation: MidsceneAutomation,
     bfs: BfsExplorer,
+    auth: Option<AuthConfig>,
 }
 
 impl Explorer {
-    pub async fn new(llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
+    pub async fn new(
+        llm_config: Option<LlmConfig>,
+        sandbox_config: Option<SandboxConfig>,
+        auth: Option<AuthConfig>,
+    ) -> anyhow::Result<Self> {
         let automation: Result<MidsceneAutomation, AutomationError> =
             MidsceneAutomation::new(llm_config, sandbox_config).await;
         let automation = automation?;
-        let bfs = BfsExplorer::new(Box::new(automation.clone()));
-        Ok(Self { automation, bfs })
+        let bfs = BfsExplorer::new(Box::new(automation.clone()), auth.clone());
+        Ok(Self { automation, bfs, auth })
     }
 
     pub async fn explore(&mut self, seed_url: &str, max_depth: u32) -> anyhow::Result<ExploreResult> {
@@ -34,7 +39,8 @@ impl Clone for Explorer {
     fn clone(&self) -> Self {
         Self {
             automation: self.automation.clone(),
-            bfs: BfsExplorer::new(Box::new(self.automation.clone())),
+            bfs: BfsExplorer::new(Box::new(self.automation.clone()), self.auth.clone()),
+            auth: self.auth.clone(),
         }
     }
 }

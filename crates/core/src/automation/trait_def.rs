@@ -90,31 +90,55 @@ pub struct FormInfo {
 
 impl From<AiFormInfo> for FormInfo {
     fn from(ai: AiFormInfo) -> Self {
-        // Old format: form with actions and fields array
-        if !ai.actions.is_empty() {
-            let action = ai.actions.get(0).cloned().unwrap_or_default();
-            let fields: Vec<String> = ai.fields.into_iter().map(|f| {
-                // Try to parse as object with label, or use string directly
-                if let Some(obj) = f.as_object() {
-                    obj.get("label")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                        .unwrap_or_else(|| f.to_string())
+        // If actions is empty but we have actions in the old location, use that
+        // Forms might be: [String] or [{label, ...}] or [{type, label, ...}]
+
+        // Try to extract action from text (submit button text)
+        let action = if !ai.text.is_empty() {
+            ai.text.clone()
+        } else if !ai.actions.is_empty() {
+            ai.actions.get(0).cloned().unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        // Extract fields - could be strings or objects
+        let fields: Vec<String> = if !ai.fields.is_empty() {
+            // Check if first field is a string or object
+            if let Some(first) = ai.fields.first() {
+                if first.is_string() {
+                    // Old format: ["账号", "密码"]
+                    ai.fields.iter()
+                        .filter_map(|f| f.as_str().map(String::from))
+                        .collect()
+                } else if first.is_object() {
+                    // New format: [{label: "账号"}, {label: "密码"}]
+                    ai.fields.iter()
+                        .filter_map(|f| f.get("label")?.as_str().map(String::from))
+                        .collect()
                 } else {
-                    f.as_str().map(String::from).unwrap_or_else(|| f.to_string())
+                    vec![]
                 }
-            }).collect();
-            return FormInfo {
-                action,
-                method: String::new(),
-                fields,
-            };
-        }
-        // New format: flat UI elements with type/label/text
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        // For the new format (type/label/text), use ui_type as method
+        let method = if !ai.ui_type.is_empty() {
+            ai.ui_type.clone()
+        } else if !ai.text.is_empty() {
+            "button".to_string()
+        } else {
+            String::new()
+        };
+
         FormInfo {
-            action: if !ai.text.is_empty() { ai.text } else { ai.label.clone() },
-            method: ai.ui_type,
-            fields: vec![ai.label],
+            action,
+            method,
+            fields,
         }
     }
 }

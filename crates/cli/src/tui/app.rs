@@ -111,6 +111,7 @@ impl App {
             },
             sandbox: crate::config::SandboxConfig::default(),
             exploration: crate::config::ExplorationConfig::default(),
+            auth: None,
         };
         config.save()?;
         self.config = Some(config);
