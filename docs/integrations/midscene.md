@@ -20,26 +20,28 @@ export MIDSCENE_MODEL_API_KEY="your-api-key"
 export MIDSCENE_MODEL_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 # Model name (must be a vision-capable model for explore)
-export MIDSCENE_MODEL_NAME="qwen-vl-max"
+export MIDSCENE_MODEL_NAME="qwen3.6-plus"
 
 # Model family (required for Midscene to recognize vision models)
-export MIDSCENE_MODEL_FAMILY="qwen3-vl"
+export MIDSCENE_MODEL_FAMILY="qwen3.6"
 ```
 
 ### Supported Model Families
 
 | Family | Models | Notes |
 |--------|--------|-------|
-| `qwen3-vl` | qwen-vl-max, qwen3.6 | Recommended for Chinese content |
-| `qwen2.5-vl` | qwen2.5-vl-max | Stable alternative |
+| `qwen3.6` | qwen3.6-plus | **Recommended** - Latest VL model with reasoning |
+| `qwen3-vl` | qwen-vl-max | Older VL model |
 | `doubao-vision` | doubao-vision | Bytedance |
 | `gemini` | gemini-pro-vision | Google's vision model |
+
+> **Note**: `qwen3.6` is the model family. The OpenAI-compatible API model name is `qwen3.6-plus`.
 
 ## Testing Vision Models with curl
 
 Before using Midscene, verify your API credentials work:
 
-### Aliyun DashScope (qwen-vl-max)
+### Aliyun DashScope (qwen3.6-plus)
 
 ```bash
 # Test text-only model
@@ -48,7 +50,13 @@ curl https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "qwen-turbo", "messages": [{"role": "user", "content": "say hello"}]}'
 
-# Test vision model
+# Test vision model (qwen3.6-plus)
+curl https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "qwen3.6-plus", "messages": [{"role": "user", "content": "say hello"}]}'
+
+# Test vision model (qwen-vl-max - older model)
 curl https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
@@ -76,8 +84,8 @@ Expected text response:
 
 **Fix**: Set both variables:
 ```bash
-export MIDSCENE_MODEL_NAME="qwen-vl-max"
-export MIDSCENE_MODEL_FAMILY="qwen3-vl"
+export MIDSCENE_MODEL_NAME="qwen3.6-plus"
+export MIDSCENE_MODEL_FAMILY="qwen3.6"
 ```
 
 ### "400 Access denied - Arrearage"
@@ -90,7 +98,7 @@ export MIDSCENE_MODEL_FAMILY="qwen3-vl"
 
 **Cause**: The model name isn't available via the OpenAI-compatible API.
 
-**Fix**: Use the correct model name. For DashScope, use `qwen-vl-max` not `qwen3.6`.
+**Fix**: Use the correct model name. For DashScope, use `qwen3.6-plus` (the API model name), not `qwen3.6` (which is the model family/series name).
 
 ## Local Development
 
@@ -107,8 +115,8 @@ cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
 # Set environment
 export MIDSCENE_MODEL_API_KEY="your-key"
 export MIDSCENE_MODEL_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-export MIDSCENE_MODEL_NAME="qwen-vl-max"
-export MIDSCENE_MODEL_FAMILY="qwen3-vl"
+export MIDSCENE_MODEL_NAME="qwen3.6-plus"
+export MIDSCENE_MODEL_FAMILY="qwen3.6"
 export CDP_PORT=9222
 
 # Run a simple test
