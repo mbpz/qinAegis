@@ -73,13 +73,13 @@ impl TestCaseService {
         case_id: &str,
         approved: bool,
     ) -> anyhow::Result<()> {
+        // Draft -> Reviewed always first, then optionally Reviewed -> Approved
+        self.storage
+            .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Reviewed)
+            .await?;
         if approved {
             self.storage
-                .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Approved)
-                .await?;
-        } else {
-            self.storage
-                .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Reviewed)
+                .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Approved)
                 .await?;
         }
         Ok(())
