@@ -303,7 +303,15 @@ impl BfsExplorer {
                                                     if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
                                                         && !visited.contains(link)
                                                     {
-                                                        queue.push((link.clone(), depth + 1));
+                                                        // Resolve relative URLs to absolute
+                                                        let abs_url = if link.starts_with('/') {
+                                                            // Get base URL and resolve relative path
+                                                            let base = url.trim_end_matches('/');
+                                                            format!("{}{}", base, link)
+                                                        } else {
+                                                            link.clone()
+                                                        };
+                                                        queue.push((abs_url, depth + 1));
                                                     }
                                                 }
                                             }
@@ -320,7 +328,22 @@ impl BfsExplorer {
                                 if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
                                     && !visited.contains(link)
                                 {
-                                    queue.push((link.clone(), depth + 1));
+                                    // Resolve relative URLs to absolute against the site root
+                                    let abs_url = if link.starts_with('/') {
+                                        // Extract origin from original URL (scheme + host)
+                                        if let Some(pos) = url.find("://") {
+                                            if let Some(end) = url[pos+3..].find('/') {
+                                                format!("{}{}", &url[..pos+3+end], link)
+                                            } else {
+                                                link.clone()
+                                            }
+                                        } else {
+                                            link.clone()
+                                        }
+                                    } else {
+                                        link.clone()
+                                    };
+                                    queue.push((abs_url, depth + 1));
                                 }
                             }
                         }
