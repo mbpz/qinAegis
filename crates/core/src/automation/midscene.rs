@@ -303,11 +303,18 @@ impl BfsExplorer {
                                                     if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
                                                         && !visited.contains(link)
                                                     {
-                                                        // Resolve relative URLs to absolute
+                                                        // Resolve relative URLs to absolute against the site root
                                                         let abs_url = if link.starts_with('/') {
-                                                            // Get base URL and resolve relative path
-                                                            let base = url.trim_end_matches('/');
-                                                            format!("{}{}", base, link)
+                                                            // Extract origin from original URL (scheme + host)
+                                                            if let Some(pos) = url.find("://") {
+                                                                if let Some(end) = url[pos+3..].find('/') {
+                                                                    format!("{}{}", &url[..pos+3+end], link)
+                                                                } else {
+                                                                    link.clone()
+                                                                }
+                                                            } else {
+                                                                link.clone()
+                                                            }
                                                         } else {
                                                             link.clone()
                                                         };
