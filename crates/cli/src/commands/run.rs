@@ -58,6 +58,7 @@ pub async fn run_tests(
             yaml_script: c.yaml_script.clone(),
             name: c.name.clone(),
             priority: c.priority.clone(),
+            target_url: Some(_project.url.clone()),
         })
         .collect();
 

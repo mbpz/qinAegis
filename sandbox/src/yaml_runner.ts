@@ -26,6 +26,7 @@ export async function runYaml(
   yamlScript: string,
   caseId: string,
   page: Page,
+  targetUrl?: string,
 ): Promise<RunResult> {
   const start = Date.now();
   let passed = true;
@@ -33,13 +34,27 @@ export async function runYaml(
   let screenshotBase64: string | null = null;
 
   try {
-    const spec: YamlSpec = yaml.load(yamlScript) as YamlSpec;
+    // Try parsing as full YAML spec first
+    let spec: YamlSpec | null = null;
+    try {
+      spec = yaml.load(yamlScript) as YamlSpec;
+    } catch {
+      // Not a valid YAML object, treat as step list
+    }
+
     const agent = new PlaywrightAgent(page);
 
-    await page.goto(spec.target.url);
+    // Use target URL from spec or passed parameter
+    const gotoUrl = spec?.target?.url || targetUrl;
+    if (!gotoUrl) {
+      throw new Error('No target URL provided');
+    }
+    await page.goto(gotoUrl);
 
-    for (const task of spec.tasks) {
-      for (const step of task.flow) {
+    // Handle step list format (array of strings like "- aiAct: ...")
+    if (Array.isArray(yaml.load(yamlScript))) {
+      const steps = yaml.load(yamlScript) as Array<{ aiAct?: string; aiAssert?: string; aiQuery?: string }>;
+      for (const step of steps) {
         if (step.aiAct) {
           await agent.aiAct(step.aiAct);
         }
@@ -55,6 +70,28 @@ export async function runYaml(
         }
         if (step.aiQuery) {
           await agent.aiQuery(step.aiQuery);
+        }
+      }
+    } else if (spec) {
+      // Full spec format with tasks
+      for (const task of spec.tasks) {
+        for (const step of task.flow) {
+          if (step.aiAct) {
+            await agent.aiAct(step.aiAct);
+          }
+          if (step.aiAssert) {
+            try {
+              await agent.aiAssert(step.aiAssert);
+            } catch (e) {
+              passed = false;
+              errorMessage = String(e);
+              screenshotBase64 = (await page.screenshot({ encoding: 'base64' } as any)).toString();
+              throw e;
+            }
+          }
+          if (step.aiQuery) {
+            await agent.aiQuery(step.aiQuery);
+          }
         }
       }
     }

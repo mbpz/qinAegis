@@ -12,6 +12,7 @@ pub struct TestCaseRef {
     pub yaml_script: String,
     pub name: String,
     pub priority: String,
+    pub target_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,7 @@ impl TestExecutor {
         let req = JsonRpcRequest::RunYaml {
             yaml_script: case.yaml_script.clone(),
             case_id: case.id.clone(),
+            target_url: case.target_url.clone(),
         };
 
         let process = self.process.lock().await;
@@ -77,6 +79,7 @@ impl TestExecutor {
                 let req = JsonRpcRequest::RunYaml {
                     yaml_script: case.yaml_script.clone(),
                     case_id: case.id.clone(),
+                    target_url: case.target_url.clone(),
                 };
                 let resp = {
                     let p = proc.lock().await;

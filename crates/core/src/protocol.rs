@@ -32,6 +32,7 @@ pub enum JsonRpcRequest {
     RunYaml {
         yaml_script: String,
         case_id: String,
+        target_url: Option<String>,
     },
     #[serde(rename = "lighthouse")]
     Lighthouse { url: String },

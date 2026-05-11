@@ -116,13 +116,13 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id || '0', ok: true, data: { pages, markdown: md } };
       }
       case 'run_yaml': {
-        const { yaml_script, case_id } = req.args as { yaml_script: string; case_id: string };
+        const { yaml_script, case_id, target_url } = req.args as { yaml_script: string; case_id: string; target_url?: string };
         if (!browser) await ensureConnected();
         const testContext = await browser!.newContext();
         const testPage = await testContext.newPage();
         try {
           const { runYaml } = await import('./yaml_runner.js');
-          const result = await runYaml(yaml_script, case_id, testPage);
+          const result = await runYaml(yaml_script, case_id, testPage, target_url);
           return { id: req.id || '0', ok: true, data: result };
         } finally {
           await testPage.close();
