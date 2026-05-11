@@ -236,137 +236,148 @@ impl BfsExplorer {
         Self { automation, auth }
     }
 
-    /// Perform BFS exploration starting from seed URLs.
+    /// Perform visual click-driven exploration.
+    /// Instead of crawling by URL, uses AI to identify clickable elements
+    /// and explores via ai_act clicks (handles SPA client-side routing).
     pub async fn explore(&mut self, seed_urls: &[String], max_depth: u32) -> Result<ExploreResult, AutomationError> {
-        let mut visited = std::collections::HashSet::new();
+        let mut visited_states: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
-        let mut pages_crawled = 0;
+        let mut clicks_count = 0;
 
-        println!("[explorer] Starting BFS exploration...");
+        println!("[explorer] Starting visual exploration...");
         println!("[explorer] Seed URLs: {:?}", seed_urls);
         println!("[explorer] Max depth: {}", max_depth);
 
-        while let Some((url, depth)) = queue.pop() {
-            if visited.contains(&url) || depth > max_depth {
-                continue;
-            }
-
-            println!("[explorer] [{}/{}] Crawling: {} (depth: {})",
-                pages_crawled + 1, seed_urls.len(), url, depth);
-            pages_crawled += 1;
-
-            // First navigate to the URL
-            println!("[explorer] Navigating to: {}", url);
-            if let Err(e) = self.automation.goto(&url).await {
-                println!("[explorer] WARN: goto failed for {}: {}", url, e);
-                continue;
-            }
-
-            // Mark as visited only after successful goto
-            visited.insert(url.clone());
-
-            // Use ai_query to extract page info + links
-            let prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
-
-            match self.automation.ai_query(&prompt).await {
-                Ok(json_str) => {
-                    match serde_json::from_str::<AiPageInfo>(&json_str) {
-                        Ok(ai_info) => {
-                            let mut info = PageInfo::from(ai_info);
-                            info.url = url.clone();
-                            pages.push(info.clone());
-
-                            // Auto-login if auth is configured and page requires auth
-                            if info.auth_required && self.auth.is_some() {
-                                if let Some(auth) = &self.auth {
-                                    let login_prompt = auth.login_prompt.clone()
-                                        .unwrap_or_else(|| format!("在账号框输入{}，在密码框输入{}，然后点击登录按钮", auth.username, auth.password));
-                                    let full_action = format!("{}，点击登录按钮", login_prompt);
-                                    println!("[explorer] Page requires auth, attempting auto-login...");
-                                    if self.automation.ai_act(&full_action).await.is_ok() {
-                                        println!("[explorer] Auto-login action completed");
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-                                        // Re-query page info after login to get links from the logged-in page
-                                        println!("[explorer] Re-querying page info after login...");
-                                        if let Ok(json_str) = self.automation.ai_query(&prompt).await {
-                                            if let Ok(ai_info) = serde_json::from_str::<AiPageInfo>(&json_str) {
-                                                let mut info = PageInfo::from(ai_info);
-                                                info.url = url.clone();
-                                                // Replace the pre-login page with post-login page
-                                                if let Some(last) = pages.last_mut() {
-                                                    *last = info.clone();
-                                                }
-
-                                                // Queue discovered links from logged-in page
-                                                for link in info.links.iter().take(10) {
-                                                    if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
-                                                        && !visited.contains(link)
-                                                    {
-                                                        // Resolve relative URLs to absolute against the site root
-                                                        let abs_url = if link.starts_with('/') {
-                                                            // Extract origin from original URL (scheme + host)
-                                                            if let Some(pos) = url.find("://") {
-                                                                if let Some(end) = url[pos+3..].find('/') {
-                                                                    format!("{}{}", &url[..pos+3+end], link)
-                                                                } else {
-                                                                    link.clone()
-                                                                }
-                                                            } else {
-                                                                link.clone()
-                                                            }
-                                                        } else {
-                                                            link.clone()
-                                                        };
-                                                        queue.push((abs_url, depth + 1));
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        println!("[explorer] WARN: Auto-login action failed, continuing anyway");
-                                    }
-                                }
-                            }
-
-                            // Queue discovered links (only valid URLs)
-                            for link in info.links.iter().take(10) {
-                                // Only queue links that look like URLs (start with http://, https://, or /)
-                                if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
-                                    && !visited.contains(link)
-                                {
-                                    // Resolve relative URLs to absolute against the site root
-                                    let abs_url = if link.starts_with('/') {
-                                        // Extract origin from original URL (scheme + host)
-                                        if let Some(pos) = url.find("://") {
-                                            if let Some(end) = url[pos+3..].find('/') {
-                                                format!("{}{}", &url[..pos+3+end], link)
-                                            } else {
-                                                link.clone()
-                                            }
-                                        } else {
-                                            link.clone()
-                                        }
-                                    } else {
-                                        link.clone()
-                                    };
-                                    queue.push((abs_url, depth + 1));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            println!("[explorer] WARN: Failed to parse page info for {}: {}", url, e);
+        // When auth is configured: login first, then explore post-login pages
+        // When no auth: standard BFS on seed URLs
+        if let Some(auth) = &self.auth {
+            if !seed_urls.is_empty() {
+                println!("[explorer] Auto-login before exploration...");
+                let login_prompt = auth.login_prompt.clone()
+                    .unwrap_or_else(|| format!("在账号框输入{}，在密码框输入{}，然后点击登录按钮", auth.username, auth.password));
+                let full_action = login_prompt;
+                if let Err(e) = self.automation.goto(&seed_urls[0]).await {
+                    println!("[explorer] WARN: goto seed URL failed: {}", e);
+                } else {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    if self.automation.ai_act(&full_action).await.is_ok() {
+                        println!("[explorer] Auto-login action completed");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                        // After login, queue home page for exploration (don't re-visit login page)
+                        let home_url = if let Some(pos) = seed_urls[0].find("://") {
+                            let host = seed_urls[0][pos+3..].split('/').next().unwrap_or("");
+                            let scheme = &seed_urls[0][..pos];
+                            format!("{}://{}/", scheme, host)
+                        } else {
+                            "/".to_string()
+                        };
+                        let home_url_sig = format!("url:{}", home_url);
+                        if !visited_states.contains(&home_url_sig) {
+                            // Clear the login URL from queue, replace with home
+                            queue.clear();
+                            queue.push((home_url.clone(), 0));
+                            visited_states.insert(home_url_sig);
+                            println!("[explorer] Queuing post-login home: {}", home_url);
                         }
                     }
-                }
-                Err(e) => {
-                    println!("[explorer] WARN: ai_query failed for {}: {}", url, e);
                 }
             }
         }
 
-        println!("[explorer] Exploration complete! Crawled {} pages, total visited: {}", pages.len(), visited.len());
+        let explorer_prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
+        let max_clicks_per_page = 5;
+        let max_total_clicks = 50;
+
+        while let Some((url, depth)) = queue.pop() {
+            if depth > max_depth {
+                continue;
+            }
+
+            println!("[explorer] [depth {}] Navigating to: {}", depth, url);
+            if let Err(e) = self.automation.goto(&url).await {
+                println!("[explorer] WARN: goto failed for {}: {}", url, e);
+                continue;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+            // BFS exploration per page: click multiple elements before moving on
+            let mut page_clicks = 0;
+            let mut seen_elements: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+            loop {
+                if clicks_count >= max_total_clicks {
+                    println!("[explorer] Max total clicks reached, stopping");
+                    break;
+                }
+                if page_clicks >= max_clicks_per_page {
+                    println!("[explorer] Max clicks per page reached, moving on");
+                    break;
+                }
+
+                // Query page for clickable elements
+                match self.automation.ai_query(&explorer_prompt).await {
+                    Ok(json_str) => {
+                        match serde_json::from_str::<AiPageInfo>(&json_str) {
+                            Ok(ai_info) => {
+                                let mut info = PageInfo::from(ai_info);
+                                info.url = url.clone();
+                                pages.push(info.clone());
+
+                                // Deduplicate by state signature
+                                let state_sig = format!("{}|{}|{:?}", info.title, info.primary_nav.join(","), info.key_elements);
+                                if visited_states.contains(&state_sig) {
+                                    println!("[explorer] Already visited this page state, skipping");
+                                    break;
+                                }
+                                visited_states.insert(state_sig);
+
+                                let clickables = &info.clickable_elements;
+
+                                // Filter out already-seen elements
+                                let new_elements: Vec<_> = clickables.iter()
+                                    .filter(|e| !seen_elements.contains(&e.description))
+                                    .collect();
+
+                                if new_elements.is_empty() {
+                                    println!("[explorer] No more new clickable elements on this page");
+                                    break;
+                                }
+
+                                // Click the first new element
+                                let elem = &new_elements[0];
+                                let action = format!("点击：{}", elem.description);
+                                println!("[explorer] Click [{}]: {} ({})", page_clicks + 1, elem.description, elem.reason);
+
+                                seen_elements.insert(elem.description.clone());
+
+                                match self.automation.ai_act(&action).await {
+                                    Ok(()) => {
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                                        page_clicks += 1;
+                                        clicks_count += 1;
+                                    }
+                                    Err(e) => {
+                                        println!("[explorer] WARN: ai_act failed: {}", e);
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                println!("[explorer] WARN: parse page info failed: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("[explorer] WARN: ai_query failed: {}", e);
+                        break;
+                    }
+                }
+            }
+        }
+
+        println!("[explorer] Exploration complete! Crawled {} pages, total clicks: {}", pages.len(), clicks_count);
         let markdown = to_markdown(&pages);
         Ok(ExploreResult { pages, markdown })
     }

@@ -30,6 +30,7 @@ let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
+const CDP_WS_URL = process.env.CDP_WS_URL;
 const DEBUG = process.env.DEBUG === '1';
 
 // Debug log that writes to stderr via native syscall
@@ -42,30 +43,37 @@ function debug(...args: any[]) {
 
 async function ensureBrowser() {
   if (!browser) {
-    debug(`[executor] Launching Chromium on port ${CDP_PORT}...`);
-
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        `--remote-debugging-port=${CDP_PORT}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-extensions',
-        '--disable-popup-blocking',
-        '--disable-translate',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-      ],
-    });
-
-    context = await browser.newContext({
-      ignoreHTTPSErrors: true,
-    });
-
-    page = await context.newPage();
-    agent = new PlaywrightAgent(page);
-
-    debug(`[executor] Browser launched successfully`);
+    if (CDP_WS_URL) {
+      debug(`[executor] Connecting to existing Chrome via CDP: ${CDP_WS_URL}`);
+      browser = await chromium.connectOverCDP(CDP_WS_URL);
+      context = await browser.newContext({
+        ignoreHTTPSErrors: true,
+      });
+      page = await context.newPage();
+      agent = new PlaywrightAgent(page);
+      debug(`[executor] Connected to Chrome successfully`);
+    } else {
+      debug(`[executor] Launching fresh Chromium on port ${CDP_PORT}...`);
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          `--remote-debugging-port=${CDP_PORT}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-extensions',
+          '--disable-popup-blocking',
+          '--disable-translate',
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+        ],
+      });
+      context = await browser.newContext({
+        ignoreHTTPSErrors: true,
+      });
+      page = await context.newPage();
+      agent = new PlaywrightAgent(page);
+      debug(`[executor] Browser launched successfully`);
+    }
   }
 }
 
@@ -77,6 +85,8 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
     if (!['explore', 'lighthouse', 'stress'].includes(req.method)) {
       await ensureConnected();
+    } else {
+      await ensureBrowser();
     }
 
     switch (req.method) {

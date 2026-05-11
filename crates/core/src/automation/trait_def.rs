@@ -58,7 +58,6 @@ pub struct ExploreResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     pub url: String,
     pub title: String,
@@ -74,8 +73,18 @@ pub struct PageInfo {
     pub forms: Vec<FormInfo>,
     #[serde(default)]
     pub key_elements: Vec<String>,
+    /// Legacy: URL-based links (deprecated, kept for compat)
     #[serde(default)]
     pub links: Vec<String>,
+    /// Visual exploration: clickable UI elements
+    #[serde(default)]
+    pub clickable_elements: Vec<ClickableElement>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClickableElement {
+    pub description: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -221,8 +230,16 @@ pub(crate) struct AiPageInfo {
     forms: Vec<serde_json::Value>,
     #[serde(alias = "keyElements")]
     key_elements: Vec<String>,
-    #[serde(alias = "links")]
+    #[serde(alias = "links", default)]
     links: Vec<String>,
+    #[serde(alias = "clickableElements", default)]
+    clickable_elements: Vec<AiClickableElement>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct AiClickableElement {
+    pub description: String,
+    pub reason: String,
 }
 
 impl From<AiPageInfo> for PageInfo {
@@ -237,6 +254,10 @@ impl From<AiPageInfo> for PageInfo {
             forms: ai.forms.into_iter().map(FormInfo::from).collect(),
             key_elements: ai.key_elements,
             links: ai.links,
+            clickable_elements: ai.clickable_elements.into_iter().map(|e| ClickableElement {
+                description: e.description,
+                reason: e.reason,
+            }).collect(),
         }
     }
 }

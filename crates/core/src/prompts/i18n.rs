@@ -156,15 +156,21 @@ impl ExplorerPrompt {
     pub fn new(locale: Locale) -> Self {
         match locale {
             Locale::Zh => Self {
-                instruction: r#"分析当前页面，提取：标题、顶部导航、主要功能、是否需要登录、检测到的技术栈、表单信息、关键元素、所有内部链接的实际href URL地址。
-重要：links字段必须是完整的URL地址或以/开头的相对路径，不能是链接文字。
-返回JSON格式：
-{"title":"","primaryNav":[],"mainFeatures":[],"authRequired":false,"techStack":[],"forms":[],"keyElements":[],"links":[]}"#.to_string(),
+                instruction: r#"分析当前页面，返回JSON格式：
+{"title":"页面标题","primaryNav":["顶部导航项"],"mainFeatures":["主要功能列表"],"authRequired":false,"techStack":[],"forms":[],"keyElements":["关键可见元素"],"clickableElements":[{"description":"元素描述，如'底部导航栏的分类tab'","reason":"为什么值得点击"}]}
+
+clickableElements要求：
+- 识别页面中所有可交互的UI元素（Tab导航、商品卡片、搜索框、按钮、Banner等）
+- 优先选择能够展现新内容区域的元素（底部Tab、分类入口、商品卡片、搜索结果）
+- 避免重复点击相同区域的元素
+- 每个元素用简短中文描述，ai_act能够理解并点击
+- 通常返回3-8个最值得探索的元素
+- description格式示例：'底部导航栏的购物车tab'、'福礼自选Banner'、'商品列表中的第1个商品卡片'"#.to_string(),
             },
             Locale::En => Self {
-                instruction: r#"Analyze the current page and extract: title, top navigation, main features, whether login is required, detected tech stack, form information, key elements, all internal links.
+                instruction: r#"Analyze the current page and extract: title, top navigation, main features, whether login is required, detected tech stack, form information, key elements, and clickable UI elements.
 Return JSON format:
-{"title":"","primaryNav":[],"mainFeatures":[],"authRequired":false,"techStack":[],"forms":[],"keyElements":[],"links":[]}"#.to_string(),
+{"title":"","primaryNav":[],"mainFeatures":[],"authRequired":false,"techStack":[],"forms":[],"keyElements":[],"clickableElements":[{"description":"element description","reason":"why worth clicking"}]}"#.to_string(),
             },
         }
     }

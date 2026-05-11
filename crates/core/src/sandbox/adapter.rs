@@ -200,8 +200,33 @@ impl PlaywrightBrowserAdapter {
 
         while start.elapsed().as_secs() < timeout_secs {
             if self.is_browser_running() {
-                let ws_url = format!("ws://localhost:{}/devtools/browser", self.cdp_port);
-                return Ok(ws_url);
+                // Use /json/version for browser-level WebSocket URL
+                let version_url = format!("http://localhost:{}/json/version", self.cdp_port);
+                if let Ok(resp) = reqwest::blocking::get(&version_url) {
+                    if let Ok(version) = serde_json::from_str::<serde_json::Value>(&resp.text().unwrap_or_default()) {
+                        if let Some(ws_url) = version.get("webSocketDebuggerUrl").and_then(|v| v.as_str()) {
+                            return Ok(ws_url.to_string());
+                        }
+                    }
+                }
+                // Fallback: construct from /json first page
+                let json_url = format!("http://localhost:{}/json", self.cdp_port);
+                if let Ok(resp) = reqwest::blocking::get(&json_url) {
+                    if let Ok(pages) = serde_json::from_str::<Vec<serde_json::Value>>(&resp.text().unwrap_or_default()) {
+                        if let Some(page) = pages.first() {
+                            if let Some(ws_url) = page.get("webSocketDebuggerUrl").and_then(|v| v.as_str()) {
+                                // Extract browser WS from page WS: /devtools/page/xxx -> /devtools/browser
+                                if let Some(pos) = ws_url.rfind("/page/") {
+                                    let browser_ws = format!("{}://localhost:{}/devtools/browser", &ws_url[..ws_url.find("://").unwrap_or(0)], self.cdp_port);
+                                    return Ok(browser_ws);
+                                }
+                                return Ok(ws_url.to_string());
+                            }
+                        }
+                    }
+                }
+                let browser_ws = format!("ws://localhost:{}/devtools/browser", self.cdp_port);
+                return Ok(browser_ws);
             }
             sleep(interval);
         }
