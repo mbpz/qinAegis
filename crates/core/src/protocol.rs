@@ -150,6 +150,7 @@ impl MidsceneProcess {
                 cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
                 cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
                 cmd.env("MIDSCENE_MODEL_FAMILY", "qwen3.6");
+                cmd.env("MIDSCENE_REPLANNING_CYCLE_LIMIT", "100");
             }
         }
 
