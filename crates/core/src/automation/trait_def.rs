@@ -78,7 +78,7 @@ pub struct PageInfo {
     pub links: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FormInfo {
     #[serde(default)]
     pub action: String,
@@ -143,6 +143,40 @@ impl From<AiFormInfo> for FormInfo {
     }
 }
 
+// Direct conversion from JSON value for forms that come as string arrays like ["账号", "密码"]
+impl From<serde_json::Value> for FormInfo {
+    fn from(value: serde_json::Value) -> Self {
+        if let Some(arr) = value.as_array() {
+            if let Some(first) = arr.first() {
+                if first.is_string() {
+                    // String array format: ["账号", "密码"]
+                    let fields: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                    return FormInfo {
+                        action: String::new(),
+                        method: String::new(),
+                        fields,
+                    };
+                } else if first.is_object() {
+                    // Object array format: [{label: "账号"}, {label: "密码"}]
+                    let fields: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| v.get("label")?.as_str().map(String::from))
+                        .collect();
+                    return FormInfo {
+                        action: String::new(),
+                        method: String::new(),
+                        fields,
+                    };
+                }
+            }
+        }
+        FormInfo::default()
+    }
+}
+
 // Intermediate struct to match Midscene's actual response format
 // Handles two formats:
 // 1. Old: { actions: [...], fields: [...] } - form with action and field list
@@ -183,8 +217,8 @@ pub(crate) struct AiPageInfo {
     auth_required: bool,
     #[serde(alias = "techStack")]
     tech_stack: Vec<String>,
-    #[serde(alias = "forms")]
-    forms: Vec<AiFormInfo>,
+    #[serde(alias = "forms", default)]
+    forms: Vec<serde_json::Value>,
     #[serde(alias = "keyElements")]
     key_elements: Vec<String>,
     #[serde(alias = "links")]

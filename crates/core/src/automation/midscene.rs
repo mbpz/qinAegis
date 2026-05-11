@@ -293,9 +293,12 @@ impl BfsExplorer {
                             info.url = url.clone();
                             pages.push(info.clone());
 
-                            // Queue discovered links
+                            // Queue discovered links (only valid URLs)
                             for link in info.links.iter().take(10) {
-                                if !visited.contains(link) {
+                                // Only queue links that look like URLs (start with http://, https://, or /)
+                                if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
+                                    && !visited.contains(link)
+                                {
                                     queue.push((link.clone(), depth + 1));
                                 }
                             }
