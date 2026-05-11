@@ -241,7 +241,6 @@ impl BfsExplorer {
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
         let mut pages_crawled = 0;
-        let mut logged_in = false;
 
         println!("[explorer] Starting BFS exploration...");
         println!("[explorer] Seed URLs: {:?}", seed_urls);
@@ -251,7 +250,6 @@ impl BfsExplorer {
             if visited.contains(&url) || depth > max_depth {
                 continue;
             }
-            visited.insert(url.clone());
 
             println!("[explorer] [{}/{}] Crawling: {} (depth: {})",
                 pages_crawled + 1, seed_urls.len(), url, depth);
@@ -264,23 +262,8 @@ impl BfsExplorer {
                 continue;
             }
 
-            // Auto-login if auth is configured and we haven't logged in yet
-            if !logged_in && self.auth.is_some() {
-                if let Some(auth) = &self.auth {
-                    let login_prompt = auth.login_prompt.clone()
-                        .unwrap_or_else(|| format!("输入{}并输入{}然后点击登录", auth.username, auth.password));
-                    let full_action = format!("{}，点击登录按钮", login_prompt);
-                    println!("[explorer] Attempting auto-login...");
-                    if self.automation.ai_act(&full_action).await.is_ok() {
-                        logged_in = true;
-                        println!("[explorer] Auto-login successful");
-                        // Small delay for page transition after login
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    } else {
-                        println!("[explorer] WARN: Auto-login failed, continuing anyway");
-                    }
-                }
-            }
+            // Mark as visited only after successful goto
+            visited.insert(url.clone());
 
             // Use ai_query to extract page info + links
             let prompt = ExplorerPrompt::new(crate::prompts::Locale::Zh).instruction;
@@ -292,6 +275,44 @@ impl BfsExplorer {
                             let mut info = PageInfo::from(ai_info);
                             info.url = url.clone();
                             pages.push(info.clone());
+
+                            // Auto-login if auth is configured and page requires auth
+                            if info.auth_required && self.auth.is_some() {
+                                if let Some(auth) = &self.auth {
+                                    let login_prompt = auth.login_prompt.clone()
+                                        .unwrap_or_else(|| format!("在账号框输入{}，在密码框输入{}，然后点击登录按钮", auth.username, auth.password));
+                                    let full_action = format!("{}，点击登录按钮", login_prompt);
+                                    println!("[explorer] Page requires auth, attempting auto-login...");
+                                    if self.automation.ai_act(&full_action).await.is_ok() {
+                                        println!("[explorer] Auto-login action completed");
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                                        // Re-query page info after login to get links from the logged-in page
+                                        println!("[explorer] Re-querying page info after login...");
+                                        if let Ok(json_str) = self.automation.ai_query(&prompt).await {
+                                            if let Ok(ai_info) = serde_json::from_str::<AiPageInfo>(&json_str) {
+                                                let mut info = PageInfo::from(ai_info);
+                                                info.url = url.clone();
+                                                // Replace the pre-login page with post-login page
+                                                if let Some(last) = pages.last_mut() {
+                                                    *last = info.clone();
+                                                }
+
+                                                // Queue discovered links from logged-in page
+                                                for link in info.links.iter().take(10) {
+                                                    if (link.starts_with("http://") || link.starts_with("https://") || link.starts_with('/'))
+                                                        && !visited.contains(link)
+                                                    {
+                                                        queue.push((link.clone(), depth + 1));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        println!("[explorer] WARN: Auto-login action failed, continuing anyway");
+                                    }
+                                }
+                            }
 
                             // Queue discovered links (only valid URLs)
                             for link in info.links.iter().take(10) {

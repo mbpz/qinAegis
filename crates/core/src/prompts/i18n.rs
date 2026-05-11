@@ -156,7 +156,8 @@ impl ExplorerPrompt {
     pub fn new(locale: Locale) -> Self {
         match locale {
             Locale::Zh => Self {
-                instruction: r#"分析当前页面，提取：标题、顶部导航、主要功能、是否需要登录、检测到的技术栈、表单信息、关键元素、所有内部链接。
+                instruction: r#"分析当前页面，提取：标题、顶部导航、主要功能、是否需要登录、检测到的技术栈、表单信息、关键元素、所有内部链接的实际href URL地址。
+重要：links字段必须是完整的URL地址或以/开头的相对路径，不能是链接文字。
 返回JSON格式：
 {"title":"","primaryNav":[],"mainFeatures":[],"authRequired":false,"techStack":[],"forms":[],"keyElements":[],"links":[]}"#.to_string(),
             },
