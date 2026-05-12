@@ -158,6 +158,7 @@ impl MidsceneProcess {
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
+
         let (request_tx, request_rx) = mpsc::channel::<JsonRpcRequest>(32);
         let (resp_tx, response_rx) = mpsc::channel::<JsonRpcResponse>(32);
 
@@ -188,7 +189,6 @@ impl MidsceneProcess {
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
-                // Skip non-JSON lines (e.g., Midscene report output)
                 let trimmed = line.trim();
                 if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
                     continue;
@@ -243,6 +243,11 @@ impl MidsceneProcess {
         println!("[protocol] Waiting for response...");
         let resp = self.response_rx.lock().await.recv().await;
         println!("[protocol] Response received");
-        resp.ok_or_else(|| anyhow::anyhow!("process died"))
+        match resp {
+            Some(resp) => Ok(resp),
+            None => Err(anyhow::anyhow!(
+                "protocol channel closed — executor exited or dropped the request (check stderr for child exit code)"
+            )),
+        }
     }
 }
