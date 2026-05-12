@@ -39,6 +39,7 @@ pub use automation::{
 };
 // Storage
 pub use storage::{CaseStatus, LocalStorage, LocalStorageInstance};
+pub use config::app::{AppConfig, resolve_env_var};
 
 // Sandbox adapters
 pub use sandbox::PlaywrightBrowserAdapter;
