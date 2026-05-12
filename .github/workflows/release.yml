@@ -36,14 +36,21 @@ jobs:
       - name: Package ARM64
         run: |
           mkdir -p release
-          cp target/aarch64-apple-darwin/release/qinAegis-web release/
-          tar -czf QinAegis-aarch64-apple-darwin.tar.gz -C release qinAegis-web
-          cp target/aarch64-apple-darwin/release/qinAegis-web release/
+          VERSION="${{ github.ref_name }}"
+          DMG="QinAegis-${VERSION}-mac-arm64.dmg"
           BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
+
+          # Clean up
+          rm -rf "$BUNDLE" release/*.dmg
+
+          # Create .app bundle
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          cat > "$BUNDLE/Contents/Info.plist" << 'PLIST'
+          cp target/aarch64-apple-darwin/release/qinAegis-web release/
+          tar -czf QinAegis-aarch64-apple-darwin.tar.gz -C release qinAegis-web
+
+          # Info.plist
+          cat > "$BUNDLE/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -51,31 +58,60 @@ jobs:
   <key>CFBundleExecutable</key>
   <string>QinAegis</string>
   <key>CFBundleIdentifier</key>
-  <string>com.qinaegis.web</string>
+  <string>com.qinaegis.qinAegis</string>
   <key>CFBundleName</key>
   <string>QinAegis</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>${{ github.ref_name }}</string>
+  <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>10.15</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
 </dict>
 </plist>
 PLIST
-          tar -czf QinAegis-aarch64.darwin-app.tar.gz "$BUNDLE"
+
+          # Ad-hoc sign the app bundle
+          codesign --force --deep --sign - "$BUNDLE"
+
+          # Create DMG with APFS compression
+          hdiutil create -volname "QinAegis-${VERSION}" \
+            -fs APFS \
+            -format UDZO \
+            -compressionlevel 9 \
+            -o release/"$DMG" \
+            "$BUNDLE"
+
+          # Remove quarantine extended attribute (bypass Gatekeeper)
+          xattr -r -d com.apple.quarantine release/"$DMG" 2>/dev/null || true
+
+          # Generate SHA256 for Homebrew cask
+          ARM_SHA=$(shasum -a 256 release/"$DMG" | awk '{print $1}')
+          echo "arm64_sha=$ARM_SHA" >> $GITHUB_OUTPUT
+          echo "ARM64_SHA=$ARM_SHA"
 
       - name: Package x86
         run: |
-          cp target/x86_64-apple-darwin/release/qinAegis-web release/
-          tar -czf QinAegis-x86_64-apple-darwin.tar.gz -C release qinAegis-web
+          mkdir -p release
+          VERSION="${{ github.ref_name }}"
+          DMG="QinAegis-${VERSION}-mac-x64.dmg"
           BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
+
+          # Clean up
+          rm -rf "$BUNDLE" release/*.dmg
+
+          # Create .app bundle
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          cat > "$BUNDLE/Contents/Info.plist" << 'PLIST'
+          cp target/x86_64-apple-darwin/release/qinAegis-web release/
+          tar -czf QinAegis-x86_64-apple-darwin.tar.gz -C release qinAegis-web
+
+          # Info.plist
+          cat > "$BUNDLE/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -83,24 +119,45 @@ PLIST
   <key>CFBundleExecutable</key>
   <string>QinAegis</string>
   <key>CFBundleIdentifier</key>
-  <string>com.qinaegis.web</string>
+  <string>com.qinaegis.qinAegis</string>
   <key>CFBundleName</key>
   <string>QinAegis</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>${{ github.ref_name }}</string>
+  <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>10.15</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
 </dict>
 </plist>
 PLIST
-          tar -czf QinAegis-x86_64.darwin-app.tar.gz "$BUNDLE"
+
+          # Ad-hoc sign the app bundle
+          codesign --force --deep --sign - "$BUNDLE"
+
+          # Create DMG with APFS compression
+          hdiutil create -volname "QinAegis-${VERSION}" \
+            -fs APFS \
+            -format UDZO \
+            -compressionlevel 9 \
+            -o release/"$DMG" \
+            "$BUNDLE"
+
+          # Remove quarantine extended attribute (bypass Gatekeeper)
+          xattr -r -d com.apple.quarantine release/"$DMG" 2>/dev/null || true
+
+          # Generate SHA256 for Homebrew cask
+          X64_SHA=$(shasum -a 256 release/"$DMG" | awk '{print $1}')
+          echo "x64_sha=$X64_SHA" >> $GITHUB_OUTPUT
+          echo "X64_SHA=$X64_SHA"
 
       - name: Generate SHA256
         run: |
+          cd release
           echo "aarch64-apple-darwin" > sha256_aarch64.txt
           shasum -a 256 QinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
           echo "x86_64-apple-darwin" > sha256_x86_64.txt
@@ -111,12 +168,9 @@ PLIST
         with:
           name: qinAegis-all
           path: |
-            QinAegis-aarch64-apple-darwin.tar.gz
-            QinAegis-x86_64-apple-darwin.tar.gz
-            QinAegis-aarch64.darwin-app.tar.gz
-            QinAegis-x86_64.darwin-app.tar.gz
-            sha256_aarch64.txt
-            sha256_x86_64.txt
+            release/*.dmg
+            release/*.tar.gz
+            release/sha256_*.txt
 
   create-release:
     needs: [build]
@@ -132,11 +186,8 @@ PLIST
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/QinAegis-aarch64-apple-darwin.tar.gz
-            artifacts/QinAegis-x86_64-apple-darwin.tar.gz
-            artifacts/QinAegis-aarch64.darwin-app.tar.gz
-            artifacts/QinAegis-x86_64.darwin-app.tar.gz
-            artifacts/sha256_aarch64.txt
-            artifacts/sha256_x86_64.txt
+            artifacts/*.dmg
+            artifacts/*.tar.gz
+            artifacts/sha256_*.txt
           draft: true
           generate_release_notes: true
