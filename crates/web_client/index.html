@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QinAegis</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="app">
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>QinAegis</h1>
+                <span class="version">v0.1.0</span>
+            </div>
+            <nav class="nav">
+                <button class="nav-item active" data-view="dashboard">Dashboard</button>
+                <button class="nav-item" data-view="explore">Explore</button>
+                <button class="nav-item" data-view="generate">Generate</button>
+                <button class="nav-item" data-view="run">Run Tests</button>
+                <button class="nav-item" data-view="config">Config</button>
+            </nav>
+        </aside>
+        <main class="main-content">
+            <!-- Dashboard -->
+            <section id="dashboard" class="view active">
+                <h2>Dashboard</h2>
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-label">Projects</div>
+                        <div class="stat-value" id="project-count">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Last Run</div>
+                        <div class="stat-value" id="last-run">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Pass Rate</div>
+                        <div class="stat-value" id="pass-rate">-</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Explore -->
+            <section id="explore" class="view">
+                <h2>AI-Powered Page Exploration</h2>
+                <div class="form-group">
+                    <label for="explore-url">Target URL</label>
+                    <input type="text" id="explore-url" placeholder="https://example.com">
+                </div>
+                <div class="form-group">
+                    <label for="explore-depth">Max Depth</label>
+                    <input type="number" id="explore-depth" value="3" min="1" max="10">
+                </div>
+                <button id="btn-explore" class="btn-primary">Start Explore</button>
+                <div class="output" id="explore-output"></div>
+            </section>
+
+            <!-- Generate -->
+            <section id="generate" class="view">
+                <h2>Generate Test Cases</h2>
+                <div class="form-group">
+                    <label for="gen-requirement">Requirement</label>
+                    <textarea id="gen-requirement" rows="4" placeholder="Describe what you want to test..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="gen-spec">Spec File (optional)</label>
+                    <input type="text" id="gen-spec" placeholder="path/to/spec.md">
+                </div>
+                <button id="btn-generate" class="btn-primary">Generate Tests</button>
+                <div class="output" id="generate-output"></div>
+            </section>
+
+            <!-- Run Tests -->
+            <section id="run" class="view">
+                <h2>Run Tests</h2>
+                <div class="form-group">
+                    <label for="run-project">Project</label>
+                    <select id="run-project">
+                        <option value="">Select project...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="run-type">Test Type</label>
+                    <select id="run-type">
+                        <option value="smoke">Smoke</option>
+                        <option value="regression">Regression</option>
+                        <option value="full">Full</option>
+                    </select>
+                </div>
+                <button id="btn-run" class="btn-primary">Run Tests</button>
+                <div class="output" id="run-output"></div>
+            </section>
+
+            <!-- Config -->
+            <section id="config" class="view">
+                <h2>Configuration</h2>
+                <div class="form-group">
+                    <label for="cfg-model">Model Name</label>
+                    <input type="text" id="cfg-model" value="qwen3.6-plus">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-base-url">Base URL</label>
+                    <input type="text" id="cfg-base-url" value="https://dashscope.aliyuncs.com/compatible-mode/v1">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-api-key">API Key</label>
+                    <input type="password" id="cfg-api-key" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label for="cfg-cdp-port">CDP Port</label>
+                    <input type="number" id="cfg-cdp-port" value="9222">
+                </div>
+                <button id="btn-save-config" class="btn-primary">Save Config</button>
+            </section>
+        </main>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>
