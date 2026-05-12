@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-arm64:
+  build:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -20,25 +20,25 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
 
-      - name: Add target
-        run: rustup target add aarch64-apple-darwin
+      - name: Add targets
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Build Release
+      - name: Build ARM64
         run: |
           cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
-          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
-            -C target/aarch64-apple-darwin/release qinAegis-web
 
-      - name: Generate SHA256
+      - name: Build x86
         run: |
-          echo "aarch64-apple-darwin" > sha256_aarch64.txt
-          shasum -a 256 qinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
+          cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
 
-      - name: Create macOS App Bundle
+      - name: Package ARM64
         run: |
+          mkdir -p release
+          cp target/aarch64-apple-darwin/release/qinAegis-web release/
+          tar -czf QinAegis-aarch64-apple-darwin.tar.gz -C release qinAegis-web
+          cp target/aarch64-apple-darwin/release/qinAegis-web release/
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
@@ -65,45 +65,12 @@ jobs:
 </dict>
 </plist>
 PLIST
-          ln -sf /Applications "$BUNDLE/Contents/Applications" 2>/dev/null || true
           tar -czf QinAegis-aarch64.darwin-app.tar.gz "$BUNDLE"
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: qinAegis-aarch64-apple-darwin
-          path: |
-            qinAegis-aarch64-apple-darwin.tar.gz
-            QinAegis-aarch64.darwin-app.tar.gz
-            sha256_aarch64.txt
-
-  build-x86:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Add target
-        run: rustup target add x86_64-apple-darwin
-
-      - name: Build Release
+      - name: Package x86
         run: |
-          cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
-          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
-            -C target/x86_64-apple-darwin/release qinAegis-web
-
-      - name: Generate SHA256
-        run: |
-          echo "x86_64-apple-darwin" > sha256_x86_64.txt
-          shasum -a 256 qinAegis-x86_64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_x86_64.txt
-
-      - name: Create macOS App Bundle
-        run: |
+          cp target/x86_64-apple-darwin/release/qinAegis-web release/
+          tar -czf QinAegis-x86_64-apple-darwin.tar.gz -C release qinAegis-web
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
@@ -132,43 +99,44 @@ PLIST
 PLIST
           tar -czf QinAegis-x86_64.darwin-app.tar.gz "$BUNDLE"
 
+      - name: Generate SHA256
+        run: |
+          echo "aarch64-apple-darwin" > sha256_aarch64.txt
+          shasum -a 256 QinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
+          echo "x86_64-apple-darwin" > sha256_x86_64.txt
+          shasum -a 256 QinAegis-x86_64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_x86_64.txt
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qinAegis-x86_64-apple-darwin
+          name: qinAegis-all
           path: |
-            qinAegis-x86_64-apple-darwin.tar.gz
+            QinAegis-aarch64-apple-darwin.tar.gz
+            QinAegis-x86_64-apple-darwin.tar.gz
+            QinAegis-aarch64.darwin-app.tar.gz
             QinAegis-x86_64.darwin-app.tar.gz
+            sha256_aarch64.txt
             sha256_x86_64.txt
 
   create-release:
-    needs: [build-arm64, build-x86]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - name: Download ARM64 artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: qinAegis-aarch64-apple-darwin
-          path: artifacts/arm64
-
-      - name: Download x86 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: qinAegis-x86_64-apple-darwin
-          path: artifacts/x86
-
-      - name: Combine SHA256 files
-        run: |
-          cat artifacts/arm64/sha256_aarch64.txt artifacts/x86/sha256_x86_64.txt > sha256.txt
+          name: qinAegis-all
+          path: artifacts
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
-            artifacts/arm64/QinAegis-aarch64.darwin-app.tar.gz
-            artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
-            artifacts/x86/QinAegis-x86_64.darwin-app.tar.gz
-            sha256.txt
+            artifacts/QinAegis-aarch64-apple-darwin.tar.gz
+            artifacts/QinAegis-x86_64-apple-darwin.tar.gz
+            artifacts/QinAegis-aarch64.darwin-app.tar.gz
+            artifacts/QinAegis-x86_64.darwin-app.tar.gz
+            artifacts/sha256_aarch64.txt
+            artifacts/sha256_x86_64.txt
           draft: true
           generate_release_notes: true
