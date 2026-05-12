@@ -25,14 +25,45 @@ jobs:
 
       - name: Build Release
         run: |
-          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
           tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
-            -C target/aarch64-apple-darwin/release qinAegis
+            -C target/aarch64-apple-darwin/release qinAegis-web
 
       - name: Generate SHA256
         run: |
           echo "aarch64-apple-darwin" > sha256_aarch64.txt
           shasum -a 256 qinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
+
+      - name: Create macOS App Bundle
+        run: |
+          BUNDLE="QinAegis.app"
+          rm -rf "$BUNDLE"
+          mkdir -p "$BUNDLE/Contents/MacOS"
+          cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
+          cat > "$BUNDLE/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>QinAegis</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.qinaegis.web</string>
+  <key>CFBundleName</key>
+  <string>QinAegis</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.2.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+</dict>
+</plist>
+PLIST
+          ln -sf /Applications "$BUNDLE/Contents/Applications" 2>/dev/null || true
+          tar -czf QinAegis-aarch64.darwin-app.tar.gz "$BUNDLE"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -40,6 +71,7 @@ jobs:
           name: qinAegis-aarch64-apple-darwin
           path: |
             qinAegis-aarch64-apple-darwin.tar.gz
+            QinAegis-aarch64.darwin-app.tar.gz
             sha256_aarch64.txt
 
   build-x86:
@@ -55,14 +87,44 @@ jobs:
 
       - name: Build Release
         run: |
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
           tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
-            -C target/x86_64-apple-darwin/release qinAegis
+            -C target/x86_64-apple-darwin/release qinAegis-web
 
       - name: Generate SHA256
         run: |
           echo "x86_64-apple-darwin" > sha256_x86_64.txt
           shasum -a 256 qinAegis-x86_64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_x86_64.txt
+
+      - name: Create macOS App Bundle
+        run: |
+          BUNDLE="QinAegis.app"
+          rm -rf "$BUNDLE"
+          mkdir -p "$BUNDLE/Contents/MacOS"
+          cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
+          cat > "$BUNDLE/Contents/Info.plist" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>QinAegis</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.qinaegis.web</string>
+  <key>CFBundleName</key>
+  <string>QinAegis</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.2.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+</dict>
+</plist>
+PLIST
+          tar -czf QinAegis-x86_64.darwin-app.tar.gz "$BUNDLE"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -70,6 +132,7 @@ jobs:
           name: qinAegis-x86_64-apple-darwin
           path: |
             qinAegis-x86_64-apple-darwin.tar.gz
+            QinAegis-x86_64.darwin-app.tar.gz
             sha256_x86_64.txt
 
   create-release:
@@ -97,7 +160,9 @@ jobs:
         with:
           files: |
             artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
+            artifacts/arm64/QinAegis-aarch64.darwin-app.tar.gz
             artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
+            artifacts/x86/QinAegis-x86_64.darwin-app.tar.gz
             sha256.txt
           draft: true
           generate_release_notes: true
