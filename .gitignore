@@ -10,6 +10,10 @@ midscene_run/
 sandbox/
 data/
 release/
+*.log
+*.bin
+*.tar.gz
+playwright-*.html
 .claude/
 node_modules/
 package-lock.json
