@@ -11,27 +11,28 @@ jobs:
   publish-tap:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout homebrew-tap
-        uses: actions/checkout@v4
-        with:
-          repository: mbpz/homebrew-tap
-          path: homebrew-tap
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download DMGs and create cask
+      - name: Download DMGs
+        id: download
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           VERSION="${VERSION#v}"
-
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
-
           ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
           X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "arm_sha=${ARM_SHA}" >> $GITHUB_OUTPUT
+          echo "x64_sha=${X64_SHA}" >> $GITHUB_OUTPUT
 
-          mkdir -p homebrew-tap/Casks
+      - name: Create cask file
+        id: create
+        run: |
+          VERSION="${{ steps.download.outputs.version }}"
+          ARM_SHA="${{ steps.download.outputs.arm_sha }}"
+          X64_SHA="${{ steps.download.outputs.x64_sha }}"
 
-          cat > homebrew-tap/Casks/qinaegis.rb << EOF
+          mkdir -p Casks
+          cat > Casks/qinaegis.rb << EOF
 cask "qinaegis" do
   arch arm: "arm64", intel: "x64"
 
@@ -66,10 +67,13 @@ end
 EOF
 
       - name: Push to homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd homebrew-tap
+          cd Casks
+          git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/qinaegis.rb
-          git diff --staged --quiet || git commit -m "qinaegis ${GITHUB_REF#refs/tags/}"
-          git push
+          git add qinaegis.rb
+          git commit -m "qinaegis ${{ steps.download.outputs.version }}"
+          git push -f https://x-access-token:${GH_TOKEN}@github.com/mbpz/homebrew-tap.git HEAD:main
