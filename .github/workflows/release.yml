@@ -36,7 +36,7 @@ jobs:
       - name: Package ARM64
         run: |
           mkdir -p release
-          VERSION="${{ github.ref_name }}"
+          VERSION="${GITHUB_REF#refs/tags/v}"
           DMG="QinAegis-${VERSION}-mac-arm64.dmg"
           BUNDLE="QinAegis.app"
 
@@ -50,7 +50,7 @@ jobs:
           tar -czf QinAegis-aarch64-apple-darwin.tar.gz -C release qinAegis-web
 
           # Info.plist
-          cat > "$BUNDLE/Contents/Info.plist" << PLIST
+          cat > "$BUNDLE/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -64,7 +64,7 @@ jobs:
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>$VERSION</string>
+  <string>__VERSION__</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
@@ -73,7 +73,10 @@ jobs:
   <string>public.app-category.developer-tools</string>
 </dict>
 </plist>
-PLIST
+EOF
+
+          # Replace version placeholder
+          sed -i '' 's/__VERSION__/'"$VERSION"'/g' "$BUNDLE/Contents/Info.plist"
 
           # Ad-hoc sign the app bundle
           codesign --force --deep --sign - "$BUNDLE"
@@ -97,7 +100,7 @@ PLIST
       - name: Package x86
         run: |
           mkdir -p release
-          VERSION="${{ github.ref_name }}"
+          VERSION="${GITHUB_REF#refs/tags/v}"
           DMG="QinAegis-${VERSION}-mac-x64.dmg"
           BUNDLE="QinAegis.app"
 
@@ -111,7 +114,7 @@ PLIST
           tar -czf QinAegis-x86_64-apple-darwin.tar.gz -C release qinAegis-web
 
           # Info.plist
-          cat > "$BUNDLE/Contents/Info.plist" << PLIST
+          cat > "$BUNDLE/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -125,7 +128,7 @@ PLIST
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>$VERSION</string>
+  <string>__VERSION__</string>
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
@@ -134,7 +137,10 @@ PLIST
   <string>public.app-category.developer-tools</string>
 </dict>
 </plist>
-PLIST
+EOF
+
+          # Replace version placeholder
+          sed -i '' 's/__VERSION__/'"$VERSION"'/g' "$BUNDLE/Contents/Info.plist"
 
           # Ad-hoc sign the app bundle
           codesign --force --deep --sign - "$BUNDLE"
