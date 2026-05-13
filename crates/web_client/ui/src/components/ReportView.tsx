@@ -103,6 +103,19 @@ export default function ReportView() {
           </div>
         )}
       </div>
+
+      <div className="card">
+        <div className="card-title">Export</div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '12px' }}>
+          Export test reports and results for sharing or archival.
+        </p>
+        <button
+          className="btn btn-secondary"
+          onClick={() => alert('Export feature: Use qinAegis CLI export command for full export.')}
+        >
+          Export via CLI
+        </button>
+      </div>
     </div>
   );
 }

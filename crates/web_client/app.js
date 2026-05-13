@@ -46,6 +46,7 @@ window.runTests = function(project, type) { return window.rpc('runTests', {proje
 window.getOutput = function() { return window.rpc('getOutput', {}); };
 window.clearOutput = function() { return window.rpc('clearOutput', {}); };
 window.getProjects = function() { return window.rpc('getProjects', {}); };
+window.checkConfig = function() { return window.rpc('checkConfig', {}); };
 window.getReports = function(project) { return window.rpc('getReports', {project: project || 'default'}); };
 window.getGateStatus = function(project) { return window.rpc('getGateStatus', {project: project || 'default'}); };
 window.createProject = function(name, url, tech_stack) { return window.rpc('createProject', {name: name, url: url, tech_stack: tech_stack || []}); };

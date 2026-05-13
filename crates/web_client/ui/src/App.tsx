@@ -6,6 +6,7 @@ import GenerateView from './components/GenerateView';
 import RunView from './components/RunView';
 import ReportView from './components/ReportView';
 import SettingsView from './components/SettingsView';
+import InitWizard from './components/InitWizard';
 import './styles.css';
 
 type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'reports' | 'settings';
@@ -24,6 +25,7 @@ declare global {
     getReports: (project: string) => Promise<any>;
     getGateStatus: (project: string) => Promise<any>;
     createProject: (name: string, url: string, tech_stack: string[]) => Promise<any>;
+    checkConfig: () => Promise<{configured: boolean}>;
   }
 }
 
@@ -31,12 +33,23 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [projects, setProjects] = useState<string[]>([]);
   const [output, setOutput] = useState<string>('');
+  const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
+    checkConfig();
     loadProjects();
   }, []);
 
-  // Poll output only when on views that display it
+  const checkConfig = async () => {
+    try {
+      const result = await window.checkConfig();
+      setIsConfigured(result.configured);
+    } catch (e) {
+      console.error('Failed to check config:', e);
+      setIsConfigured(false);
+    }
+  };
+
   useEffect(() => {
     if (currentView !== 'explore' && currentView !== 'generate' && currentView !== 'run') {
       return;
@@ -63,6 +76,10 @@ function App() {
     }
   };
 
+  const handleWizardComplete = () => {
+    setIsConfigured(true);
+  };
+
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
@@ -81,6 +98,18 @@ function App() {
         return <Dashboard projects={projects} onNavigate={setCurrentView} />;
     }
   };
+
+  if (isConfigured === null) {
+    return (
+      <div className="app" style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (!isConfigured) {
+    return <InitWizard onComplete={handleWizardComplete} />;
+  }
 
   return (
     <div className="app">

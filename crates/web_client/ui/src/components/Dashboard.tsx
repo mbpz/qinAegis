@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View } from '../App';
 
 interface DashboardProps {
@@ -6,11 +6,36 @@ interface DashboardProps {
   onNavigate: (view: View) => void;
 }
 
+interface GateStatus {
+  e2e_pass_rate: number | null;
+  e2e_pass_rate_display: string;
+  performance: string | null;
+  stress: string | null;
+  has_runs: boolean;
+  last_run_passed?: number;
+  last_run_total?: number;
+}
+
 export default function Dashboard({ projects, onNavigate }: DashboardProps) {
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectUrl, setNewProjectUrl] = useState('');
   const [addingProject, setAddingProject] = useState(false);
+  const [gateStatus, setGateStatus] = useState<GateStatus | null>(null);
+
+  useEffect(() => {
+    loadGateStatus();
+  }, [projects]);
+
+  const loadGateStatus = async () => {
+    if (projects.length === 0) return;
+    try {
+      const status = await window.getGateStatus(projects[0]);
+      setGateStatus(status);
+    } catch (e) {
+      console.error('Failed to load gate status:', e);
+    }
+  };
 
   const handleAddProject = async () => {
     if (!newProjectName.trim()) { alert('Project name is required'); return; }
@@ -35,11 +60,13 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
 
       <div className="stats-grid">
         <div className="stat-card pass">
-          <div className="stat-value">0</div>
+          <div className="stat-value">{gateStatus?.last_run_passed ?? '--'}</div>
           <div className="stat-label">Passed</div>
         </div>
         <div className="stat-card fail">
-          <div className="stat-value">0</div>
+          <div className="stat-value">
+            {gateStatus?.has_runs ? (gateStatus.last_run_total ?? 0) - (gateStatus.last_run_passed ?? 0) : '--'}
+          </div>
           <div className="stat-label">Failed</div>
         </div>
         <div className="stat-card pending">
@@ -47,8 +74,8 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
           <div className="stat-label">Projects</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">0</div>
-          <div className="stat-label">Total Runs</div>
+          <div className="stat-value">{gateStatus?.e2e_pass_rate_display ?? '--'}</div>
+          <div className="stat-label">Pass Rate</div>
         </div>
       </div>
 
