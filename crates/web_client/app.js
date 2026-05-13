@@ -117,10 +117,14 @@ function initConfig() {
         var apiKey = document.getElementById('cfg-api-key').value.trim();
         if (!apiKey) { alert('API key is required'); return; }
         var config = {
-            model: document.getElementById('cfg-model').value,
-            baseUrl: document.getElementById('cfg-base-url').value,
-            apiKey: apiKey,
-            cdpPort: parseInt(document.getElementById('cfg-cdp-port').value, 10)
+            llm: {
+                model: document.getElementById('cfg-model').value,
+                base_url: document.getElementById('cfg-base-url').value,
+                api_key: apiKey
+            },
+            sandbox: {
+                cdp_port: parseInt(document.getElementById('cfg-cdp-port').value, 10)
+            }
         };
         window.setConfig(config).then(function(resp) {
             alert('Config saved!');

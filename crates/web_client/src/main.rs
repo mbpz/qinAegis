@@ -314,7 +314,9 @@ impl AppState {
     // ── Output ────────────────────────────────────────────────────────────────
 
     pub fn get_output(&self) -> String {
-        self.output.lock().unwrap().clone()
+        let out = self.output.lock().unwrap().clone();
+        let escaped = out.replace('\\', "\\\\").replace('"', "\\\"");
+        format!(r#"{{"output":"{}"}}"#, escaped)
     }
 
     pub fn clear_output(&mut self) {
