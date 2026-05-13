@@ -11,8 +11,12 @@ jobs:
   publish-tap:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout homebrew-tap
         uses: actions/checkout@v4
+        with:
+          repository: mbpz/homebrew-tap
+          path: homebrew-tap
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get release info
         id: release
@@ -24,45 +28,64 @@ jobs:
       - name: Download ARM64 DMG
         run: |
           VERSION="${{ steps.release.outputs.version }}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/qinAegis-arm64.dmg" -o /tmp/arm64.dmg
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
           ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
           echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
 
       - name: Download x64 DMG
         run: |
           VERSION="${{ steps.release.outputs.version }}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/qinAegis-x64.dmg" -o /tmp/x64.dmg
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
           X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
           echo "x64_sha=$X64_SHA" >> $GITHUB_OUTPUT
 
-      - name: Create cask with real SHA256
+      - name: Create or update cask
         run: |
           VERSION="${{ steps.release.outputs.version }}"
           ARM_SHA="${{ steps.release.outputs.arm_sha }}"
           X64_SHA="${{ steps.release.outputs.x64_sha }}"
 
-          mkdir -p Formula
+          mkdir -p homebrew-tap/Casks
 
-          printf 'cask "qinaegis" do\n  arch arm: "arm64", intel: "x64"\n\n  version "%s"\n  sha256 arm:   "%s",\n         intel: "%s"\n\n  url "https://github.com/mbpz/qinAegis/releases/download/v%s/qinAegis-%s.dmg"\n  name "QinAegis"\n  desc "AI-powered terminal productivity tool"\n  homepage "https://github.com/mbpz/qinAegis"\n\n  livecheck do\n    url :url\n    strategy :github_latest\n  end\n\n  auto_updates false\n  depends_on macos: ">= :catalina"\n\n  app "QinAegis.app"\n\n  zap trash: [\n    "~/Library/Application Support/com.qinaegis.qinAegis",\n    "~/Library/Preferences/com.qinaegis.qinAegis.plist",\n    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",\n  ]\nend\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$VERSION" "$VERSION" > Formula/qinaegis.rb
+          cat > homebrew-tap/Casks/qinaegis.rb << CASKEOF
+cask "qinaegis" do
+  arch arm: "arm64", intel: "x64"
 
-      - name: Push to release branch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  version "${VERSION}"
+  sha256 arm:   "${ARM_SHA}",
+         intel: "${X64_SHA}"
+
+  url "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-\#{arch}.dmg"
+  name "QinAegis"
+  desc "AI-powered terminal productivity tool"
+  homepage "https://github.com/mbpz/qinAegis"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  auto_updates false
+  depends_on macos: ">= :catalina"
+
+  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
+
+  uninstall quit: "com.qinaegis.qinAegis",
+            delete: "/Applications/QinAegis.app"
+
+  zap trash: [
+    "~/Library/Application Support/com.qinaegis.qinAegis",
+    "~/Library/Preferences/com.qinaegis.qinAegis.plist",
+    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",
+  ]
+end
+CASKEOF
+
+      - name: Push to homebrew-tap
         run: |
+          cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git checkout release-cask 2>/dev/null || git checkout -b release-cask
-
-          mkdir -p Formula
-          cp Formula/qinaegis.rb Formula/qinaegis.rb.bak 2>/dev/null || true
-
-          VERSION="${{ steps.release.outputs.version }}"
-          ARM_SHA="${{ steps.release.outputs.arm_sha }}"
-          X64_SHA="${{ steps.release.outputs.x64_sha }}"
-
-          printf 'cask "qinaegis" do\n  arch arm: "arm64", intel: "x64"\n\n  version "%s"\n  sha256 arm:   "%s",\n         intel: "%s"\n\n  url "https://github.com/mbpz/qinAegis/releases/download/v%s/qinAegis-%s.dmg"\n  name "QinAegis"\n  desc "AI-powered terminal productivity tool"\n  homepage "https://github.com/mbpz/qinAegis"\n\n  livecheck do\n    url :url\n    strategy :github_latest\n  end\n\n  auto_updates false\n  depends_on macos: ">= :catalina"\n\n  app "QinAegis.app"\n\n  zap trash: [\n    "~/Library/Application Support/com.qinaegis.qinAegis",\n    "~/Library/Preferences/com.qinaegis.qinAegis.plist",\n    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",\n  ]\nend\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$VERSION" "$VERSION" > Formula/qinaegis.rb
-
-          git add Formula/qinaegis.rb
-          git commit -m "qinaegis $VERSION"
-          git push -f origin release-cask
+          git add Casks/qinaegis.rb
+          git diff --staged --quiet || git commit -m "qinaegis ${{ steps.release.outputs.version }}"
+          git push
