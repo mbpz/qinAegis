@@ -21,8 +21,9 @@ declare global {
     getOutput: () => Promise<any>;
     clearOutput: () => Promise<any>;
     getProjects: () => Promise<any>;
-    getReports: () => Promise<any>;
-    getGateStatus: () => Promise<any>;
+    getReports: (project: string) => Promise<any>;
+    getGateStatus: (project: string) => Promise<any>;
+    createProject: (name: string, url: string, tech_stack: string[]) => Promise<any>;
   }
 }
 
@@ -33,9 +34,16 @@ function App() {
 
   useEffect(() => {
     loadProjects();
+  }, []);
+
+  // Poll output only when on views that display it
+  useEffect(() => {
+    if (currentView !== 'explore' && currentView !== 'generate' && currentView !== 'run') {
+      return;
+    }
     const interval = setInterval(loadOutput, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentView]);
 
   const loadProjects = async () => {
     try {
@@ -51,7 +59,7 @@ function App() {
       const result = await window.getOutput();
       setOutput(result || '');
     } catch (e) {
-      // ignore
+      console.error('Failed to fetch output:', e);
     }
   };
 

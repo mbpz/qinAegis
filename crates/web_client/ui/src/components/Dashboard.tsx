@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View } from '../App';
 
 interface DashboardProps {
@@ -6,6 +7,28 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ projects, onNavigate }: DashboardProps) {
+  const [showAddProject, setShowAddProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectUrl, setNewProjectUrl] = useState('');
+  const [addingProject, setAddingProject] = useState(false);
+
+  const handleAddProject = async () => {
+    if (!newProjectName.trim()) { alert('Project name is required'); return; }
+    if (!newProjectUrl.trim()) { alert('Project URL is required'); return; }
+    setAddingProject(true);
+    try {
+      await window.createProject(newProjectName.trim(), newProjectUrl.trim(), ['react']);
+      setShowAddProject(false);
+      setNewProjectName('');
+      setNewProjectUrl('');
+      window.location.reload();
+    } catch (e) {
+      alert('Failed to create project: ' + e);
+    } finally {
+      setAddingProject(false);
+    }
+  };
+
   return (
     <div className="view">
       <h2 className="view-title">Dashboard</h2>
@@ -47,13 +70,22 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
             <div className="action-title">Run Tests</div>
             <div className="action-desc">Execute smoke or full test suite</div>
           </div>
+          <div className="action-card" onClick={() => onNavigate('reports')}>
+            <div className="action-icon">📊</div>
+            <div className="action-title">View Reports</div>
+            <div className="action-desc">Test reports and quality gates</div>
+          </div>
         </div>
       </div>
 
-      {projects.length > 0 && (
-        <div className="card">
-          <div className="card-title">Projects</div>
-          <div className="project-list">
+      <div className="card">
+        <div className="card-title">Projects</div>
+        {projects.length === 0 ? (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '12px' }}>
+            No projects yet. Add your first project to get started.
+          </p>
+        ) : (
+          <div className="project-list" style={{ marginBottom: '12px' }}>
             {projects.map((p) => (
               <div key={p} className="project-item">
                 <span>📁</span>
@@ -61,8 +93,39 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+        {!showAddProject ? (
+          <button className="btn btn-primary" onClick={() => setShowAddProject(true)}>
+            + Add Project
+          </button>
+        ) : (
+          <div className="add-project-form">
+            <input
+              type="text"
+              placeholder="Project name (e.g. my-app)"
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              className="input"
+            />
+            <input
+              type="text"
+              placeholder="Project URL (e.g. https://my-app.com)"
+              value={newProjectUrl}
+              onChange={(e) => setNewProjectUrl(e.target.value)}
+              className="input"
+              style={{ marginTop: '8px' }}
+            />
+            <div className="form-actions" style={{ marginTop: '8px' }}>
+              <button className="btn btn-primary" onClick={handleAddProject} disabled={addingProject}>
+                {addingProject ? 'Creating...' : 'Create Project'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowAddProject(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -190,7 +190,13 @@ impl AppState {
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
 
-                let spec_markdown = match spec_path.as_ref().and_then(|sp| std::fs::read_to_string(sp).ok()) {
+                let spec_markdown = match spec_path.as_ref().and_then(|sp| {
+                        // Reject absolute paths and path traversal attempts
+                        if sp.starts_with('/') || sp.contains("..") {
+                            return None;
+                        }
+                        std::fs::read_to_string(sp).ok()
+                    }) {
                     Some(content) => content,
                     None => {
                         let mut o = output.lock().unwrap();
@@ -265,20 +271,25 @@ impl AppState {
                         let storage = LocalStorageInstance;
                         match storage.load_cases_by_status(&project, CaseStatus::Approved).await {
                             Ok(cases) => {
-                                let refs: Vec<TestCaseRef> = cases.iter().map(|c| TestCaseRef {
-                                    id: c.id.clone(),
-                                    yaml_script: c.yaml_script.clone(),
-                                    name: c.name.clone(),
-                                    priority: c.priority.clone(),
-                                    target_url: None,
-                                }).collect();
+                                // Filter cases by test_type (smoke/functional/performance/stress)
+                                let filtered: Vec<TestCaseRef> = cases
+                                    .iter()
+                                    .filter(|c| c.test_type == test_type)
+                                    .map(|c| TestCaseRef {
+                                        id: c.id.clone(),
+                                        yaml_script: c.yaml_script.clone(),
+                                        name: c.name.clone(),
+                                        priority: c.priority.clone(),
+                                        target_url: None,
+                                    })
+                                    .collect();
 
                                 {
                                     let mut o = output.lock().unwrap();
-                                    o.push_str(&format!("[{}] Found {} test cases\n", job_id, refs.len()));
+                                    o.push_str(&format!("[{}] Found {} test cases\n", job_id, filtered.len()));
                                 }
 
-                                let results = match executor.run_parallel(refs).await {
+                                let results = match executor.run_parallel(filtered).await {
                                     Ok(results) => results,
                                     Err(e) => {
                                         let mut o = output.lock().unwrap();
@@ -329,6 +340,104 @@ impl AppState {
         match LocalStorage::list_projects() {
             Ok(projects) => serde_json::to_string(&projects).unwrap_or_else(|_| r#"[]"#.to_string()),
             Err(e) => format!(r#"{{"error":"list_projects failed: {}"}}"#, e),
+        }
+    }
+
+    pub fn create_project(&mut self, name: &str, url: &str, tech_stack: Vec<String>) -> String {
+        match LocalStorage::init_project(name, url, tech_stack) {
+            Ok(cfg) => serde_json::to_string(&cfg).unwrap_or_else(|_| r#"{"ok":true}"#.to_string()),
+            Err(e) => format!(r#"{{"error":"init_project failed: {}"}}"#, e),
+        }
+    }
+
+    pub fn get_reports(&self, project: &str) -> String {
+        let reports_dir = LocalStorage::reports_dir(project);
+        if !reports_dir.exists() {
+            return r#"[]"#.to_string();
+        }
+        let mut reports = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(run_id) = path.file_name().and_then(|n| n.to_str()) {
+                        let summary_path = path.join("summary.json");
+                        if summary_path.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&summary_path) {
+                                if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content) {
+                                    reports.push(serde_json::json!({
+                                        "run_id": run_id,
+                                        "total": summary.get("total").unwrap_or(&serde_json::Value::Null),
+                                        "passed": summary.get("passed").unwrap_or(&serde_json::Value::Null),
+                                        "failed": summary.get("failed").unwrap_or(&serde_json::Value::Null),
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        reports.sort_by(|a, b| {
+            let a_ts = b.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+            let b_ts = a.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+            b_ts.cmp(a_ts)
+        });
+        serde_json::to_string(&reports).unwrap_or_else(|_| r#"[]"#.to_string())
+    }
+
+    pub fn get_gate_status(&self, project: &str) -> String {
+        let reports_dir = LocalStorage::reports_dir(project);
+        if !reports_dir.exists() {
+            return serde_json::to_string(&serde_json::json!({
+                "e2e_pass_rate": null,
+                "performance": null,
+                "stress": null,
+                "has_runs": false,
+            })).unwrap_or_default();
+        }
+
+        let mut latest_run: Option<(String, usize, usize)> = None;
+        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(run_id) = path.file_name().and_then(|n| n.to_str()).map(String::from) {
+                        if latest_run.is_none() || run_id > latest_run.as_ref().unwrap().0 {
+                            let summary_path = path.join("summary.json");
+                            if let Ok(content) = std::fs::read_to_string(&summary_path) {
+                                if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content) {
+                                    let total = summary.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                    let passed = summary.get("passed").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                    latest_run = Some((run_id, total, passed));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        match latest_run {
+            Some((run_id, total, passed)) => {
+                let pass_rate = if total > 0 { (passed as f64 / total as f64) * 100.0 } else { 100.0 };
+                serde_json::to_string(&serde_json::json!({
+                    "e2e_pass_rate": pass_rate,
+                    "e2e_pass_rate_display": format!("{:.0}%", pass_rate),
+                    "performance": null,
+                    "stress": null,
+                    "has_runs": true,
+                    "last_run_id": run_id,
+                    "last_run_passed": passed,
+                    "last_run_total": total,
+                })).unwrap_or_default()
+            }
+            None => serde_json::to_string(&serde_json::json!({
+                "e2e_pass_rate": null,
+                "performance": null,
+                "stress": null,
+                "has_runs": false,
+            })).unwrap_or_default(),
         }
     }
 }
@@ -388,12 +497,32 @@ fn main() -> Result<()> {
                             "runExplore" => {
                                 if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
                                     let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
-                                        let msg = r#"{"error":"url must start with http:// or https://"}"#.to_string();
+                                    if url.is_empty() {
+                                        let msg = r#"{"error":"url is required"}"#.to_string();
                                         return wry::http::Response::builder()
                                             .header("Content-Type", "application/json")
                                             .body(Cow::Owned(msg.into_bytes()))
                                             .unwrap();
+                                    }
+                                    // Use URL parser for proper scheme validation (not prefix-based)
+                                    match url::Url::parse(url) {
+                                        Ok(parsed) => {
+                                            let scheme = parsed.scheme();
+                                            if scheme != "http" && scheme != "https" {
+                                                let msg = r#"{"error":"url must use http or https scheme"}"#.to_string();
+                                                return wry::http::Response::builder()
+                                                    .header("Content-Type", "application/json")
+                                                    .body(Cow::Owned(msg.into_bytes()))
+                                                    .unwrap();
+                                            }
+                                        }
+                                        Err(_) => {
+                                            let msg = r#"{"error":"invalid url format"}"#.to_string();
+                                            return wry::http::Response::builder()
+                                                .header("Content-Type", "application/json")
+                                                .body(Cow::Owned(msg.into_bytes()))
+                                                .unwrap();
+                                        }
                                     }
                                     let depth = p.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
                                     app.run_explore(url, depth)
@@ -425,6 +554,34 @@ fn main() -> Result<()> {
                                 r#"{"ok":true}"#.to_string()
                             }
                             "getProjects" => app.get_projects(),
+                            "getReports" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    app.get_reports(project)
+                                } else {
+                                    app.get_reports("default")
+                                }
+                            }
+                            "getGateStatus" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    app.get_gate_status(project)
+                                } else {
+                                    app.get_gate_status("default")
+                                }
+                            }
+                            "createProject" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                                    let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    let tech_stack = p.get("tech_stack").and_then(|v| v.as_array())
+                                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                        .unwrap_or_default();
+                                    app.create_project(name, url, tech_stack)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
                             _ => format!(r#"{{"error":"unknown method: {}"}}"#, method),
                         }
                     };
@@ -477,6 +634,9 @@ fn main() -> Result<()> {
             window.getOutput = function() { return window.rpc('getOutput', {}); };
             window.clearOutput = function() { return window.rpc('clearOutput', {}); };
             window.getProjects = function() { return window.rpc('getProjects', {}); };
+            window.getReports = function(project) { return window.rpc('getReports', {project: project || 'default'}); };
+            window.getGateStatus = function(project) { return window.rpc('getGateStatus', {project: project || 'default'}); };
+            window.createProject = function(name, url, tech_stack) { return window.rpc('createProject', {name: name, url: url, tech_stack: tech_stack || []}); };
             console.log('RPC bridge ready');
         "#;
 
@@ -528,12 +688,11 @@ fn url_decode(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
-            if hex.len() < 2 || u8::from_str_radix(&hex, 16).is_err() {
-                result.push('%');
-                result.push_str(&hex);
-            } else {
-                result.push(u8::from_str_radix(&hex, 16).unwrap() as char);
+            if hex.len() != 2 || u8::from_str_radix(&hex, 16).is_err() {
+                // Invalid percent-encoding — reject the sequence entirely
+                return String::new(); // fail fast rather than silently continue
             }
+            result.push(u8::from_str_radix(&hex, 16).unwrap() as char);
         } else if c == '+' {
             result.push(' ');
         } else {

@@ -428,3 +428,50 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+.run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.run-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.run-item:hover {
+  background: var(--border-color);
+}
+
+.run-id {
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.run-stats {
+  display: flex;
+  gap: 12px;
+}
+
+.run-stats .stat {
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.run-stats .passed { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+.run-stats .failed { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+.run-stats .total { background: rgba(88, 166, 255, 0.15); color: var(--accent-blue); }
+
+.add-project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
