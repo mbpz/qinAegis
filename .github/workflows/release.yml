@@ -44,7 +44,7 @@ jobs:
           PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
           echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
-          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO -o qinAegis-arm64.dmg "$BUNDLE"
+          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO qinAegis-arm64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine qinAegis-arm64.dmg 2>/dev/null || true
 
       - name: Create macOS App Bundle
@@ -97,7 +97,7 @@ jobs:
           PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
           echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
-          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO -o qinAegis-x64.dmg "$BUNDLE"
+          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO qinAegis-x64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine qinAegis-x64.dmg 2>/dev/null || true
 
       - name: Create macOS App Bundle
