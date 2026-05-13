@@ -440,6 +440,64 @@ impl AppState {
             })).unwrap_or_default(),
         }
     }
+
+    pub fn get_report_html(&self, project: &str, run_id: &str) -> String {
+        let run_dir = LocalStorage::run_dir(project, run_id);
+        let html_path = run_dir.join("report.html");
+        if html_path.exists() {
+            match std::fs::read_to_string(&html_path) {
+                Ok(content) => serde_json::to_string(&serde_json::json!({
+                    "ok": true,
+                    "html": content,
+                })).unwrap_or_default(),
+                Err(e) => serde_json::to_string(&serde_json::json!({
+                    "ok": false,
+                    "error": format!("failed to read report: {}", e),
+                })).unwrap_or_default(),
+            }
+        } else {
+            serde_json::to_string(&serde_json::json!({
+                "ok": false,
+                "error": "report.html not found for this run",
+            })).unwrap_or_default()
+        }
+    }
+
+    pub fn export_project(&self, project: &str) -> String {
+        let reports_dir = LocalStorage::reports_dir(project);
+        if !reports_dir.exists() {
+            return serde_json::to_string(&serde_json::json!({
+                "ok": false,
+                "error": "no reports found",
+            })).unwrap_or_default();
+        }
+
+        let mut all_results = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(run_id) = path.file_name().and_then(|n| n.to_str()) {
+                        let summary_path = path.join("summary.json");
+                        if let Ok(content) = std::fs::read_to_string(&summary_path) {
+                            if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content) {
+                                all_results.push(serde_json::json!({
+                                    "run_id": run_id,
+                                    "summary": summary,
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "project": project,
+            "reports": all_results,
+        })).unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string())
+    }
 }
 
 // ============================================================================
@@ -586,6 +644,23 @@ fn main() -> Result<()> {
                                     r#"{"error":"invalid params"}"#.to_string()
                                 }
                             }
+                            "getReportHtml" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    let run_id = p.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
+                                    app.get_report_html(project, run_id)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
+                            "exportProject" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    app.export_project(project)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
                             _ => format!(r#"{{"error":"unknown method: {}"}}"#, method),
                         }
                     };
@@ -642,6 +717,8 @@ fn main() -> Result<()> {
             window.getReports = function(project) { return window.rpc('getReports', {project: project || 'default'}); };
             window.getGateStatus = function(project) { return window.rpc('getGateStatus', {project: project || 'default'}); };
             window.createProject = function(name, url, tech_stack) { return window.rpc('createProject', {name: name, url: url, tech_stack: tech_stack || []}); };
+            window.getReportHtml = function(project, run_id) { return window.rpc('getReportHtml', {project: project || 'default', run_id: run_id}); };
+            window.exportProject = function(project) { return window.rpc('exportProject', {project: project || 'default'}); };
             console.log('RPC bridge ready');
         "#;
 

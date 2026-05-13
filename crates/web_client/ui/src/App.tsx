@@ -26,6 +26,8 @@ declare global {
     getGateStatus: (project: string) => Promise<any>;
     createProject: (name: string, url: string, tech_stack: string[]) => Promise<any>;
     checkConfig: () => Promise<{configured: boolean}>;
+    getReportHtml: (project: string, run_id: string) => Promise<any>;
+    exportProject: (project: string) => Promise<any>;
   }
 }
 
