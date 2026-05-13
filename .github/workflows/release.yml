@@ -78,16 +78,21 @@ EOF
           # Replace version placeholder
           sed -i '' 's/__VERSION__/'"$VERSION"'/g' "$BUNDLE/Contents/Info.plist"
 
-          # Ad-hoc sign the app bundle
-          codesign --force --deep --sign - "$BUNDLE"
+          # Ad-hoc sign the app bundle (ad-hoc = identity "-")
+          set -e
+          codesign --force --deep --sign - "$BUNDLE" || { echo "codesign failed: $?"; ls -la "$BUNDLE"; }
+          echo "codesign done"
 
           # Create DMG with APFS compression
+          set -e
+          echo "Creating DMG..."
           hdiutil create -volname "QinAegis-${VERSION}" \
             -fs APFS \
             -format UDZO \
             -compressionlevel 9 \
             -o release/"$DMG" \
-            "$BUNDLE"
+            "$BUNDLE" || { echo "hdiutil failed: $?"; ls -la release/; }
+          echo "DMG created: $(ls -la release/*.dmg)"
 
           # Remove quarantine extended attribute (bypass Gatekeeper)
           xattr -r -d com.apple.quarantine release/"$DMG" 2>/dev/null || true
@@ -142,16 +147,21 @@ EOF
           # Replace version placeholder
           sed -i '' 's/__VERSION__/'"$VERSION"'/g' "$BUNDLE/Contents/Info.plist"
 
-          # Ad-hoc sign the app bundle
-          codesign --force --deep --sign - "$BUNDLE"
+          # Ad-hoc sign the app bundle (ad-hoc = identity "-")
+          set -e
+          codesign --force --deep --sign - "$BUNDLE" || { echo "codesign failed: $?"; ls -la "$BUNDLE"; }
+          echo "codesign done"
 
           # Create DMG with APFS compression
+          set -e
+          echo "Creating DMG..."
           hdiutil create -volname "QinAegis-${VERSION}" \
             -fs APFS \
             -format UDZO \
             -compressionlevel 9 \
             -o release/"$DMG" \
-            "$BUNDLE"
+            "$BUNDLE" || { echo "hdiutil failed: $?"; ls -la release/; }
+          echo "DMG created: $(ls -la release/*.dmg)"
 
           # Remove quarantine extended attribute (bypass Gatekeeper)
           xattr -r -d com.apple.quarantine release/"$DMG" 2>/dev/null || true
