@@ -30,41 +30,8 @@ jobs:
           VERSION="${{ steps.download.outputs.version }}"
           ARM_SHA="${{ steps.download.outputs.arm_sha }}"
           X64_SHA="${{ steps.download.outputs.x64_sha }}"
-
           mkdir -p Casks
-          cat > Casks/qinaegis.rb << EOF
-cask "qinaegis" do
-  arch arm: "arm64", intel: "x64"
-
-  version "${VERSION}"
-  sha256 arm:   "${ARM_SHA}",
-         intel: "${X64_SHA}"
-
-  url "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-#{arch}.dmg"
-  name "QinAegis"
-  desc "AI-powered terminal productivity tool"
-  homepage "https://github.com/mbpz/qinAegis"
-
-  livecheck do
-    url :url
-    strategy :github_latest
-  end
-
-  auto_updates false
-  depends_on macos: ">= :catalina"
-
-  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
-
-  uninstall quit: "com.qinaegis.qinAegis",
-            delete: "/Applications/QinAegis.app"
-
-  zap trash: [
-    "~/Library/Application Support/com.qinaegis.qinAegis",
-    "~/Library/Preferences/com.qinaegis.qinAegis.plist",
-    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",
-  ]
-end
-EOF
+          printf 'cask "qinaegis" do\n  arch arm: "arm64", intel: "x64"\n\n  version "%s"\n  sha256 arm:   "%s",\n         intel: "%s"\n\n  url "https://github.com/mbpz/qinAegis/releases/download/%s/QinAegis-%s-mac-#{arch}.dmg"\n  name "QinAegis"\n  desc "AI-powered terminal productivity tool"\n  homepage "https://github.com/mbpz/qinAegis"\n\n  livecheck do\n    url :url\n    strategy :github_latest\n  end\n\n  auto_updates false\n  depends_on macos: ">= :catalina"\n\n  artifact "QinAegis.app", target: "/Applications/QinAegis.app"\n\n  uninstall quit: "com.qinaegis.qinAegis",\n            delete: "/Applications/QinAegis.app"\n\n  zap trash: [\n    "~/Library/Application Support/com.qinaegis.qinAegis",\n    "~/Library/Preferences/com.qinaegis.qinAegis.plist",\n    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",\n  ]\nend\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$VERSION" "$VERSION" > Casks/qinaegis.rb
 
       - name: Push to homebrew-tap
         env:
