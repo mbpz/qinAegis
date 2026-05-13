@@ -90,4 +90,5 @@ function App() {
   );
 }
 
+export type { View };
 export default App;
