@@ -14,17 +14,27 @@ document.addEventListener('DOMContentLoaded', function() {
 // RPC Bridge (fetch-based, matches init_script in Rust)
 // ---------------------------------------------------------------------------
 window.rpc = function(method, params) {
+    var controller = null;
+    var timeoutId = null;
     return new Promise(function(resolve, reject) {
         var id = Date.now();
         var paramsStr = encodeURIComponent(JSON.stringify(params));
         var url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr + '&id=' + id;
-        fetch(url).then(function(resp) {
+        controller = new AbortController();
+        timeoutId = setTimeout(function() {
+            controller.abort();
+            reject(new Error('timeout'));
+        }, 60000);
+        fetch(url, { signal: controller.signal }).then(function(resp) {
+            clearTimeout(timeoutId);
             return resp.text();
         }).then(function(text) {
             try { resolve(JSON.parse(text)); }
             catch(e) { reject(e); }
-        }).catch(function(e) { reject(e); });
-        setTimeout(function() { reject(new Error('timeout')); }, 60000);
+        }).catch(function(e) {
+            clearTimeout(timeoutId);
+            reject(e);
+        });
     });
 };
 
@@ -87,7 +97,7 @@ function startOutputPolling(outputEl) {
                     _lastOutputLen = newOutput.length;
                 }
             }
-        }).catch(function(e) {});
+        }).catch(function(e) { console.warn('getOutput poll error:', e); });
     }, 500);
 }
 
@@ -104,10 +114,12 @@ function stopOutputPolling() {
 function initConfig() {
     var btn = document.getElementById('btn-save-config');
     btn.addEventListener('click', function() {
+        var apiKey = document.getElementById('cfg-api-key').value.trim();
+        if (!apiKey) { alert('API key is required'); return; }
         var config = {
             model: document.getElementById('cfg-model').value,
             baseUrl: document.getElementById('cfg-base-url').value,
-            apiKey: document.getElementById('cfg-api-key').value,
+            apiKey: apiKey,
             cdpPort: parseInt(document.getElementById('cfg-cdp-port').value, 10)
         };
         window.setConfig(config).then(function(resp) {

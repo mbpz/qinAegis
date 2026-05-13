@@ -1,7 +1,7 @@
 use anyhow::Result;
 use qin_aegis_core::{
     AppConfig, resolve_env_var, Explorer, LlmConfig, SandboxConfig,
-    TestCaseService, TestExecutor, TestCaseRef, TestResult,
+    TestCaseService, TestExecutor, TestCaseRef,
     ArcLlmClient, MiniMaxClient, LocalStorage, LocalStorageInstance,
     storage::{CaseStatus, Storage},
 };
@@ -57,7 +57,10 @@ impl AppState {
 
     pub fn get_config(&self) -> String {
         match &self.config {
-            Some(cfg) => serde_json::to_string(cfg).unwrap_or_default(),
+            Some(cfg) => match serde_json::to_string(cfg) {
+                Ok(s) => s,
+                Err(e) => format!(r#"{{"error":"config serialization failed: {}"}}"#, e),
+            },
             None => r#"null"#.to_string(),
         }
     }
@@ -114,7 +117,10 @@ impl AppState {
         self.append_output(&format!("[{}] explore dispatched: {} depth={}\n", job_id, url, depth));
 
         thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to create tokio runtime for explore");
             rt.block_on(async {
                 let llm_cfg = LlmConfig {
                     api_key: resolve_env_var(&cfg.llm.api_key),
@@ -173,7 +179,10 @@ impl AppState {
         self.append_output(&format!("[{}] generate dispatched\n", job_id));
 
         thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to create tokio runtime for generate");
             rt.block_on(async {
                 {
                     let mut o = output.lock().unwrap();
@@ -181,7 +190,14 @@ impl AppState {
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
 
-                let spec_markdown = spec_path.as_ref().and_then(|sp| std::fs::read_to_string(sp).ok()).unwrap_or_default();
+                let spec_markdown = match spec_path.as_ref().and_then(|sp| std::fs::read_to_string(sp).ok()) {
+                    Some(content) => content,
+                    None => {
+                        let mut o = output.lock().unwrap();
+                        o.push_str(&format!("[{}] ⚠ spec file not readable, proceeding without it\n", job_id));
+                        String::new()
+                    }
+                };
 
                 let llm = ArcLlmClient::new(MiniMaxClient::new(
                     resolve_env_var(&cfg.llm.base_url),
@@ -225,7 +241,10 @@ impl AppState {
         self.append_output(&format!("[{}] run_tests dispatched: project={} type={}\n", job_id, project, test_type));
 
         thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to create tokio runtime for test execution");
             rt.block_on(async {
                 {
                     let mut o = output.lock().unwrap();
@@ -305,7 +324,10 @@ impl AppState {
     // ── Projects ─────────────────────────────────────────────────────────────
 
     pub fn get_projects(&self) -> String {
-        serde_json::to_string(&LocalStorage::list_projects().unwrap_or_default()).unwrap_or_else(|_| r#"[]"#.to_string())
+        match LocalStorage::list_projects() {
+            Ok(projects) => serde_json::to_string(&projects).unwrap_or_else(|_| r#"[]"#.to_string()),
+            Err(e) => format!(r#"{{"error":"list_projects failed: {}"}}"#, e),
+        }
     }
 }
 
@@ -345,17 +367,32 @@ fn main() -> Result<()> {
                     let params_json = params.get("params").map(|s| s.as_str()).unwrap_or("{}");
 
                     let result = {
-                        let mut app = app_clone.lock().unwrap();
+                        let mut app = app_clone.lock().expect("app state mutex poisoned");
                         match method {
                             "getState" => {
                                 let cfg_json = app.get_config();
-                                let cfg_val: serde_json::Value = serde_json::from_str(&cfg_json).unwrap_or(serde_json::Value::Null);
+                                let cfg_val: serde_json::Value = match serde_json::from_str(&cfg_json) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        return wry::http::Response::builder()
+                                            .header("Content-Type", "application/json")
+                                            .body(Cow::Owned(format!(r#"{{"error":"config parse failed: {}"}}"#, e).into_bytes()))
+                                            .unwrap();
+                                    }
+                                };
                                 format!(r#"{{"ok":true,"config":{},"currentView":"{}"}}"#, cfg_val, app.current_view)
                             }
                             "setConfig" => app.set_config(params_json),
                             "runExplore" => {
                                 if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
                                     let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !url.is_empty() && !url.starts_with("http://") && !url.starts_with("https://") {
+                                        let msg = r#"{"error":"url must start with http:// or https://"}"#.to_string();
+                                        return wry::http::Response::builder()
+                                            .header("Content-Type", "application/json")
+                                            .body(Cow::Owned(msg.into_bytes()))
+                                            .unwrap();
+                                    }
                                     let depth = p.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
                                     app.run_explore(url, depth)
                                 } else {
@@ -392,14 +429,12 @@ fn main() -> Result<()> {
 
                     wry::http::Response::builder()
                         .header("Content-Type", "application/json")
-                        .header("Access-Control-Allow-Origin", "*")
                         .body(Cow::Owned(result.into_bytes()))
                         .unwrap()
                 } else {
                     let (contents, mime) = assets::getAsset(path);
                     wry::http::Response::builder()
                         .header("Content-Type", mime)
-                        .header("Access-Control-Allow-Origin", "*")
                         .body(Cow::Owned(contents.to_vec()))
                         .unwrap()
                 }
@@ -409,17 +444,27 @@ fn main() -> Result<()> {
 
         let init_script = r#"
             window.rpc = function(method, params) {
+                var controller = null;
+                var timeoutId = null;
                 return new Promise(function(resolve, reject) {
                     var id = Date.now();
                     var paramsStr = encodeURIComponent(JSON.stringify(params));
                     var url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr + '&id=' + id;
-                    fetch(url).then(function(resp) {
+                    controller = new AbortController();
+                    timeoutId = setTimeout(function() {
+                        controller.abort();
+                        reject(new Error('timeout'));
+                    }, 60000);
+                    fetch(url, { signal: controller.signal }).then(function(resp) {
+                        clearTimeout(timeoutId);
                         return resp.text();
                     }).then(function(text) {
                         try { resolve(JSON.parse(text)); }
                         catch(e) { reject(e); }
-                    }).catch(function(e) { reject(e); });
-                    setTimeout(function() { reject(new Error('timeout')); }, 60000);
+                    }).catch(function(e) {
+                        clearTimeout(timeoutId);
+                        reject(e);
+                    });
                 });
             };
             window.getState = function() { return window.rpc('getState', {}); };
@@ -430,7 +475,7 @@ fn main() -> Result<()> {
             window.getOutput = function() { return window.rpc('getOutput', {}); };
             window.clearOutput = function() { return window.rpc('clearOutput', {}); };
             window.getProjects = function() { return window.rpc('getProjects', {}); };
-            console.log('RPC bridge ready (fetch-based)');
+            console.log('RPC bridge ready');
         "#;
 
         webview.evaluate_script(init_script)?;
@@ -481,11 +526,11 @@ fn url_decode(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
-            } else {
+            if hex.len() < 2 || u8::from_str_radix(&hex, 16).is_err() {
                 result.push('%');
                 result.push_str(&hex);
+            } else {
+                result.push(u8::from_str_radix(&hex, 16).unwrap() as char);
             }
         } else if c == '+' {
             result.push(' ');
