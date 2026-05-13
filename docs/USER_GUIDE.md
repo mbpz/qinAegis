@@ -1,269 +1,162 @@
-# qinAegis 用户手册
+# QinAegis 用户手册
 
-> AI 自动化测试平台 — 基于视觉驱动的 Web 项目测试工具
+> AI 自动化测试 PC 客户端 — 基于 Playwright + Midscene.js 视觉驱动测试
 
 ## 目录
 
 1. [安装](#安装)
 2. [快速开始](#快速开始)
-3. [命令参考](#命令参考)
-4. [工作流程](#工作流程)
-5. [配置说明](#配置说明)
+3. [视图参考](#视图参考)
+4. [配置说明](#配置说明)
+5. [数据目录](#数据目录)
 6. [常见问题](#常见问题)
 
 ---
 
 ## 安装
 
-### 前置要求
-
-- macOS 12.0+
-- **以下二选一**：
-  - **方案A（推荐）**: Google Chrome 浏览器（用于无 Docker 沙箱）
-  - **方案B**: Docker Desktop（用于 Docker 沙箱）
+### Homebrew 安装（推荐）
 
 ```bash
-# 方案A: 安装 Chrome（如未安装）
-brew install --cask google-chrome
-
-# 方案B: 安装 Docker（如未安装）
-brew install --cask docker
+brew install --cask mbpz/qinAegis/qinAegis
 ```
 
-### 通过 Homebrew 安装（推荐）
+安装完成后在 Applications 文件夹找到 **QinAegis.app**，双击运行。
+
+### 从 DMG 安装
+
+从 [GitHub Releases](https://github.com/mbpz/qinAegis/releases) 下载对应架构的 DMG 文件，挂载后拖入 Applications。
+
+### 从源码构建
 
 ```bash
-brew tap yourorg/qinAegis
-brew install qinAegis
-```
-
-### 从源码安装
-
-```bash
-git clone https://github.com/yourorg/qinAegis.git
+git clone https://github.com/mbpz/qinAegis.git
 cd qinAegis
-cargo install --path crates/cli
+
+# Node.js UI
+cd crates/web_client/ui && npm install && npm run build && cd ../..
+
+# Rust 二进制
+cargo build --release -p qinAegis-web
 ```
+
+产物：`target/release/qinAegis-web`（直接运行，无安装流程）
 
 ---
 
 ## 快速开始
 
-```bash
-# 1. 初始化（OAuth2 授权 Notion）
-qinAegis init
+### 1. 启动应用
 
-# 2. 添加项目
-qinAegis init-db  # 初始化 Notion Database
-qinAegis list-projects  # 查看项目列表
+双击 QinAegis.app 或运行 `qinAegis-web`。
 
-# 3. AI 探索项目
-qinAegis explore --url https://your-app.com
+首次启动显示 **Settings** 视图，要求配置 LLM API。
 
-# 4. 生成测试用例
-qinAegis generate --requirement "用户可以通过邮箱密码登录"
+### 2. 配置 LLM
 
-# 5. 执行测试
-qinAegis run --project "My App" --test-type smoke
+在 Settings 视图填写：
 
-# 6. 性能测试
-qinAegis performance --url https://your-app.com
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| API Key | MiniMax API Key | `eyJ...` |
+| Base URL | API 端点 | `https://api.minimax.chat/v1` |
+| Model | 模型名称 | `MiniMax-VL-01` |
 
-# 7. 压力测试
-qinAegis stress --target https://your-app.com --users 100 --duration 60
-```
+配置保存后自动生效。
 
----
+### 3. 创建项目
 
-## 命令参考
+在 **Dashboard** 点击 `+ New Project`，填写：
 
-### `qinAegis init`
+- **Project Name**: 项目标识名（如 `my-app`）
+- **URL**: 被测 Web 应用地址（如 `https://example.com`）
+- **Tech Stack**: 技术栈（可选）
 
-Notion OAuth2 授权登录。
+### 4. AI 探索项目
 
-```bash
-qinAegis init
-```
+切换到 **Explore** 视图，输入 URL 和探索深度，点击 `Start Explore`。
 
-会打开浏览器进行 Notion 授权，授权后 token 会安全存储在 macOS Keychain 中。
+AI 自动浏览页面，生成规格书（spec.md）存入项目目录。
 
-**环境变量（可选）：**
-- `NOTION_CLIENT_ID` — Notion OAuth Client ID
-- `NOTION_CLIENT_SECRET` — Notion OAuth Client Secret
+### 5. 生成测试用例
 
----
+切换到 **Generate** 视图，输入需求描述，点击 `Generate Cases`。
 
-### `qinAegis init-db`
+AI 根据规格书生成 YAML 测试用例，存入 `cases/draft/`。
 
-初始化 Notion Database（Projects、Requirements、TestCases、TestResults 四个 Database）。
+### 6. 审核测试用例
 
-```bash
-qinAegis init-db
-```
+切换到 **Review** 视图，查看 draft 状态用例，选择状态：`draft → reviewed → approved`（或 `flaky` / `archived`）。
 
----
+### 7. 执行测试
 
-### `qinAegis list-projects`
+切换到 **Run Tests** 视图：
 
-列出 Notion 中的所有项目。
+1. 选择 **Project** 和 **Test Type**（smoke / functional / performance / stress）
+2. 点击 **Preview Plan** 查看 AI 生成的测试计划摘要
+3. 点击 **Run Tests** 执行
 
-```bash
-qinAegis list-projects
-```
+测试结果写入 `reports/{project}/{run-id}/`。
+
+### 8. 查看报告
+
+切换到 **Reports** 视图，查看历史运行记录和质量门禁（Gate）状态。
 
 ---
 
-### `qinAegis explore`
+## 视图参考
 
-AI 自动探索 Web 项目，生成规格书。
+### Dashboard
 
-```bash
-qinAegis explore --url https://your-app.com [--depth 3]
-```
+项目列表 + 新建项目入口。显示已配置项目的 URL 和测试统计。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--url` | 项目 URL（可多个） | 必填 |
-| `--depth` | 探索深度 | 3 |
+### Explore
 
-**输出：**
-- 项目页面结构
-- 主要功能模块
-- 导航路由
-- 规格书写入 Notion
+| 字段 | 说明 |
+|------|------|
+| URL | 被探索页面地址 |
+| Depth | 递归探索深度（1-5） |
 
----
+点击 `Start Explore` 后，AI 模拟用户浏览路径，生成 Markdown 规格书。
 
-### `qinAegis generate`
+### Generate
 
-基于需求生成测试用例。
+| 字段 | 说明 |
+|------|------|
+| Requirement | 自然语言需求描述 |
+| Spec | 规格书路径（自动读取 explore 结果） |
 
-```bash
-qinAegis generate --requirement "用户登录功能" [--spec ~/.local/share/qinAegis/exploration/spec.md]
-```
+点击 `Generate Cases` 生成 YAML 测试用例，写入 draft 状态。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--requirement` | 需求描述 | 必填 |
-| `--spec` | 规格书路径 | `~/.local/share/qinAegis/exploration/spec.md` |
+### Run Tests
 
----
+| 字段 | 说明 |
+|------|------|
+| Project | 项目选择 |
+| Test Type | smoke / functional / performance / stress |
+| Preview Plan | 查看执行计划摘要后确认执行 |
 
-### `qinAegis run`
+**Test Type 说明**：
+- `smoke` — 冒烟测试，核心路径验证
+- `functional` — 功能测试，全量用例
+- `performance` — Lighthouse 性能测试，结果写入 `lighthouse.json`
+- `stress` — Locust 压力测试，结果写入 `locust-summary.json`
 
-执行测试（冒烟测试或功能测试）。
+### Review
 
-```bash
-qinAegis run --project "My App" [--test-type smoke] [--concurrency 4]
-```
+按状态过滤（draft / reviewed / approved / flaky / archived），支持单条状态切换。
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--project` | 项目名称 | 必填 |
-| `--test-type` | 测试类型 | `smoke` |
-| `--concurrency` | 并发数 | 4 |
+### Reports
 
-**测试类型：**
-- `smoke` — 冒烟测试（P0 核心用例）
-- `functional` — 功能测试（全量用例）
+| 内容 | 说明 |
+|------|------|
+| Quality Gate | E2E 通过率 + Performance 分数 + Stress RPS |
+| Recent Runs | 历史运行列表，点击查看 HTML 报告 |
+| Export | 导出所有报告为 JSON |
 
----
+### Settings
 
-### `qinAegis performance`
-
-运行 Lighthouse 性能测试。
-
-```bash
-qinAegis performance --url https://your-app.com [--threshold 10]
-```
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--url` | 测试 URL | 必填 |
-| `--threshold` | 性能回归阈值（%） | 10 |
-
-**输出指标：**
-- Performance Score
-- LCP (Largest Contentful Paint)
-- FCP (First Contentful Paint)
-- CLS (Cumulative Layout Shift)
-- TBT (Total Blocking Time)
-
----
-
-### `qinAegis stress`
-
-运行 Locust 压力测试。
-
-```bash
-qinAegis stress --target https://your-app.com [--users 100] [--spawn-rate 10] [--duration 60]
-```
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--target` | 目标 URL | 必填 |
-| `--users` | 并发用户数 | 100 |
-| `--spawn-rate` | 用户增长速率 | 10 |
-| `--duration` | 持续时间（秒） | 60 |
-
-**输出指标：**
-- Total Requests
-- Total Failures
-- Avg Response Time
-- P95 Response Time
-- RPS (Requests Per Second)
-
----
-
-### `qinAegis report`
-
-查看测试报告（TODO）。
-
-```bash
-qinAegis report
-```
-
----
-
-### `qinAegis config`
-
-配置管理（TODO）。
-
-```bash
-qinAegis config
-```
-
----
-
-## 工作流程
-
-### 完整测试流程
-
-```
-1. qinAegis init
-   ↓
-2. qinAegis init-db
-   ↓
-3. qinAegis explore --url https://your-app.com
-   ↓
-4. qinAegis generate --requirement "需求描述"
-   ↓
-5. 人工/AI 审核测试用例（Notion 中状态 Draft → Approved）
-   ↓
-6. qinAegis run --project "My App" --test-type smoke
-   ↓
-7. 查看 Notion TestResults Database
-```
-
-### 性能/压力测试流程
-
-```
-qinAegis performance --url https://your-app.com
-   ↓
-qinAegis stress --target https://your-app.com --users 100 --duration 60
-   ↓
-结果写入 Notion PerformanceResults Database
-```
+配置 LLM API Key、Base URL、Model。配置持久化到本地配置文件。
 
 ---
 
@@ -271,93 +164,94 @@ qinAegis stress --target https://your-app.com --users 100 --duration 60
 
 ### 配置文件
 
-`~/.config/qinAegis/config.toml`
+`~/.config/qinAegis/config.toml`（macOS）
 
 ```toml
 [llm]
-provider = "minimax"
+api_key = "your-api-key"
 base_url = "https://api.minimax.chat/v1"
 model = "MiniMax-VL-01"
-# api_key 存储在 macOS Keychain
 
 [sandbox]
-# Playwright 浏览器沙箱（无需 Docker）
 cdp_port = 9222
 ```
 
-### 环境变量
+### 环境变量（覆盖配置）
 
 | 变量 | 说明 |
 |------|------|
-| `NOTION_CLIENT_ID` | Notion OAuth Client ID |
-| `NOTION_CLIENT_SECRET` | Notion OAuth Client Secret |
 | `MIDSCENE_MODEL_API_KEY` | LLM API Key |
-| `MIDSCENE_MODEL_BASE_URL` | LLM API Base URL |
+| `MIDSCENE_MODEL_BASE_URL` | API Base URL |
+| `MIDSCENE_MODEL_NAME` | 模型名称 |
 
-### AI 模型配置
+### Sandbox 配置
 
-**MiniMax VL（推荐）：**
-```bash
-export MIDSCENE_MODEL_BASE_URL="https://api.minimax.chat/v1"
-export MIDSCENE_MODEL_API_KEY="your-api-key"
-export MIDSCENE_MODEL_NAME="MiniMax-VL-01"
-export MIDSCENE_MODEL_FAMILY="openai"
+默认使用 Playwright 内置 Chrome（CDP 模式），无需 Docker。
+
+如需使用已有 Chrome 实例：设置 `CDP_WS_URL` 环境变量指向 Chrome DevTools WebSocket。
+
+---
+
+## 数据目录
+
+所有数据存储在 `~/.qinAegis/`：
+
 ```
-
-**Qwen3-VL（本地）：**
-```bash
-export MIDSCENE_MODEL_BASE_URL="http://localhost:11434/v1"
-export MIDSCENE_MODEL_API_KEY="ollama"
-export MIDSCENE_MODEL_NAME="qwen3-vl:7b"
-export MIDSCENE_MODEL_FAMILY="openai"
+~/.qinAegis/
+├── config.toml              # 全局配置
+├── credentials.json         # 加密凭据（不提交）
+└── projects/
+    └── {project}/
+        ├── config.yaml      # 项目配置
+        ├── spec/            # 规格书
+        ├── cases/
+        │   ├── draft/       # 待审核用例
+        │   ├── reviewed/    # 已审核用例
+        │   ├── approved/    # 可执行用例
+        │   ├── flaky/      # 不稳定用例
+        │   └── archived/    # 已归档用例
+        ├── reports/
+        │   └── {run-id}/
+        │       ├── summary.json       # 运行摘要
+        │       ├── report.html        # HTML 报告
+        │       ├── lighthouse.json   # 性能数据（仅 performance）
+        │       └── locust-summary.json # 压测数据（仅 stress）
+        └── knowledge/
+            └── baseline.json # 性能基线
 ```
 
 ---
 
 ## 常见问题
 
-### Q: Playwright 浏览器未安装
+### Q: API Key 无效报错
 
-如果浏览器未安装，qinAegis 会自动下载，或手动安装：
+确认 Settings 中填写的 API Key 有效，且 Base URL 与 Key 类型匹配（MiniMax key 不能用于 OpenAI 兼容端点）。
+
+### Q: Explore/Run 无法启动浏览器
+
+确保 Playwright Chromium 已安装：
 
 ```bash
-# 安装 Playwright Chromium
 cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
-pnpm exec playwright install chromium
-
-# 检查浏览器状态
-qinAegis status
+npx playwright install chromium
 ```
 
-### Q: Notion 授权失败
+### Q: 报告为空
 
-1. 检查 `NOTION_CLIENT_ID` 和 `NOTION_CLIENT_SECRET` 环境变量
-2. 确认 Notion Integration 已创建并启用 OAuth
-3. 确认 redirect_uri 为 `http://localhost:54321/callback`
+检查 `~/.qinAegis/projects/{project}/reports/` 是否有运行目录。performance/stress 测试需要在 Run Tests 视图中选择对应 Test Type 执行。
 
-### Q: 沙箱启动失败
+### Q: 性能/压测数据显示 `--`
 
-确保 Playwright 浏览器已安装：
+performance 显示 `--` 需要运行 **performance** 测试类型；stress 显示 `--` 需要运行 **stress** 测试类型。smoke/functional 类型不生成这两项数据。
 
-```bash
-# 手动安装 Playwright 浏览器
-cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
-pnpm exec playwright install chromium
+### Q: Self-Healing 未生效
 
-# 检查浏览器状态
-qinAegis status
-```
-
-### Q: 性能测试超时
-
-增加超时时间或降低复杂度：
-```bash
-qinAegis performance --url https://your-app.com --threshold 15
-```
+Self-Healing 需要 LLM API Key 配置正确，且 `max_heal_retries > 0`（默认=1）。检查 Settings 配置。
 
 ---
 
 ## 版本信息
 
-- 当前版本：0.1.0
-- 构建时间：2026-04-27
+- 当前版本：0.5.4
+- 构建时间：2026-05-13

@@ -5,6 +5,7 @@ use qin_aegis_core::{
     ArcLlmClient, MiniMaxClient, LocalStorage, LocalStorageInstance,
     storage::{CaseStatus, Storage},
     LighthouseResult, LocustResult,
+    protocol::{JsonRpcRequest, MidsceneProcess},
 };
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
@@ -345,6 +346,111 @@ impl AppState {
                                         return;
                                     }
                                 };
+
+                                // Save run results to storage
+                                let run_id = {
+                                    use std::time::{SystemTime, UNIX_EPOCH};
+                                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                                    format!("run-{}", now.as_secs())
+                                };
+                                let run_dir = LocalStorage::run_dir(&project, &run_id);
+                                if let Err(e) = std::fs::create_dir_all(&run_dir) {
+                                    let mut o = output.lock().unwrap();
+                                    o.push_str(&format!("[{}] ✗ Failed to create run dir: {}\n", job_id, e));
+                                } else {
+                                    let passed = results.iter().filter(|r| r.passed).count();
+                                    let total = results.len();
+                                    if let Err(e) = std::fs::write(
+                                        run_dir.join("summary.json"),
+                                        serde_json::to_string(&serde_json::json!({
+                                            "passed": passed,
+                                            "failed": total - passed,
+                                            "total": total,
+                                            "test_type": test_type,
+                                        })).unwrap(),
+                                    ) {
+                                        let mut o = output.lock().unwrap();
+                                        o.push_str(&format!("[{}] ✗ Failed to save summary: {}\n", job_id, e));
+                                    }
+
+                                    // For performance type, run lighthouse
+                                    if test_type == "performance" {
+                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
+                                        if let Some(target_url) = project_url {
+                                            let lh_path = run_dir.join("lighthouse.json");
+                                            let llm_cfg = LlmConfig {
+                                                api_key: resolve_env_var(&cfg.llm.api_key),
+                                                base_url: resolve_env_var(&cfg.llm.base_url),
+                                                model: cfg.llm.model.clone(),
+                                            };
+                                            let sandbox_cfg = SandboxConfig {
+                                                cdp_port: cfg.sandbox.cdp_port,
+                                            };
+                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
+                                                Ok(process) => {
+                                                    let lh_result = process.call(JsonRpcRequest::Lighthouse { url: target_url }).await;
+                                                    drop(process);
+                                                    if let Ok(resp) = lh_result {
+                                                        if resp.ok {
+                                                            if let Some(data) = resp.data {
+                                                                if let Err(e) = std::fs::write(&lh_path, serde_json::to_string(&data).unwrap()) {
+                                                                    let mut o = output.lock().unwrap();
+                                                                    o.push_str(&format!("[{}] ✗ Failed to save lighthouse result: {}\n", job_id, e));
+                                                                }
+                                                            }
+                                                        } else {
+                                                            let mut o = output.lock().unwrap();
+                                                            o.push_str(&format!("[{}] Lighthouse failed: {}\n", job_id, resp.error.unwrap_or_default()));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    let mut o = output.lock().unwrap();
+                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for lighthouse: {}\n", job_id, e));
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // For stress type, run locust stress test
+                                    if test_type == "stress" {
+                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
+                                        if let Some(target_url) = project_url {
+                                            let lc_path = run_dir.join("locust-summary.json");
+                                            let llm_cfg = LlmConfig {
+                                                api_key: resolve_env_var(&cfg.llm.api_key),
+                                                base_url: resolve_env_var(&cfg.llm.base_url),
+                                                model: cfg.llm.model.clone(),
+                                            };
+                                            let sandbox_cfg = SandboxConfig {
+                                                cdp_port: cfg.sandbox.cdp_port,
+                                            };
+                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
+                                                Ok(process) => {
+                                                    let lc_result = process.call(JsonRpcRequest::Stress { target_url, users: 10, spawn_rate: 2, duration: 30 }).await;
+                                                    drop(process);
+                                                    if let Ok(resp) = lc_result {
+                                                        if resp.ok {
+                                                            if let Some(data) = resp.data {
+                                                                if let Err(e) = std::fs::write(&lc_path, serde_json::to_string(&data).unwrap()) {
+                                                                    let mut o = output.lock().unwrap();
+                                                                    o.push_str(&format!("[{}] ✗ Failed to save stress result: {}\n", job_id, e));
+                                                                }
+                                                            }
+                                                        } else {
+                                                            let mut o = output.lock().unwrap();
+                                                            o.push_str(&format!("[{}] Stress test failed: {}\n", job_id, resp.error.unwrap_or_default()));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    let mut o = output.lock().unwrap();
+                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for stress: {}\n", job_id, e));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
                                 {
                                     let mut o = output.lock().unwrap();

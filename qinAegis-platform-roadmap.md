@@ -1263,10 +1263,13 @@ qinAegis export --project My App --format html
 - [x] RunView 项目下拉选择 (从getProjects()填充)
 - [x] ReportView 多项目选择 (切换不同项目报告)
 - [x] ReviewView 项目选择 (从getProjects()填充)
-- [x] Performance/Stress Gate 真实数据 (从 lighthouse.json / locust-summary.json 读取)
+- [x] Performance/Stress Gate 真实数据 (运行 performance/stress 测试后 lighthouse.json + locust-summary.json 自动写入 run dir)
 - [x] ReviewView 案例审核UI (approve/reject/flaky 状态切换 + 状态过滤按钮)
 
 #### 移动端扩展 (Phase 4 规划)
+
+> **注**：CLI 已废弃，所有用户交互通过 PC 客户端（GUI）完成。移动端扩展为 Phase 4 规划。
+
 - [ ] iOS测试 (WebDriverAgent + XCUITest)
 - [ ] Android测试 (ADB + UIAutomator2)
 - [ ] 跨平台统一报告视图
