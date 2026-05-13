@@ -9,6 +9,7 @@ const items: { view: View; icon: string; label: string }[] = [
   { view: 'dashboard', icon: '🏠', label: 'Dashboard' },
   { view: 'explore', icon: '🔍', label: 'Explore' },
   { view: 'generate', icon: '✨', label: 'Generate' },
+  { view: 'review', icon: '🔎', label: 'Review' },
   { view: 'run', icon: '▶️', label: 'Run Tests' },
   { view: 'reports', icon: '📊', label: 'Reports' },
   { view: 'settings', icon: '⚙️', label: 'Settings' },

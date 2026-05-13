@@ -498,6 +498,82 @@ impl AppState {
             "reports": all_results,
         })).unwrap_or_else(|_| r#"{"ok":false,"error":"serialization failed"}"#.to_string())
     }
+
+    // ── Review ──────────────────────────────────────────────────────────────
+
+    pub fn get_review_cases(&self, project: &str) -> String {
+        let cases_dir = LocalStorage::cases_dir(project);
+        if !cases_dir.exists() {
+            return r#"[]"#.to_string();
+        }
+        let mut cases = Vec::new();
+        // Load all cases from all status subdirs
+        for status in ["draft", "reviewed", "approved", "flaky", "archived"] {
+            let status_dir = cases_dir.join(status);
+            if !status_dir.exists() {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(&status_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(case_data) = serde_json::from_str::<serde_json::Value>(&content) {
+                                cases.push(serde_json::json!({
+                                    "id": path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown"),
+                                    "name": case_data.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                                    "status": status,
+                                    "priority": case_data.get("priority").and_then(|v| v.as_str()).unwrap_or("P2"),
+                                    "type": case_data.get("type").and_then(|v| v.as_str()).unwrap_or("functional"),
+                                    "requirement_id": case_data.get("requirement_id"),
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        serde_json::to_string(&cases).unwrap_or_else(|_| r#"[]"#.to_string())
+    }
+
+    pub fn update_case_status(&self, project: &str, case_id: &str, new_status: &str) -> String {
+        let cases_dir = LocalStorage::cases_dir(project);
+        let valid_statuses = ["draft", "reviewed", "approved", "flaky", "archived"];
+        if !valid_statuses.contains(&new_status) {
+            return serde_json::to_string(&serde_json::json!({
+                "ok": false,
+                "error": "invalid status"
+            })).unwrap_or_default();
+        }
+        // Find the case file in any status subdir
+        let case_file = format!("{}.json", case_id);
+        for status in &valid_statuses {
+            let src = cases_dir.join(status).join(&case_file);
+            if src.exists() {
+                let dst_dir = cases_dir.join(new_status);
+                if !dst_dir.exists() {
+                    if let Err(e) = std::fs::create_dir_all(&dst_dir) {
+                        return serde_json::to_string(&serde_json::json!({
+                            "ok": false,
+                            "error": format!("failed to create dir: {}", e)
+                        })).unwrap_or_default();
+                    }
+                }
+                let dst = dst_dir.join(&case_file);
+                if let Err(e) = std::fs::rename(&src, &dst) {
+                    return serde_json::to_string(&serde_json::json!({
+                        "ok": false,
+                        "error": format!("failed to move case: {}", e)
+                    })).unwrap_or_default();
+                }
+                return serde_json::to_string(&serde_json::json!({"ok": true})).unwrap_or_default();
+            }
+        }
+        serde_json::to_string(&serde_json::json!({
+            "ok": false,
+            "error": "case not found"
+        })).unwrap_or_default()
+    }
 }
 
 // ============================================================================
@@ -661,6 +737,24 @@ fn main() -> Result<()> {
                                     r#"{"error":"invalid params"}"#.to_string()
                                 }
                             }
+                            "getReviewCases" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    app.get_review_cases(project)
+                                } else {
+                                    app.get_review_cases("default")
+                                }
+                            }
+                            "updateCaseStatus" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    let case_id = p.get("case_id").and_then(|v| v.as_str()).unwrap_or("");
+                                    let new_status = p.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                                    app.update_case_status(project, case_id, new_status)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
                             _ => format!(r#"{{"error":"unknown method: {}"}}"#, method),
                         }
                     };
@@ -719,6 +813,8 @@ fn main() -> Result<()> {
             window.createProject = function(name, url, tech_stack) { return window.rpc('createProject', {name: name, url: url, tech_stack: tech_stack || []}); };
             window.getReportHtml = function(project, run_id) { return window.rpc('getReportHtml', {project: project || 'default', run_id: run_id}); };
             window.exportProject = function(project) { return window.rpc('exportProject', {project: project || 'default'}); };
+            window.getReviewCases = function(project) { return window.rpc('getReviewCases', {project: project || 'default'}); };
+            window.updateCaseStatus = function(project, case_id, status) { return window.rpc('updateCaseStatus', {project: project || 'default', case_id: case_id, status: status}); };
             console.log('RPC bridge ready');
         "#;
 

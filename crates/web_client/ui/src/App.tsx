@@ -5,11 +5,12 @@ import ExploreView from './components/ExploreView';
 import GenerateView from './components/GenerateView';
 import RunView from './components/RunView';
 import ReportView from './components/ReportView';
+import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
 import InitWizard from './components/InitWizard';
 import './styles.css';
 
-type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'reports' | 'settings';
+type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings';
 
 declare global {
   interface Window {
@@ -28,6 +29,8 @@ declare global {
     checkConfig: () => Promise<{configured: boolean}>;
     getReportHtml: (project: string, run_id: string) => Promise<any>;
     exportProject: (project: string) => Promise<any>;
+    getReviewCases: (project: string) => Promise<any>;
+    updateCaseStatus: (project: string, case_id: string, status: string) => Promise<any>;
   }
 }
 
@@ -94,6 +97,8 @@ function App() {
         return <RunView output={output} onClear={async () => { await window.clearOutput(); setOutput(''); }} />;
       case 'reports':
         return <ReportView />;
+      case 'review':
+        return <ReviewView />;
       case 'settings':
         return <SettingsView />;
       default:

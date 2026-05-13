@@ -23,7 +23,6 @@ export default function ReportView() {
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [reportHtml, setReportHtml] = useState<string | null>(null);
-  const [exportData, setExportData] = useState<any>(null);
   const [loadingHtml, setLoadingHtml] = useState(false);
 
   useEffect(() => {
@@ -67,7 +66,6 @@ export default function ReportView() {
   const handleExport = async () => {
     try {
       const data = await window.exportProject('default');
-      setExportData(data);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

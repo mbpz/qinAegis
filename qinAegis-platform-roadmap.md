@@ -214,7 +214,7 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Gap Analysis</div>
         <div class="arch-sidebar-item done">Add Project UI</div>
         <div class="arch-sidebar-item done">Report wire-up</div>
-        <div class="arch-sidebar-item done">Gate calculation</div>
+        <div class="arch-sidebar-item done">Gate calculation (E2E done)</div>
         <div class="arch-sidebar-item done">Export UI (JSON download)</div>
         <div class="arch-sidebar-item done">Init wizard</div>
         <div class="arch-sidebar-item done">HTML report viewer</div>
@@ -1171,15 +1171,23 @@ qinAegis export --project My App --format html
 - [x] GitHub Actions CI/CD（aarch64 + x86_64 双架构 DMG 打包）
 - [x] README + 快速上手文档
 
-### Week 13+：持续迭代 🏗️
+### Week 13+：PC端打磨 + 移动端规划 🏗️
 
-- [x] Export 命令（html/md/json 格式）
-- [x] 性能基线加载与回归对比
-- [x] Case name 正确加载
-- [x] 51 tests 测试覆盖
-- [x] StorageCredentials 云存储支持
-- [x] CI/CD 编排工作流 (GitHub Actions 全流程自动化)
-- [x] PC GUI 迁移完成（React + tao + wry）
+#### PC端功能完善 (当前重点)
+- [ ] Self-Healing + Action Caching (stagehand风格, 缓存AI actions)
+- [ ] Natural Language Preview (执行前显示AI计划动作)
+- [ ] RunView 项目下拉选择 (从getProjects()填充)
+- [ ] ReportView 多项目选择 (切换不同项目报告)
+- [ ] Performance/Stress Gate 真实数据 (非null)
+- [ ] ReviewView 案例审核UI (approve/reject/flaky)
+
+#### 移动端扩展 (Phase 4 规划)
+- [ ] iOS测试 (WebDriverAgent + XCUITest)
+- [ ] Android测试 (ADB + UIAutomator2)
+- [ ] 跨平台统一报告视图
+- [ ] Midscene Mobile SDK 集成
+
+#### 集成扩展
 - [ ] 集成 OWASP ZAP 安全扫描（文档已完成）
 - [ ] 集成 Stagehand（文档已完成）
 - [ ] 集成 Testplane 视觉回归（文档已完成）
