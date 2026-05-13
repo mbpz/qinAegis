@@ -131,6 +131,107 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
 
 ### 当前架构 (Phase 3 — WebView GUI)
 
+<div style="width: 1200px; box-sizing: border-box; position: relative; background: #0f172a; padding: 20px; border-radius: 12px;">
+  <style scoped>
+    .arch-title { text-align: center; font-size: 20px; font-weight: bold; color: #f1f5f9; margin-bottom: 16px; letter-spacing: 1px; }
+    .arch-subtitle { text-align: center; font-size: 12px; color: #94a3b8; margin-bottom: 14px; }
+    .arch-wrapper { display: flex; gap: 12px; }.arch-sidebar { width: 170px; flex-shrink: 0; }.arch-main { flex: 1; min-width: 0; }
+    .arch-layer { margin: 8px 0; padding: 14px; border-radius: 8px; }.arch-layer-title { font-size: 12px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+    .arch-grid { display: grid; gap: 8px; }.arch-grid-2 { grid-template-columns: repeat(2, 1fr); }.arch-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .arch-box { border-radius: 6px; padding: 8px; text-align: center; font-size: 11px; font-weight: 600; line-height: 1.35; color: #e2e8f0; background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(148, 163, 184, 0.2); }
+    .arch-box.done { background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #6ee7b7; }
+    .arch-box.todo { background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fcd34d; }
+    .arch-sidebar-panel { border-radius: 8px; padding: 10px; background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; margin-bottom: 8px; }
+    .arch-sidebar-title { font-size: 11px; font-weight: bold; text-align: center; color: #94a3b8; margin-bottom: 6px; }
+    .arch-sidebar-item { font-size: 10px; text-align: center; color: #cbd5e1; background: rgba(15, 23, 42, 0.5); padding: 5px; border-radius: 4px; margin: 3px 0; border: 1px solid rgba(51, 65, 85, 0.5); }
+    .arch-sidebar-item.done { background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
+    .arch-sidebar-item.todo { background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.4); color: #fcd34d; }
+    .arch-sidebar-item.metric { background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.4); color: #c4b5fd; }
+  </style>
+  <div class="arch-title">QinAegis PC GUI 架构</div>
+  <div class="arch-subtitle">Phase 1: CLI → Phase 2: TUI → Phase 3: WebView GUI (当前)</div>
+  <div class="arch-wrapper">
+    <div class="arch-sidebar">
+      <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Sidebar</div>
+        <div class="arch-sidebar-item done">🏠 Dashboard</div>
+        <div class="arch-sidebar-item done">🔍 Explore</div>
+        <div class="arch-sidebar-item done">✨ Generate</div>
+        <div class="arch-sidebar-item done">▶️ Run Tests</div>
+        <div class="arch-sidebar-item todo">📊 Reports</div>
+        <div class="arch-sidebar-item done">⚙️ Settings</div>
+      </div>
+      <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Rust Backend</div>
+        <div class="arch-sidebar-item done">AppState</div>
+        <div class="arch-sidebar-item done">RPC Bridge</div>
+        <div class="arch-sidebar-item done">Explorer</div>
+        <div class="arch-sidebar-item done">TestExecutor</div>
+        <div class="arch-sidebar-item done">LocalStorage</div>
+      </div>
+    </div>
+    <div class="arch-main">
+      <div class="arch-layer" style="background: rgba(14, 165, 233, 0.1); border: 1px solid #0ea5e9; box-shadow: 0 0 12px rgba(14, 165, 233, 0.15);">
+        <div class="arch-layer-title" style="color: #7dd3fc;">User Interface — React WebView (tao + wry)</div>
+        <div class="arch-grid arch-grid-4">
+          <div class="arch-box done">Dashboard<br><small>Projects + Stats + Actions</small></div>
+          <div class="arch-box done">ExploreView<br><small>URL + depth → runExplore</small></div>
+          <div class="arch-box done">GenerateView<br><small>Requirement → cases</small></div>
+          <div class="arch-box done">RunView<br><small>smoke/functional/perf/stress</small></div>
+        </div>
+        <div class="arch-grid arch-grid-2" style="margin-top: 8px;">
+          <div class="arch-box done">ReportView<br><small>Recent Runs + Gate Status (placeholder)</small></div>
+          <div class="arch-box done">SettingsView<br><small>LLM config + sandbox config</small></div>
+        </div>
+      </div>
+      <div class="arch-layer" style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);">
+        <div class="arch-layer-title" style="color: #fcd34d;">Rust Core Services (tokio async)</div>
+        <div class="arch-grid arch-grid-4">
+          <div class="arch-box done">Explorer<br><small>Midscene AI exploration</small></div>
+          <div class="arch-box done">TestExecutor<br><small>Parallel test runner</small></div>
+          <div class="arch-box done">TestCaseService<br><small>generate_and_save</small></div>
+          <div class="arch-box done">Config management<br><small>save/load global</small></div>
+        </div>
+      </div>
+      <div class="arch-layer" style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);">
+        <div class="arch-layer-title" style="color: #6ee7b7;">AI + Sandbox Runtime</div>
+        <div class="arch-grid arch-grid-4">
+          <div class="arch-box done">Midscene<br><small>aiAct/aiQuery/aiAssert</small></div>
+          <div class="arch-box done">Playwright<br><small>browser lifecycle + CDP</small></div>
+          <div class="arch-box done">Lighthouse CI<br><small>Web Vitals</small></div>
+          <div class="arch-box done">k6<br><small>stress test</small></div>
+        </div>
+      </div>
+      <div class="arch-layer" style="background: rgba(236, 72, 153, 0.1); border: 1px solid #ec4899; box-shadow: 0 0 12px rgba(236, 72, 153, 0.15);">
+        <div class="arch-layer-title" style="color: #f9a8d4;">Data — Local FS (~/.qinAegis/)</div>
+        <div class="arch-grid arch-grid-4">
+          <div class="arch-box done">projects/<br><small>config.yaml + spec.md</small></div>
+          <div class="arch-box done">cases/draft|approved<br><small>JSON test cases</small></div>
+          <div class="arch-box todo">runs/<run-id>/<br><small>report HTML (not wired)</small></div>
+          <div class="arch-box done">reports/<br><small>summary.json</small></div>
+        </div>
+      </div>
+    </div>
+    <div class="arch-sidebar">
+      <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Gap Analysis</div>
+        <div class="arch-sidebar-item todo">Add Project UI</div>
+        <div class="arch-sidebar-item todo">Report wire-up</div>
+        <div class="arch-sidebar-item todo">Gate calculation</div>
+        <div class="arch-sidebar-item todo">Export UI</div>
+        <div class="arch-sidebar-item todo">Init wizard</div>
+      </div>
+      <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Features</div>
+        <div class="arch-sidebar-item done">Ad-hoc signing</div>
+        <div class="arch-sidebar-item done">DMG packaging</div>
+        <div class="arch-sidebar-item done">Homebrew Cask</div>
+        <div class="arch-sidebar-item done">Quarantine strip</div>
+      </div>
+      <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Quality Gates</div>
+        <div class="arch-sidebar-item metric">E2E Pass Rate</div>
+        <div class="arch-sidebar-item metric">Performance</div>
+        <div class="arch-sidebar-item metric">Stress</div>
+      </div>
+    </div>
+  </div>
+</div>
 
 ### 数据流向
 
