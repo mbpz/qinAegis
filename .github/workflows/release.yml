@@ -34,14 +34,25 @@ jobs:
           echo "aarch64-apple-darwin" > sha256_aarch64.txt
           shasum -a 256 qinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
 
-      - name: Create macOS App Bundle
+      - name: Create DMG
         run: |
-          mkdir -p release
+          VERSION="${GITHUB_REF#refs/tags/v}"
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          cp target/aarch64-apple-darwin/release/qinAegis-web release/
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
+          echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
+          codesign --force --deep --sign - "$BUNDLE"
+          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO -compressionlevel 9 -o qinAegis-arm64.dmg "$BUNDLE"
+          xattr -r -d com.apple.quarantine qinAegis-arm64.dmg 2>/dev/null || true
+
+      - name: Create macOS App Bundle
+        run: |
+          BUNDLE="QinAegis.app"
+          rm -rf "$BUNDLE"
+          mkdir -p "$BUNDLE/Contents/MacOS"
+          cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
           tar -czf QinAegis-aarch64.darwin-app.tar.gz "$BUNDLE"
 
       - name: Upload Artifact
@@ -51,6 +62,7 @@ jobs:
           path: |
             qinAegis-aarch64-apple-darwin.tar.gz
             QinAegis-aarch64.darwin-app.tar.gz
+            qinAegis-arm64.dmg
             sha256_aarch64.txt
 
   build-x86:
@@ -75,14 +87,25 @@ jobs:
           echo "x86_64-apple-darwin" > sha256_x86_64.txt
           shasum -a 256 qinAegis-x86_64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_x86_64.txt
 
-      - name: Create macOS App Bundle
+      - name: Create DMG
         run: |
-          mkdir -p release
+          VERSION="${GITHUB_REF#refs/tags/v}"
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          cp target/x86_64-apple-darwin/release/qinAegis-web release/
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
+          echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
+          codesign --force --deep --sign - "$BUNDLE"
+          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO -compressionlevel 9 -o qinAegis-x64.dmg "$BUNDLE"
+          xattr -r -d com.apple.quarantine qinAegis-x64.dmg 2>/dev/null || true
+
+      - name: Create macOS App Bundle
+        run: |
+          BUNDLE="QinAegis.app"
+          rm -rf "$BUNDLE"
+          mkdir -p "$BUNDLE/Contents/MacOS"
+          cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
           tar -czf QinAegis-x86_64.darwin-app.tar.gz "$BUNDLE"
 
       - name: Upload Artifact
@@ -92,6 +115,7 @@ jobs:
           path: |
             qinAegis-x86_64-apple-darwin.tar.gz
             QinAegis-x86_64.darwin-app.tar.gz
+            qinAegis-x64.dmg
             sha256_x86_64.txt
 
   create-release:
@@ -120,8 +144,10 @@ jobs:
           files: |
             artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
             artifacts/arm64/QinAegis-aarch64.darwin-app.tar.gz
+            artifacts/arm64/qinAegis-arm64.dmg
             artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
             artifacts/x86/QinAegis-x86_64.darwin-app.tar.gz
+            artifacts/x86/qinAegis-x64.dmg
             sha256.txt
           draft: true
           generate_release_notes: true
