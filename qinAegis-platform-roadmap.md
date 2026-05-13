@@ -178,7 +178,7 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
           <div class="arch-box done">RunView<br><small>smoke/functional/perf/stress</small></div>
         </div>
         <div class="arch-grid arch-grid-2" style="margin-top: 8px;">
-          <div class="arch-box done">ReportView<br><small>Recent Runs + Gate + Export</small></div>
+          <div class="arch-box done">ReportView<br><small>Recent Runs + Gate + Export + HTML viewer</small></div>
           <div class="arch-box done">SettingsView<br><small>LLM config + sandbox config</small></div>
         </div>
       </div>
@@ -215,8 +215,9 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
         <div class="arch-sidebar-item done">Add Project UI</div>
         <div class="arch-sidebar-item done">Report wire-up</div>
         <div class="arch-sidebar-item done">Gate calculation</div>
-        <div class="arch-sidebar-item done">Export UI (CLI)</div>
+        <div class="arch-sidebar-item done">Export UI (JSON download)</div>
         <div class="arch-sidebar-item done">Init wizard</div>
+        <div class="arch-sidebar-item done">HTML report viewer</div>
       </div>
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Features</div>
         <div class="arch-sidebar-item done">Ad-hoc signing</div>
