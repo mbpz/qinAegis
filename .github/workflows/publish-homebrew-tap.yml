@@ -18,36 +18,20 @@ jobs:
           path: homebrew-tap
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get release info
-        id: release
+      - name: Download DMGs and create cask
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
 
-      - name: Download ARM64 DMG
-        run: |
-          VERSION="${{ steps.release.outputs.version }}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
+
           ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
-          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
-
-      - name: Download x64 DMG
-        run: |
-          VERSION="${{ steps.release.outputs.version }}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
           X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
-          echo "x64_sha=$X64_SHA" >> $GITHUB_OUTPUT
-
-      - name: Create or update cask
-        run: |
-          VERSION="${{ steps.release.outputs.version }}"
-          ARM_SHA="${{ steps.release.outputs.arm_sha }}"
-          X64_SHA="${{ steps.release.outputs.x64_sha }}"
 
           mkdir -p homebrew-tap/Casks
 
-          cat > homebrew-tap/Casks/qinaegis.rb << CASKEOF
+          cat > homebrew-tap/Casks/qinaegis.rb << EOF
 cask "qinaegis" do
   arch arm: "arm64", intel: "x64"
 
@@ -55,7 +39,7 @@ cask "qinaegis" do
   sha256 arm:   "${ARM_SHA}",
          intel: "${X64_SHA}"
 
-  url "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-${VERSION}-mac-\#{arch}.dmg"
+  url "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-#{arch}.dmg"
   name "QinAegis"
   desc "AI-powered terminal productivity tool"
   homepage "https://github.com/mbpz/qinAegis"
@@ -79,7 +63,7 @@ cask "qinaegis" do
     "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",
   ]
 end
-CASKEOF
+EOF
 
       - name: Push to homebrew-tap
         run: |
@@ -87,5 +71,5 @@ CASKEOF
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/qinaegis.rb
-          git diff --staged --quiet || git commit -m "qinaegis ${{ steps.release.outputs.version }}"
+          git diff --staged --quiet || git commit -m "qinaegis ${GITHUB_REF#refs/tags/}"
           git push
