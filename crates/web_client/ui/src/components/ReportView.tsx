@@ -18,6 +18,8 @@ interface GateStatus {
 }
 
 export default function ReportView() {
+  const [projects, setProjects] = useState<string[]>(['default']);
+  const [selectedProject, setSelectedProject] = useState('default');
   const [reports, setReports] = useState<RunReport[]>([]);
   const [gate, setGate] = useState<GateStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,15 +28,19 @@ export default function ReportView() {
   const [loadingHtml, setLoadingHtml] = useState(false);
 
   useEffect(() => {
-    loadReports();
+    window.getProjects().then(setProjects).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadReports();
+  }, [selectedProject]);
 
   const loadReports = async () => {
     setLoading(true);
     try {
       const [reportsData, gateData] = await Promise.all([
-        window.getReports('default'),
-        window.getGateStatus('default'),
+        window.getReports(selectedProject),
+        window.getGateStatus(selectedProject),
       ]);
       setReports(reportsData || []);
       setGate(gateData || null);
@@ -50,7 +56,7 @@ export default function ReportView() {
     setLoadingHtml(true);
     setReportHtml(null);
     try {
-      const result = await window.getReportHtml('default', runId);
+      const result = await window.getReportHtml(selectedProject, runId);
       if (result.ok && result.html) {
         setReportHtml(result.html);
       } else {
@@ -65,12 +71,12 @@ export default function ReportView() {
 
   const handleExport = async () => {
     try {
-      const data = await window.exportProject('default');
+      const data = await window.exportProject(selectedProject);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `qinaegis-report-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `qinaegis-report-${selectedProject}-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -90,6 +96,20 @@ export default function ReportView() {
   return (
     <div className="view">
       <h2 className="view-title">Test Reports</h2>
+
+      <div className="card">
+        <div className="card-title">Project</div>
+        <select
+          className="input"
+          value={selectedProject}
+          onChange={(e) => setSelectedProject(e.target.value)}
+          style={{ maxWidth: '300px' }}
+        >
+          {projects.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="card">
         <div className="card-title">Quality Gate Status</div>

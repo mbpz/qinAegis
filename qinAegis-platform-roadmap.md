@@ -20,6 +20,7 @@
 10. [原方案 vs 修正方案对比](#10-原方案-vs-修正方案对比)
 11. [开发里程碑](#11-开发里程碑)
 12. [目录结构](#12-目录结构)
+13. [竞品分析与功能差距](#13-竞品分析与功能差距)
 
 ---
 
@@ -218,6 +219,7 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
         <div class="arch-sidebar-item done">Export UI (JSON download)</div>
         <div class="arch-sidebar-item done">Init wizard</div>
         <div class="arch-sidebar-item done">HTML report viewer</div>
+        <div class="arch-sidebar-item done">Self-Healing (✅ done)</div>
       </div>
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Features</div>
         <div class="arch-sidebar-item done">Ad-hoc signing</div>
@@ -1171,15 +1173,98 @@ qinAegis export --project My App --format html
 - [x] GitHub Actions CI/CD（aarch64 + x86_64 双架构 DMG 打包）
 - [x] README + 快速上手文档
 
+---
+
+## 13. 竞品分析与功能差距
+
+> 更新日期：2026-05-13 · 基于 GitHub 开源项目调研
+
+### 13.1 竞品对比矩阵
+
+| 项目 | Stars | 核心AI能力 | 测试定义方式 | 报告形式 | 差异化优势 |
+|------|-------|-----------|------------|---------|-----------|
+| [browser-use/browser-use](https://github.com/browser-use/browser-use) | 93k | LLM原生浏览器Agent，无Playwright依赖 | 自然语言目标 | CLI + JSON | 通用网页任务编排，Claude/GPT/Gemini任意切换 |
+| [stagehand](https://github.com/browserbase/stagehand) | 22k | SDK级浏览器Agent，LLM驱动DOM交互 | 自然语言指令 | CLI + trace viewer | 多语言SDK (Rust/Go/Ruby/PHP/Java/C#)，多浏览器支持 |
+| [midscene](https://github.com/web-infra-dev/midscene) | 13k | 视觉AI执行（视觉act/assert/extract） | JavaScript/TS API | 内置HTML报告 | 视觉优先不依赖DOM，内置报告服务器 |
+| [karate](https://github.com/karatelabs/karate) | 8.8k | API+UI测试自动化，BDD语法 | Gherkin-like DSL | HTML报告 + Jenkins | API测试一等公民，Mock服务器，压测 |
+| [lost-pixel](https://github.com/lost-pixel/lost-pixel) | 1.7k | 视觉回归（Percy/Chromatic开源替代） | Code (TS) + config | Dashboard + CI | 开源自托管视觉回归 |
+| [testsigma](https://github.com/testsigmahq/testsigma) | 1.2k | Agentic测试自动化，AI同事 | 自然语言（类英语） | Web dashboard | AI同事协同，Salesforce/SAP等企业集成 |
+| [playwright-ai-qa-agent](https://github.com/nirarad/playwright-ai-qa-agent) | 5 | Playwright + Claude，AI自动修复断裂locator | Playwright tests | GitHub Issues + PR | **Self-Healing** broken locators |
+
+### 13.2 qinAegis 差异化定位
+
+**核心优势（竞品中稀缺）**
+
+| 优势 | 说明 | 竞品对比 |
+|------|------|---------|
+| **桌面GUI** | 双击运行，无终端 | 99%竞品是CLI/SDK，browser-use/stagehand/karate全无GUI |
+| **本地优先存储** | `~/.qinAegis/projects/` 完全本地化 | 竞品多为SaaS或CLI输出到云端 |
+| **Homebrew分发** | `brew install --cask` 一键装到/Applications | 无直接竞品提供同等体验 |
+| **测试资产生命周期** | draft/reviewed/approved/flaky/archived | 无竞品有完整状态机治理 |
+| **四类测试合一** | 冒烟+功能+性能+压测，统一gate | karate/lost-pixel各偏重一类 |
+
+**技术架构对比**
+
+| 维度 | qinAegis | browser-use (93k) | stagehand (22k) | midscene (13k) |
+|------|----------|-------------------|-----------------|----------------|
+| **UI形态** | 桌面GUI (tao+wry) | CLI | SDK (多语言) | SDK + 报告服务器 |
+| **浏览器依赖** | Playwright | 自研DOM Agent | Playwright/Puppeteer/Selenium | Playwright |
+| **视觉模型** | Midscene (MiniMax/Qwen VL) | GPT-4o/Claude | 多LLM | 多LLM |
+| **测试格式** | YAML/JSON (Midscene格式) | 自然语言目标 | 自然语言指令 | JS/TS API |
+| **本地存储** | ✅ 本地FS | ❌ | ❌ | ❌ |
+| **报告** | HTML + JSON summary | JSON | trace viewer | HTML内置报告 |
+| **分发** | Homebrew Cask | pip/npm | 多语言包管理器 | npm |
+
+### 13.3 功能差距与优先级
+
+#### 🔴 高优先级 (差异化关键)
+
+| 差距 | 竞品参考 | 说明 | 状态 |
+|------|---------|------|------|
+| **Self-Healing Locator** | playwright-ai-qa-agent | 用例跑失败时，AI自动修复断裂的step，保留original YAML不污染approved | ✅ 已实现 |
+| **多LLM动态切换** | browser-use, stagehand | 同一次运行中根据页面复杂度动态选择MiniMax-VL/Qwen3-VL | 🔜 待实现 |
+| **Action Caching** | stagehand | 相同动作+相同页面结构缓存AI决策结果，复用降低API成本 | ✅ 已实现 (30min TTL, LRU 500条) |
+| **Natural Language Preview** | browser-use | 执行前用自然语言展示AI计划动作序列，用户确认后执行 | 🔜 待实现 |
+
+#### 🟡 中优先级 (体验完善)
+
+| 差距 | 竞品参考 | 说明 |
+|------|---------|------|
+| **视觉回归Dashboard** | lost-pixel, Percy | 完整web UI展示视觉diff，approve/reject视觉变更 |
+| **Storybook集成** | Loki | 组件级别视觉测试，dev阶段发现问题 |
+| **Accessibility测试** | Argos, Happo | 内置a11y检查，WCAG合规 |
+| **多浏览器视觉对比** | reg-suit | 同时跑Chrome/Firefox/Safari，跨浏览器视觉回归 |
+| **CI/CD原生集成** | lost-pixel | GitHub Actions first-class，PR评论中展示diff |
+
+#### 🟢 低优先级 (生态扩展)
+
+| 差距 | 竞品参考 | 说明 |
+|------|---------|------|
+| **企业集成** | Testsigma (Salesforce/SAP) | 预建连接器，适配企业应用 |
+| **Record/Replay** | TestPilot变种 | 浏览器插件录制用户操作回放+AI增强 |
+| **RAG知识库** | qa-agent-rag-platform | 测试资产长期知识积累 |
+| **Contract Testing** | karate | API contract testing |
+
+### 13.4 最值得深入研究的竞品
+
+1. **[playwright-ai-qa-agent](https://github.com/nirarad/playwright-ai-qa-agent)** — Self-Healing直接解决用例维护痛点，架构最简单可集成
+2. **[stagehand](https://github.com/browserbase/stagehand)** — Action Caching + 多LLM切换，可借鉴sandbox runtime增强
+3. **[lost-pixel](https://github.com/lost-pixel/lost-pixel)** — 视觉回归Dashboard开源，可参考ReportView视觉diff UI
+4. **[browser-use](https://github.com/browser-use/browser-use)** — 93k stars，LLM-native Agent架构参考，虽不适合直接集成但理念可借鉴
+
+---
+
 ### Week 13+：PC端打磨 + 移动端规划 🏗️
 
 #### PC端功能完善 (当前重点)
-- [ ] Self-Healing + Action Caching (stagehand风格, 缓存AI actions)
-- [ ] Natural Language Preview (执行前显示AI计划动作)
-- [ ] RunView 项目下拉选择 (从getProjects()填充)
-- [ ] ReportView 多项目选择 (切换不同项目报告)
-- [ ] Performance/Stress Gate 真实数据 (非null)
-- [ ] ReviewView 案例审核UI (approve/reject/flaky)
+- [x] Self-Healing (case失败时LLM自动修复断裂step, 保留original YAML)
+- [x] Action Caching (stagehand风格, 缓存AI actions降低API成本)
+- [x] Natural Language Preview (执行前显示AI计划动作)
+- [x] RunView 项目下拉选择 (从getProjects()填充)
+- [x] ReportView 多项目选择 (切换不同项目报告)
+- [x] ReviewView 项目选择 (从getProjects()填充)
+- [x] Performance/Stress Gate 真实数据 (从 lighthouse.json / locust-summary.json 读取)
+- [x] ReviewView 案例审核UI (approve/reject/flaky 状态切换 + 状态过滤按钮)
 
 #### 移动端扩展 (Phase 4 规划)
 - [ ] iOS测试 (WebDriverAgent + XCUITest)

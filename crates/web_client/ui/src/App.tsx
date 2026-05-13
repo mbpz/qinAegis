@@ -31,6 +31,9 @@ declare global {
     exportProject: (project: string) => Promise<any>;
     getReviewCases: (project: string) => Promise<any>;
     updateCaseStatus: (project: string, case_id: string, status: string) => Promise<any>;
+    previewTestPlan: (project: string, testType: string) => Promise<any>;
+    getVersion: () => Promise<any>;
+    checkUpdate: () => Promise<any>;
   }
 }
 
@@ -39,11 +42,25 @@ function App() {
   const [projects, setProjects] = useState<string[]>([]);
   const [output, setOutput] = useState<string>('');
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
 
   useEffect(() => {
     checkConfig();
     loadProjects();
+    loadVersion();
   }, []);
+
+  const loadVersion = async () => {
+    try {
+      const v = await window.getVersion();
+      setAppVersion(v.version || '0.1.0');
+      const status = await window.checkUpdate();
+      setUpdateStatus(status.upToDate ? null : { hasUpdate: true, latest: status.latest });
+    } catch (e) {
+      console.error('Failed to load version:', e);
+    }
+  };
 
   const checkConfig = async () => {
     try {
@@ -122,7 +139,16 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>QinAegis</h1>
-        <span className="version">v0.1.0</span>
+        <span className="version">v{appVersion}</span>
+        {updateStatus?.hasUpdate && (
+          <span
+            className="update-badge"
+            title={`New version available: ${updateStatus.latest}`}
+            onClick={() => window.open('https://github.com/your-repo/releases', '_blank')}
+          >
+            Update
+          </span>
+        )}
       </header>
       <div className="app-body">
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />

@@ -26,19 +26,25 @@ const statusColors: Record<string, string> = {
 };
 
 export default function ReviewView() {
+  const [projects, setProjects] = useState<string[]>(['default']);
+  const [selectedProject, setSelectedProject] = useState('default');
   const [cases, setCases] = useState<TestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCases();
+    window.getProjects().then(setProjects).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadCases();
+  }, [selectedProject]);
 
   const loadCases = async () => {
     setLoading(true);
     try {
-      const result = await window.getReviewCases('default');
+      const result = await window.getReviewCases(selectedProject);
       setCases(result || []);
     } catch (e) {
       console.error('Failed to load cases:', e);
@@ -50,7 +56,7 @@ export default function ReviewView() {
   const handleStatusChange = async (caseId: string, newStatus: string) => {
     setUpdating(caseId);
     try {
-      await window.updateCaseStatus('default', caseId, newStatus);
+      await window.updateCaseStatus(selectedProject, caseId, newStatus);
       await loadCases();
     } catch (e) {
       alert('Failed to update case status: ' + e);
@@ -75,6 +81,20 @@ export default function ReviewView() {
   return (
     <div className="view">
       <h2 className="view-title">Review Test Cases</h2>
+
+      <div className="card">
+        <div className="card-title">Project</div>
+        <select
+          className="input"
+          value={selectedProject}
+          onChange={(e) => setSelectedProject(e.target.value)}
+          style={{ maxWidth: '300px' }}
+        >
+          {projects.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="card">
         <div className="card-title">Filter by Status</div>

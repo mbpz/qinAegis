@@ -18,6 +18,7 @@ pub mod sandbox;
 pub mod config;
 pub mod gate;
 pub mod knowledge;
+pub mod healer;
 
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;

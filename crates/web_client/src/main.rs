@@ -1,9 +1,10 @@
 use anyhow::Result;
 use qin_aegis_core::{
-    AppConfig, resolve_env_var, Explorer, LlmConfig, SandboxConfig,
+    AppConfig, resolve_env_var, Explorer, LlmClient, Message, LlmConfig, SandboxConfig,
     TestCaseService, TestExecutor, TestCaseRef,
     ArcLlmClient, MiniMaxClient, LocalStorage, LocalStorageInstance,
     storage::{CaseStatus, Storage},
+    LighthouseResult, LocustResult,
 };
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
@@ -15,6 +16,8 @@ mod assets;
 // ============================================================================
 // AppState — holds UI state + output buffer
 // ============================================================================
+
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub struct AppState {
@@ -63,6 +66,51 @@ impl AppState {
             },
             None => r#"null"#.to_string(),
         }
+    }
+
+    pub fn get_version(&self) -> String {
+        format!(r#"{{"version":"{}"}}"#, APP_VERSION)
+    }
+
+    fn version_compare(a: &str, b: &str) -> i32 {
+        let parse = |s: &str| {
+            s.split('.').filter_map(|p| p.parse::<u64>().ok()).collect::<Vec<u64>>()
+        };
+        let a_parts = parse(a);
+        let b_parts = parse(b);
+        let max_len = a_parts.len().max(b_parts.len());
+        for i in 0..max_len {
+            let a_v = *a_parts.get(i).unwrap_or(&0);
+            let b_v = *b_parts.get(i).unwrap_or(&0);
+            if a_v < b_v { return -1; }
+            if a_v > b_v { return 1; }
+        }
+        0
+    }
+
+    pub fn check_update(&self) -> String {
+        let repo = "your-repo/qinAegis"; // TODO: update to actual repo
+        let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+        match ureq::get(&url).set("Accept", "application/vnd.github+json").call() {
+            Ok(resp) => {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(resp.into_string().as_deref().unwrap_or("{}")) {
+                    let latest = json.get("tag_name").and_then(|v| v.as_str()).unwrap_or(APP_VERSION);
+                    let latest_ver = latest.trim_start_matches('v');
+                    let current_ver = APP_VERSION;
+                    let up_to_date = Self::version_compare(current_ver, latest_ver) >= 0;
+                    return serde_json::to_string(&serde_json::json!({
+                        "current": current_ver,
+                        "latest": latest_ver,
+                        "upToDate": up_to_date,
+                    })).unwrap_or_default();
+                }
+            }
+            Err(e) => {
+                tracing::warn!("update check failed: {}", e);
+            }
+        }
+        // fallback: assume up to date on network error
+        format!(r#"{{"current":"{}","latest":"{}","upToDate":true}}"#, APP_VERSION, APP_VERSION)
     }
 
     pub fn set_config(&mut self, raw: &str) -> String {
@@ -405,11 +453,13 @@ impl AppState {
                     if let Some(run_id) = path.file_name().and_then(|n| n.to_str()).map(String::from) {
                         if latest_run.is_none() || run_id > latest_run.as_ref().unwrap().0 {
                             let summary_path = path.join("summary.json");
-                            if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                                if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content) {
-                                    let total = summary.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                                    let passed = summary.get("passed").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                                    latest_run = Some((run_id, total, passed));
+                            if summary_path.exists() {
+                                if let Ok(content) = std::fs::read_to_string(&summary_path) {
+                                    if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content) {
+                                        let total = summary.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                        let passed = summary.get("passed").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                        latest_run = Some((run_id, total, passed));
+                                    }
                                 }
                             }
                         }
@@ -420,12 +470,37 @@ impl AppState {
 
         match latest_run {
             Some((run_id, total, passed)) => {
+                let reports_dir = LocalStorage::reports_dir(project);
+                let run_dir = reports_dir.join(&run_id);
+
+                let performance_val = if let Ok(lh_content) = std::fs::read_to_string(run_dir.join("lighthouse.json")) {
+                    if let Ok(lh) = serde_json::from_str::<LighthouseResult>(&lh_content) {
+                        let score = (lh.metrics.performance * 100.0) as u32;
+                        Some(score)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let stress_val = if let Ok(lc_content) = std::fs::read_to_string(run_dir.join("locust-summary.json")) {
+                    if let Ok(lc) = serde_json::from_str::<LocustResult>(&lc_content) {
+                        let rps = lc.stats.rps as u32;
+                        Some(rps)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let pass_rate = if total > 0 { (passed as f64 / total as f64) * 100.0 } else { 100.0 };
                 serde_json::to_string(&serde_json::json!({
                     "e2e_pass_rate": pass_rate,
                     "e2e_pass_rate_display": format!("{:.0}%", pass_rate),
-                    "performance": null,
-                    "stress": null,
+                    "performance": performance_val.map(|s| format!("{:.0}%", s)),
+                    "stress": stress_val.map(|r| format!("{:.0} req/s", r)),
                     "has_runs": true,
                     "last_run_id": run_id,
                     "last_run_passed": passed,
@@ -439,6 +514,87 @@ impl AppState {
                 "has_runs": false,
             })).unwrap_or_default(),
         }
+    }
+
+    pub fn preview_test_plan(&self, project: &str, test_type: &str) -> String {
+        let storage = LocalStorageInstance;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create tokio runtime for preview");
+
+        let cases = rt.block_on(async {
+            storage.load_cases_by_status(project, CaseStatus::Approved).await
+        });
+
+        let cases = match cases {
+            Ok(c) => c,
+            Err(_) => return r#"{"error":"failed to load cases"}"#.to_string(),
+        };
+
+        // Filter by test_type
+        let filtered: Vec<_> = cases.into_iter().filter(|c| c.test_type == test_type).collect();
+
+        if filtered.is_empty() {
+            return serde_json::to_string(&serde_json::json!({
+                "plan": format!("No {} test cases found for project '{}'. Generate test cases first.", test_type, project),
+                "case_count": 0,
+                "steps": [],
+            })).unwrap_or_default();
+        }
+
+        // Build summary of cases
+        let case_summaries: Vec<String> = filtered.iter().map(|c| {
+            format!("[{}] {} ({})", c.id, c.name, c.test_type)
+        }).collect();
+
+        let plan_text = if let Some(ref cfg) = self.config {
+            let llm_cfg = LlmConfig {
+                api_key: resolve_env_var(&cfg.llm.api_key),
+                base_url: resolve_env_var(&cfg.llm.base_url),
+                model: cfg.llm.model.clone(),
+            };
+            let llm = ArcLlmClient::new(MiniMaxClient::new(
+                llm_cfg.base_url,
+                llm_cfg.api_key,
+                llm_cfg.model,
+            ));
+
+            let summary = case_summaries.join("\n");
+            let prompt = format!(
+                "You are a QA engineer explaining a test execution plan.\n\
+                Project: '{}', Test Type: '{}'\n\
+                Test cases to execute:\n{}\n\n\
+                Provide a brief natural language summary of what will happen \
+                when these tests run. Focus on what user flows are being tested. \
+                Reply in 2-3 sentences.",
+                project, test_type, summary
+            );
+
+            let rt2 = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to create tokio runtime for LLM");
+            rt2.block_on(async {
+                let msgs: Vec<Message> = vec![Message::user(prompt)];
+                llm.chat(&msgs).await.unwrap_or_else(|_| "Failed to generate plan preview.".to_string())
+            })
+        } else {
+            format!("{} test case(s) will run: {}", filtered.len(), case_summaries.join(", "))
+        };
+
+        serde_json::to_string(&serde_json::json!({
+            "plan": plan_text,
+            "case_count": filtered.len(),
+            "steps": filtered.iter().map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "priority": c.priority,
+                    "type": c.test_type,
+                })
+            }).collect::<Vec<_>>(),
+        })).unwrap_or_default()
     }
 
     pub fn get_report_html(&self, project: &str, run_id: &str) -> String {
@@ -682,6 +838,15 @@ fn main() -> Result<()> {
                                     r#"{"error":"invalid params"}"#.to_string()
                                 }
                             }
+                            "previewTestPlan" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let project = p.get("project").and_then(|v| v.as_str()).unwrap_or("default");
+                                    let test_type = p.get("type").and_then(|v| v.as_str()).unwrap_or("smoke");
+                                    app.preview_test_plan(project, test_type)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
                             "getOutput" => app.get_output(),
                             "clearOutput" => {
                                 app.clear_output();
@@ -755,6 +920,8 @@ fn main() -> Result<()> {
                                     r#"{"error":"invalid params"}"#.to_string()
                                 }
                             }
+                            "getVersion" => app.get_version(),
+                            "checkUpdate" => app.check_update(),
                             _ => format!(r#"{{"error":"unknown method: {}"}}"#, method),
                         }
                     };

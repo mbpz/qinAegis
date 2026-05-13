@@ -15,6 +15,7 @@ console.warn = () => {}; // Silence all console.warn
 
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
+import { globalActionCache } from './action_cache.js';
 import * as readline from 'readline';
 import * as fs from 'fs';
 
@@ -93,20 +94,43 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       case 'aiQuery': {
         const prompt = req.args as string;
         debug(`[executor] aiQuery: prompt length ${prompt.length}`);
+        // Check action cache first
+        const cached = await globalActionCache.get(page!, prompt);
+        if (cached !== null) {
+          const dataStr = JSON.stringify(cached);
+          debug(`[executor] aiQuery: CACHE HIT (${dataStr.length} chars)`);
+          return { id: req.id || '0', ok: true, data: dataStr, cached: true };
+        }
         // Include screenshot for page analysis
         const data = await agent!.aiQuery(prompt, { screenshotIncluded: true });
         const dataStr = JSON.stringify(data);
         debug(`[executor] aiQuery: response length ${dataStr.length}`);
+        // Cache the result
+        await globalActionCache.set(page!, prompt, data);
         return { id: req.id || '0', ok: true, data: dataStr };
       }
       case 'aiAct': {
         const action = req.args as string;
+        // Check action cache first
+        const cached = await globalActionCache.get(page!, 'act:' + action);
+        if (cached !== null) {
+          debug(`[executor] aiAct: CACHE HIT`);
+          return { id: req.id || '0', ok: true, data: null, cached: true };
+        }
         await agent!.aiAct(action);
+        await globalActionCache.set(page!, 'act:' + action, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'aiAssert': {
         const assertion = req.args as string;
+        // Check action cache first
+        const cached = await globalActionCache.get(page!, 'assert:' + assertion);
+        if (cached !== null) {
+          debug(`[executor] aiAssert: CACHE HIT`);
+          return { id: req.id || '0', ok: true, data: null, cached: true };
+        }
         await agent!.aiAssert(assertion);
+        await globalActionCache.set(page!, 'assert:' + assertion, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'goto': {
