@@ -14,6 +14,8 @@ env:
 jobs:
   build-arm64:
     runs-on: macos-latest
+    env:
+      VERSION: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,13 +38,12 @@ jobs:
 
       - name: Create DMG
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
-          echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
+          echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-arm64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-arm64.dmg 2>/dev/null || true
@@ -62,11 +63,13 @@ jobs:
           path: |
             qinAegis-aarch64-apple-darwin.tar.gz
             QinAegis-aarch64.darwin-app.tar.gz
-            QinAegis-${VERSION}-mac-arm64.dmg
+            QinAegis-${{ env.VERSION }}-mac-arm64.dmg
             sha256_aarch64.txt
 
   build-x86:
     runs-on: macos-latest
+    env:
+      VERSION: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,13 +92,12 @@ jobs:
 
       - name: Create DMG
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
           BUNDLE="QinAegis.app"
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>VERSION</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
-          echo "${PLIST//VERSION/$VERSION}" > "$BUNDLE/Contents/Info.plist"
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developor-tools</string></dict></plist>'
+          echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-x64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-x64.dmg 2>/dev/null || true
@@ -115,12 +117,14 @@ jobs:
           path: |
             qinAegis-x86_64-apple-darwin.tar.gz
             QinAegis-x86_64.darwin-app.tar.gz
-            QinAegis-${VERSION}-mac-x64.dmg
+            QinAegis-${{ env.VERSION }}-mac-x64.dmg
             sha256_x86_64.txt
 
   create-release:
     needs: [build-arm64, build-x86]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
     steps:
       - name: Download ARM64 artifact
         uses: actions/download-artifact@v4
@@ -144,10 +148,10 @@ jobs:
           files: |
             artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
             artifacts/arm64/QinAegis-aarch64.darwin-app.tar.gz
-            artifacts/arm64/QinAegis-*-mac-arm64.dmg
+            artifacts/arm64/QinAegis-${{ env.VERSION }}-mac-arm64.dmg
             artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
             artifacts/x86/QinAegis-x86_64.darwin-app.tar.gz
-            artifacts/x86/QinAegis-*-mac-x64.dmg
+            artifacts/x86/QinAegis-${{ env.VERSION }}-mac-x64.dmg
             sha256.txt
           draft: true
           generate_release_notes: true
