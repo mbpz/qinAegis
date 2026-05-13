@@ -157,7 +157,7 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
         <div class="arch-sidebar-item done">🔍 Explore</div>
         <div class="arch-sidebar-item done">✨ Generate</div>
         <div class="arch-sidebar-item done">▶️ Run Tests</div>
-        <div class="arch-sidebar-item todo">📊 Reports</div>
+        <div class="arch-sidebar-item done">📊 Reports</div>
         <div class="arch-sidebar-item done">⚙️ Settings</div>
       </div>
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Rust Backend</div>
@@ -172,13 +172,13 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
       <div class="arch-layer" style="background: rgba(14, 165, 233, 0.1); border: 1px solid #0ea5e9; box-shadow: 0 0 12px rgba(14, 165, 233, 0.15);">
         <div class="arch-layer-title" style="color: #7dd3fc;">User Interface — React WebView (tao + wry)</div>
         <div class="arch-grid arch-grid-4">
-          <div class="arch-box done">Dashboard<br><small>Projects + Stats + Actions</small></div>
+          <div class="arch-box done">Dashboard<br><small>Projects + Stats (wired) + Actions</small></div>
           <div class="arch-box done">ExploreView<br><small>URL + depth → runExplore</small></div>
           <div class="arch-box done">GenerateView<br><small>Requirement → cases</small></div>
           <div class="arch-box done">RunView<br><small>smoke/functional/perf/stress</small></div>
         </div>
         <div class="arch-grid arch-grid-2" style="margin-top: 8px;">
-          <div class="arch-box done">ReportView<br><small>Recent Runs + Gate Status (placeholder)</small></div>
+          <div class="arch-box done">ReportView<br><small>Recent Runs + Gate + Export</small></div>
           <div class="arch-box done">SettingsView<br><small>LLM config + sandbox config</small></div>
         </div>
       </div>
@@ -212,11 +212,11 @@ Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──► 
     </div>
     <div class="arch-sidebar">
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Gap Analysis</div>
-        <div class="arch-sidebar-item todo">Add Project UI</div>
-        <div class="arch-sidebar-item todo">Report wire-up</div>
-        <div class="arch-sidebar-item todo">Gate calculation</div>
-        <div class="arch-sidebar-item todo">Export UI</div>
-        <div class="arch-sidebar-item todo">Init wizard</div>
+        <div class="arch-sidebar-item done">Add Project UI</div>
+        <div class="arch-sidebar-item done">Report wire-up</div>
+        <div class="arch-sidebar-item done">Gate calculation</div>
+        <div class="arch-sidebar-item done">Export UI (CLI)</div>
+        <div class="arch-sidebar-item done">Init wizard</div>
       </div>
       <div class="arch-sidebar-panel"><div class="arch-sidebar-title">Features</div>
         <div class="arch-sidebar-item done">Ad-hoc signing</div>
