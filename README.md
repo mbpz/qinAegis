@@ -1,151 +1,101 @@
-# qinAegis
+# QinAegis
 
-Local-first AI quality engineering platform for Web applications.
-
-qinAegis is not another browser automation SDK. It is a productized testing workbench that combines mature open-source automation tools with local test asset governance, sandbox execution, failure review, and quality gates.
+Desktop GUI AI quality engineering platform for Web applications.
 
 ## Positioning
 
-qinAegis helps a Web team move from ad hoc test scripts to a durable local quality knowledge base:
+qinAegis is not another browser automation SDK. It is a productized testing workbench that combines mature open-source automation tools with local test asset governance, sandbox execution, failure review, and quality gates.
 
-```text
-understand product -> plan tests -> generate cases -> review cases
--> run in sandbox -> collect evidence -> explain failures
--> enforce quality gates -> update project knowledge
+## Features
+
+- **Desktop GUI Application** — Double-click to use, no terminal required
+- **AI-Powered Exploration** — Visual-driven project discovery
+- **Test Case Generation** — Natural language to executable test cases
+- **Sandbox Execution** — Playwright-managed browser isolation
+- **Quality Gates** — E2E pass rate, performance, and stress testing
+- **Local Storage** — All data stays on your machine under `~/.qinAegis/`
+
+## Installation
+
+### Homebrew (Recommended)
+
+```bash
+brew install --cask mbpz/qinAegis/qinAegis
 ```
 
-Core principles:
+After installation, find **QinAegis.app** in your Applications folder.
 
-- **Local-first**: specs, requirements, cases, runs, and knowledge live under `~/.qinAegis/projects/`.
-- **No Notion core dependency**: external collaboration tools are optional integrations, not the source of truth.
-- **Structured before visual**: use accessibility snapshots, DOM, console, and network signals before calling a vision model.
-- **Deterministic before agentic**: approved regression cases should run with minimal LLM involvement.
-- **Evidence-first**: every failure should include enough artifacts to classify it as product, test, environment, or model related.
+### From Source
+
+```bash
+git clone https://github.com/mbpz/qinAegis.git
+cd qinAegis
+
+# Build React UI
+cd crates/web_client/ui && npm install && npm run build && cd ../..
+
+# Build Rust binary
+cargo build --release --bin qinAegis-web
+```
 
 ## Technology Stack
 
 | Layer | Technology | Role |
 |---|---|---|
-| CLI/TUI | Rust, clap, ratatui | Local workflow and project dashboard |
-| Core services | Rust, tokio | Project, requirement, case, run, report, and gate orchestration |
-| Storage | Local filesystem | Source of truth under `~/.qinAegis/projects/` |
-| Browser sessions | Playwright | Browser process management, isolated contexts |
-| Deterministic automation | Playwright | Stable actions, trace, screenshots, console, network |
-| Structured observation | MCP-style accessibility snapshot | Low-cost page state for AI planning |
-| Visual automation | Midscene.js | Visual act/assert/extract for complex UI |
-| Performance | Lighthouse CI model | Web performance budgets |
-| Load/stress | k6 / Locust | Load thresholds and stress results |
-
-## Local Data Model
-
-```text
-~/.qinAegis/
-  config.toml
-  projects/
-    <project-name>/
-      project.yaml
-      spec/
-        product.md
-        routes.json
-        ui-map.json
-      requirements/
-        *.md
-      cases/
-        draft/
-        reviewed/
-        approved/
-        flaky/
-        archived/
-      runs/
-        <run-id>/
-          result.json
-          summary.md
-          report.html
-          screenshots/
-          trace/
-          console.json
-          network.json
-          lighthouse.json
-          k6-summary.json
-      knowledge/
-        coverage.json
-        flakiness.json
-        failure-patterns.json
-```
-
-## Intended Workflow
-
-```bash
-qinAegis init
-qinAegis project add --name admin --url http://localhost:3000
-qinAegis explore --project admin
-qinAegis generate --project admin --requirement requirements/login.md
-qinAegis review --project admin
-qinAegis run --project admin --test-type smoke
-qinAegis performance --url http://localhost:3000
-qinAegis stress --target http://localhost:3000 --users 100
-qinAegis gate --project admin
-qinAegis export --project admin --format html
-```
+| **Desktop App** | Rust + tao + wry | Native WebView2/webkit GUI |
+| **Frontend** | React + TypeScript + Vite | User interface |
+| **Core Services** | Rust + tokio | Business logic |
+| **Storage** | Local filesystem | `~/.qinAegis/projects/` |
+| **Browser** | Playwright | Browser process management |
+| **Visual AI** | Midscene.js | Visual act/assert/extract |
+| **Performance** | Lighthouse CI | Web Vitals measurement |
+| **Load Testing** | k6 | Stress and load thresholds |
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    CLI[CLI/TUI<br/>Rust] --> Core[Rust Core Services]
+    GUI[Desktop GUI<br/>tao + wry + React] --> Core[Rust Core Services]
     Core --> Storage[Local FS<br/>~/.qinAegis/projects]
     Core --> Runtime[Sandbox Runtime]
 
     Runtime --> Playwright[Playwright]
     Runtime --> Observer[MCP-style Observer]
-    Runtime --> Playwright[Playwright]
     Runtime --> Midscene[Midscene]
     Runtime --> Lighthouse[Lighthouse CI]
-    Runtime --> Load[k6/Locust]
+    Runtime --> Load[k6]
 
     Midscene --> Model[LLM / Vision Model]
     Playwright --> Runs[runs/run-id]
     Midscene --> Runs
     Lighthouse --> Runs
     Load --> Runs
-    Runs --> Knowledge[quality knowledge base]
 ```
 
-## Test Case Lifecycle
+## User Workflow
 
-```mermaid
-stateDiagram-v2
-    [*] --> Draft: generate
-    Draft --> Reviewed: review
-    Reviewed --> Approved: accepted
-    Reviewed --> Draft: rewrite
-    Approved --> Running: run
-    Running --> Passed: pass
-    Running --> Failed: fail
-    Failed --> FailureReview: collect evidence
-    FailureReview --> Approved: product fixed
-    FailureReview --> Draft: case needs rewrite
-    FailureReview --> Flaky: unstable
-    Flaky --> Approved: stabilized
-    Approved --> Archived: obsolete
-    Flaky --> Archived: obsolete
-```
+1. **Launch** — Double-click QinAegis.app from Applications
+2. **Configure** — Set AI model credentials in Settings
+3. **Explore** — Enter project URL for AI-powered discovery
+4. **Generate** — Create test cases from requirements
+5. **Run** — Execute smoke, functional, performance, or stress tests
+6. **Review** — View reports and quality gate status
 
 ## Development
 
 ```bash
-cargo build
-cargo test
+# Setup React UI
+cd crates/web_client/ui
+npm install
 
-cd sandbox
-pnpm install
-pnpm test
-```
+# Development (watch mode)
+npm run dev
 
-Run the CLI locally:
+# Build for production
+npm run build
 
-```bash
-cargo run -p qinAegis -- --help
+# Build Rust binary
+cargo build --release --bin qinAegis-web
 ```
 
 ## Documentation
@@ -156,31 +106,9 @@ cargo run -p qinAegis -- --help
 - [Install Guide](./INSTALL.md)
 - [CI/CD Orchestration](./docs/orchestration.md)
 
-## CI/CD Integration
-
-qinAegis can be integrated into your CI/CD pipeline for automated quality gates:
-
-```yaml
-# .github/workflows/qinAegis.yml
-jobs:
-  quality-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install qinAegis
-        run: curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-unknown-linux-gnu.tar.gz | tar xz
-      - name: Run Tests
-        run: |
-          ./qinAegis run --project my-webapp --test-type smoke
-          ./qinAegis gate --project my-webapp --e2e-threshold 95
-```
-
-See [orchestration docs](./docs/orchestration.md) for full pipeline: explore → generate → review → run → gate.
-
 ## Integrations
 
 - [OWASP ZAP Security Scanning](./docs/integrations/owasp-zap.md)
 - [Stagehand AI Browser Automation](./docs/integrations/stagehand.md)
 - [Playwright Test Agents Reference](./docs/integrations/playwright-test-agents.md)
 - [Testplane Visual Regression](./docs/integrations/testplane.md)
-

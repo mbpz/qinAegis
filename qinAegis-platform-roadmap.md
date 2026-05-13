@@ -1,44 +1,41 @@
 # AI 自动化测试平台 qinAegis Roadmap
 
-> 基于开源成熟项目（Midscene.js · Playwright · Stagehand · Shortest · k6 · Lighthouse CI）的本地优先修正版本  
-> 产物形态：macOS TUI/CLI 客户端 · brew 安装 · 完全本地沙箱 · 数据全量维护在本地文件系统
+> 基于开源成熟项目（Midscene.js · Playwright · Stagehand · Shortest · k6 · Lighthouse CI）的本地优先修正版本
+> 产物形态：macOS 桌面 GUI 应用 · brew install --cask 一键安装到 /Applications · 完全本地沙箱 · 数据全量维护在本地文件系统
 
 ---
 
 ## 目录
 
-0. [2026-05-07 技术路线修订](#0-2026-05-07-技术路线修订)
+0. [2026-05-13 技术路线修订 - PC GUI](#0-2026-05-13-技术路线修订---pc-gui)
 1. [项目概述](#1-项目概述)
 2. [开源项目选型依据](#2-开源项目选型依据)
 3. [整体架构](#3-整体架构)
 4. [技术选型](#4-技术选型)
-5. [Phase 1 · Bootstrap — 认证 + 沙箱搭建](#5-phase-1--bootstrap--认证--沙箱搭建)
+5. [Phase 1 · Bootstrap — 配置 + 沙箱搭建](#5-phase-1--bootstrap--配置--沙箱搭建)
 6. [Phase 2 · AI Core — 视觉驱动执行引擎](#6-phase-2--ai-core--视觉驱动执行引擎)
 7. [Phase 3 · Test Execution — 四类测试](#7-phase-3--test-execution--四类测试)
 8. [Phase 4 · 本地数据模型](#8-phase-4--本地数据模型)
-9. [Phase 5 · Distribution — Homebrew 分发](#9-phase-5--distribution--homebrew-分发)
+9. [Phase 5 · Distribution — Homebrew Cask 分发](#9-phase-5--distribution--homebrew-cask-分发)
 10. [原方案 vs 修正方案对比](#10-原方案-vs-修正方案对比)
 11. [开发里程碑](#11-开发里程碑)
 12. [目录结构](#12-目录结构)
 
 ---
 
-## 0. 2026-05-07 技术路线修订
+## 0. 2026-05-13 技术路线修订 - PC GUI
 
-最新 GitHub 同类项目对标后，qinAegis 的技术路线从“视觉模型驱动的自动化测试工具”升级为“本地优先的 AI 质量工程平台”：
+qinAegis 从 CLI/TUI 升级为 **PC 桌面 GUI 应用**：
 
-- **不做另一个 AI 浏览器 SDK**：Midscene、Stagehand、Playwright 已经覆盖底层浏览器动作和会话能力，qinAegis 重点做测试资产、失败复盘、质量门禁和本地工作台。
-- **去 Notion**：Notion 不再作为核心数据源。所有规格、需求、用例、运行记录、报告、质量知识库都落在 `~/.qinAegis/projects/`。
-- **多通道观测**：优先使用 Playwright/MCP 风格的 accessibility snapshot、DOM、console、network 等结构化信号；复杂视觉 UI 再调用 Midscene/视觉模型。
-- **动作抽象学习 Stagehand**：内部统一为 `observe`、`act`、`extract`、`assert` 四类能力，隐藏 Midscene、Playwright、未来 Stagehand/browser-use 等执行器差异。
-- **测试 DSL 学习 Shortest，但补齐治理**：自然语言测试步骤只进入 draft，用例必须经过 AI/人工 review 才能进入 approved。
-- **Agent 生成/修复学习 Playwright Test Agents**：采用 Explorer → Planner → Generator → Critic → Executor → Healer 的流水线；Healer 只能产出修复建议或 draft，不能直接污染 approved 用例。
-- **质量门禁学习 k6/Lighthouse CI**：E2E、性能、压力测试都输出统一 gate 结果，支持 CI 阻断。
+- **产物形态变更**：从 CLI/TUI 工具改为 macOS 桌面应用（.app bundle）
+- **安装方式变更**：`brew install --cask mbpz/qinAegis/qinAegis` 一键安装到 `/Applications`
+- **用户体验变更**：双击即可使用图形化界面，无需终端操作
+- **代码签名**：ad-hoc 自签名（免费），Gatekeeper 会显示”未验证开发者”警告但可运行
 
 推荐运行时分层：
 
 ```text
-qinAegis CLI/TUI (Rust)
+qinAegis Desktop GUI (tao + wry + React)
   ├─ Project / Requirement / Case / Run / Gate Services
   ├─ Local FS Storage (~/.qinAegis/projects)
   └─ Sandbox Runtime
@@ -46,15 +43,13 @@ qinAegis CLI/TUI (Rust)
        ├─ Midscene: visual act/assert/extract
        ├─ MCP-style Observer: accessibility snapshot and structured page state
        ├─ Lighthouse CI: performance budget
-       └─ k6/Locust: load and stress thresholds
+       └─ k6: load and stress thresholds
 ```
 
 新的超越路径：
 
 ```text
-产品理解 -> 测试计划 -> 用例生成 -> 用例审查 -> approved 资产库
--> 沙箱执行 -> 失败证据采集 -> 问题分类 -> 质量门禁
--> 覆盖缺口推荐 -> 长期质量知识库
+双击启动 -> 配置 AI 模型 -> 探索项目 -> 生成用例 -> 执行测试 -> 查看报告 -> 质量门禁
 ```
 
 ---
@@ -63,35 +58,33 @@ qinAegis CLI/TUI (Rust)
 
 ### 产品定位
 
-一款运行在 macOS 本地的 **TUI/CLI AI 质量工程平台**，专为前端 Web 项目设计。核心特性：
+一款运行在 macOS 本地的 **桌面 GUI AI 质量工程平台**，专为前端 Web 项目设计。核心特性：
+
+- **桌面 GUI 应用**：双击即可使用，无需终端操作
 
 - **完全本地沙箱化**：测试执行在 Playwright 管理的浏览器进程内进行，与宿主机完全隔离
 - **AI 驱动但可控**：结构化页面观测优先，视觉大模型处理复杂 UI，approved 用例尽量稳定复用
 - **本地文件系统存储**：项目规格书、需求、测试用例、测试结果全部存储在 `~/.qinAegis/projects/`
 - **测试资产治理**：draft / reviewed / approved / flaky / archived 生命周期
 - **统一质量门禁**：E2E 通过率、性能预算、压测阈值统一输出 gate 结果
-- **brew 一键安装**：用户体验对标 gh / lazygit 等成熟 CLI 工具
+- **brew install --cask 一键安装**：对标成熟 macOS 桌面应用
 
 ### 用户使用流程
 
 ```
-brew install qinAegis
+brew install --cask mbpz/qinAegis/qinAegis
 ↓
-qinAegis init           # 初始化本地配置（AI 模型密钥等）
+双击 QinAegis.app 启动 GUI
 ↓
-qinAegis project add    # 添加 Web 项目（URL + 技术栈）
+设置 AI 模型凭证（Settings 页面）
 ↓
-qinAegis explore        # AI 自动探索项目，生成规格书
+点击 Explore，输入项目 URL 进行 AI 发现
 ↓
-qinAegis generate       # 按需求维度生成测试用例 → 写入本地 cases/
+点击 Generate，输入需求生成测试用例
 ↓
-qinAegis run smoke      # 执行冒烟测试
-qinAegis run full       # 执行完整功能测试
-qinAegis run perf       # 执行性能测试
-qinAegis run stress     # 执行压力测试
+点击 Run，执行冒烟/功能/性能/压测
 ↓
-qinAegis report         # 查看测试报告
-qinAegis export         # 导出 HTML/MD/JSON 报告
+点击 Reports，查看测试报告和质量门禁状态
 ```
 
 ---
@@ -126,38 +119,23 @@ qinAegis export         # 导出 HTML/MD/JSON 报告
 
 ## 3. 整体架构
 
-```mermaid
-flowchart TB
-    UI[CLI/TUI<br/>Rust + ratatui + clap] --> Core[Rust Core Services]
-    Core --> Storage[Local FS Storage<br/>~/.qinAegis/projects]
-    Core --> Runtime[Sandbox Runtime]
+### 架构演进
 
-    Storage --> Spec[spec/product.md<br/>routes.json<br/>ui-map.json]
-    Storage --> Requirements[requirements/*.md]
-    Storage --> Cases[cases/draft<br/>cases/approved<br/>cases/flaky<br/>cases/archived]
-    Storage --> Runs[runs/run-id]
-    Storage --> Knowledge[knowledge/coverage<br/>flakiness<br/>failure-patterns]
-
-    Runtime --> PlaywrightBrowser[Playwright<br/>browser/session lifecycle<br/>CDP, trace, evidence]
-    Runtime --> Observer[MCP-style Observer<br/>accessibility snapshot<br/>DOM/console/network]
-    Runtime --> Playwright[Playwright<br/>deterministic actions<br/>trace and fallback]
-    Runtime --> Midscene[Midscene<br/>visual act/assert/extract]
-    Runtime --> Perf[Lighthouse CI]
-    Runtime --> Load[k6/Locust]
-
-    Midscene --> LLM[Vision / LLM Provider]
-    Observer --> Core
-    Playwright --> Runs
-    Midscene --> Runs
-    Perf --> Runs
-    Load --> Runs
-    Runs --> Knowledge
 ```
+Phase 1: CLI (Rust CLI工具)      ──►  Phase 2: TUI (ratatui)  ──►  Phase 3: GUI (tao + wry + React WebView)
+     │                                   │                              │
+  终端命令                                终端UI                          桌面应用
+  无界面                                   键盘操作                        鼠标点击
+                                                                 Double-click即可
+```
+
+### 当前架构 (Phase 3 — WebView GUI)
+
 
 ### 数据流向
 
 ```
-用户指令 (TUI)
+用户指令 (WebView GUI)
     │
     ▼
 项目理解 (accessibility snapshot + DOM/network/console + Midscene 视觉补强)
@@ -182,24 +160,26 @@ AI 生成测试用例 YAML/JSON → 本地 cases/draft/
 本地写入测试结果 (projects/<name>/runs/<run-id>/)
     │
     ▼
-TUI Dashboard 展示 / qinAegis gate / qinAegis export 导出报告
+WebView GUI Dashboard 展示 / qinAegis gate / qinAegis export 导出报告
 ```
 
 ---
 
 ## 4. 技术选型
 
-### 4.1 TUI 客户端（自研）
+### 4.1 WebView GUI 客户端（自研）
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | Rust | stable | 主语言，编译为原生二进制 |
-| ratatui | 0.27+ | TUI 框架，组件化布局 |
+| tao | 0.17+ | 跨平台窗口管理 |
+| wry | 0.20+ | WebView2/webkit 桥接 |
 | tokio | 1.x | 异步运行时 |
 | reqwest | 0.12+ | HTTP 客户端（LLM API） |
 | serde / serde_json | 1.x | 序列化 |
 | keyring | macOS Keychain 集成，存储 LLM API token |
-| crossterm | 终端跨平台控制 |
+| React | 18.x | 前端 UI 框架 |
+| Vite | 5.x | 前端构建工具 |
 
 ### 4.2 浏览器沙箱（Playwright）
 
@@ -878,57 +858,56 @@ let pass_rate = (passed as f64 / total as f64) * 100.0;
 
 ---
 
-## 9. Phase 5 · Distribution — Homebrew 分发
+## 9. Phase 5 · Distribution — Homebrew Cask 分发
 
-### 9.1 Homebrew Formula
+### 9.1 Homebrew Cask
 
 ```ruby
-# Formula/qinAegis.rb
-class QinAegis < Formula
-  desc "AI-powered automated testing TUI for web projects"
-  homepage "https://github.com/yourorg/qinAegis"
+# homebrew-tap/Formula/qinAegis.rb
+cask "qinaegis" do
   version "0.1.0"
+  arch = Hardware::CPU.arm? ? "arm64" : "x86_64"
 
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/yourorg/qinAegis/releases/download/v0.1.0/qinAegis-aarch64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
-    else
-      url "https://github.com/yourorg/qinAegis/releases/download/v0.1.0/qinAegis-x86_64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256"
-    end
+  url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/QinAegis-#{version}-mac-#{arch == "arm64" ? "arm64" : "x64"}.dmg"
+  sha256 "REPLACE_WITH_ACTUAL_SHA256"
+
+  name "QinAegis"
+  desc "AI-powered automated testing platform for web projects"
+  homepage "https://github.com/mbpz/qinAegis"
+
+  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
+
+  post_install do
+    system "xattr", "-r", "-d", "com.apple.quarantine", "#{staged_path}/QinAegis.app"
   end
 
-  depends_on :macos
+  uninstall pkgutil: "com.qinaegis.app"
 
-  def install
-    bin.install "qinAegis"
-  end
-
-  def post_install
-    (var/"log/qinAegis").mkpath
-  end
-
-  def caveats
-    <<~EOS
-      To get started:
-        qinAegis init
-
-      Playwright browsers will be installed on first run:
-        playwright install chromium
-
-      For full documentation:
-        https://github.com/yourorg/qinAegis
-    EOS
-  end
-
-  test do
-    system "#{bin}/qinAegis", "--version"
-  end
+  caveats <<~EOS
+    After installation, find QinAegis in your Applications folder.
+    Double-click to launch the GUI application.
+  EOS
 end
 ```
 
-### 9.2 GitHub Actions CI/CD
+### 9.2 安装命令
+
+```bash
+brew install --cask mbpz/qinAegis/qinAegis
+```
+
+### 9.3 GitHub Actions CI/CD
+
+构建流程：
+1. 安装 Node.js 20
+2. 构建 React UI：`cd crates/web_client/ui && npm install && npm run build`
+3. 编译 Rust：`cargo build --release --bin qinAegis-web`
+4. 创建 .app bundle（Info.plist + codesign ad-hoc）
+5. 打包 DMG：`hdiutil create`
+6. 移除 quarantine：`xattr -r -d com.apple.quarantine`
+7. 上传到 GitHub Release
+
+详见：`.github/workflows/release.yml`
 
 ```yaml
 # .github/workflows/release.yml
@@ -1083,10 +1062,11 @@ qinAegis export --project My App --format html
 
 ### Week 11–12：打磨 + 分发 ✅
 
-- [x] TUI Dashboard（通过率 · 失败用例 · 历史趋势）
+- [x] WebView GUI（tao + wry）桌面应用
+- [x] React 前端 UI 集成
 - [x] 错误处理 · 重试机制 · 日志系统
-- [x] Homebrew Formula 编写
-- [x] GitHub Actions CI/CD（aarch64 + x86_64 双架构打包）
+- [x] Homebrew Cask 编写
+- [x] GitHub Actions CI/CD（aarch64 + x86_64 双架构 DMG 打包）
 - [x] README + 快速上手文档
 
 ### Week 13+：持续迭代 🏗️
@@ -1097,13 +1077,10 @@ qinAegis export --project My App --format html
 - [x] 51 tests 测试覆盖
 - [x] StorageCredentials 云存储支持
 - [x] CI/CD 编排工作流 (GitHub Actions 全流程自动化)
+- [x] PC GUI 迁移完成（React + tao + wry）
 - [ ] 集成 OWASP ZAP 安全扫描（文档已完成）
 - [ ] 集成 Stagehand（文档已完成）
 - [ ] 集成 Testplane 视觉回归（文档已完成）
-- [ ] TUI 自动化测试
-  - [ ] trycmd — CLI 命令输出测试（help、参数解析等）
-  - [ ] insta — 快照测试 UI 渲染结果
-  - [ ] ratatui-testlib 或手动 PTY — 用户交互流程测试（按键、输入）
 - [ ] Playwright Test Agents 参考（文档已完成）
 
 ---
@@ -1116,24 +1093,6 @@ qinAegis/
 ├── Cargo.lock
 │
 ├── crates/
-│   ├── cli/                      # TUI 入口
-│   │   ├── src/
-│   │   │   ├── main.rs
-│   │   │   ├── tui/             # ratatui 组件
-│   │   │   │   ├── app.rs
-│   │   │   │   ├── dashboard.rs
-│   │   │   │   ├── project_list.rs
-│   │   │   │   └── config_form.rs
-│   │   │   ├── commands/        # 命令处理
-│   │   │   │   ├── init.rs      # 本地配置初始化
-│   │   │   │   ├── explore.rs   # 项目探索
-│   │   │   │   ├── generate.rs  # 用例生成
-│   │   │   │   ├── run.rs       # 测试执行
-│   │   │   │   ├── project.rs   # 项目管理 (add/list/remove)
-│   │   │   │   └── export.rs    # 报告导出
-│   │   │   └── config.rs        # 配置读写
-│   │   └── Cargo.toml
-│   │
 │   ├── core/                     # 业务逻辑
 │   │   ├── src/
 │   │   │   ├── lib.rs
@@ -1157,6 +1116,21 @@ qinAegis/
 │   │   │       └── app.rs       # AppConfig
 │   │   └── Cargo.toml
 │   │
+│   ├── web_client/               # 桌面 GUI（tao + wry + React）
+│   │   ├── src/
+│   │   │   ├── main.rs          # 入口 + RPC handler
+│   │   │   └── assets.rs        # 嵌入 React 构建产物
+│   │   ├── ui/                  # React 前端源码
+│   │   │   ├── package.json     # Vite + React
+│   │   │   ├── vite.config.ts
+│   │   │   ├── tsconfig.json
+│   │   │   └── src/
+│   │   │       ├── main.tsx
+│   │   │       ├── App.tsx
+│   │   │       ├── styles.css
+│   │   │       └── components/  # Sidebar, Dashboard, ExploreView...
+│   │   └── Cargo.toml
+│   │
 │   └── sandbox/                  # Node.js 沙箱执行层
 │       ├── package.json
 │       ├── tsconfig.json
@@ -1168,8 +1142,9 @@ qinAegis/
 │       └── scripts/
 │           └── k6-template.js   # k6 脚本模板
 │
-├── Formula/
-│   └── qinAegis.rb              # Homebrew Formula
+├── homebrew-tap/
+│   └── Formula/
+│       └── qinAegis.rb          # Homebrew Cask
 │
 └── .github/
     └── workflows/
@@ -1182,28 +1157,34 @@ qinAegis/
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/yourorg/qinAegis
+git clone https://github.com/mbpz/qinAegis
 cd qinAegis
 
 # 2. 安装 Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup target add aarch64-apple-darwin
 
-# 3. 安装 Node.js 依赖（sandbox 层）
-cd sandbox && pnpm install && cd ..
+# 3. 安装 Node.js 20
+# https://nodejs.org/
 
-# 4. 安装 Playwright 浏览器
-npx playwright install chromium
+# 4. 安装 sandbox 依赖
+cd crates/sandbox && pnpm install && cd ../..
 
-# 5. 运行开发版 TUI（首次会引导配置）
-cargo run -p cli
+# 5. 构建 React UI
+cd crates/web_client/ui && npm install && npm run build && cd ../..
 
-# 6. 运行测试
+# 6. 安装 Playwright 浏览器
+cd crates/sandbox && pnpm exec playwright install chromium && cd ..
+
+# 7. 运行开发版桌面应用
+cargo run -p web_client
+
+# 8. 运行测试
 cargo test
 cd sandbox && pnpm test
 ```
 
 ---
 
-*文档版本：v0.4（GitHub 同类项目对标后，升级为本地优先 AI 质量工程平台）*
-*最后更新：2026-05-07*
+*文档版本：v0.5（PC GUI 迁移版）*
+*最后更新：2026-05-13*

@@ -1,88 +1,55 @@
-# qinAegis 安装指南
+# 安装
 
-## 前置要求
-
-- macOS 12.0 或更高版本
-- Node.js 18+（用于沙箱层）
-- Homebrew（用于 Homebrew 安装方式）
-
-## 通过 Homebrew 安装（推荐）
-
-### 方式一：直接安装
+## 通过 Homebrew（推荐）
 
 ```bash
-brew install mbpz/qinAegis/qinAegis
+brew install --cask mbpz/qinAegis/qinAegis
 ```
 
-### 方式二：先添加 tap
+这将：
+1. 下载适合您架构的最新 DMG（arm64 或 x86_64）
+2. 挂载 DMG 并将 QinAegis.app 复制到 `/Applications`
+3. 移除隔离属性，避免 Gatekeeper 拦截
+
+安装完成后，在应用程序文件夹中找到 **QinAegis.app**。
+
+## 从 DMG（手动安装）
+
+1. 从 GitHub Releases 下载 DMG
+2. 双击挂载
+3. 将 QinAegis.app 拖到应用程序文件夹
+4. （首次运行）在 Gatekeeper 对话框中点击"打开"
+
+## 从源码构建
 
 ```bash
-brew tap mbpz/qinAegis
-brew install qinAegis
-```
-
-安装完成后，Playwright 浏览器会在首次运行时自动安装。
-
-## 从源码安装
-
-```bash
-# 克隆项目
 git clone https://github.com/mbpz/qinAegis.git
 cd qinAegis
 
-# 构建 Release 版本
-cargo build --release
+# 构建 React UI
+cd crates/web_client/ui && npm install && npm run build && cd ../..
 
-# 安装到 PATH
-cargo install --path crates/cli
-
-# 或直接使用构建好的二进制
-./target/release/qinAegis --help
+# 构建 Rust 二进制
+cargo build --release --bin qinAegis-web
 ```
 
-## 安装 Playwright 浏览器
+二进制文件位于 `target/release/qinAegis-web`。
+
+## 系统要求
+
+- macOS 10.15 或更高版本
+- Apple Silicon（M1/M2/M3）或 Intel Mac
+
+## 首次启动
+
+1. 在应用程序文件夹中双击 QinAegis.app
+2. 如果看到 Gatekeeper 警告，在系统偏好设置 > 安全性中点击"仍然打开"
+3. GUI 将打开，并显示 AI 模型配置的设置向导
+
+## 卸载
 
 ```bash
-# 如果使用 Homebrew 安装，Playwright 会在首次运行时自动下载
-# 手动安装（可选）：
-cd sandbox
-pnpm install
-pnpm exec playwright install chromium
+rm -rf /Applications/QinAegis.app
+# 可选：移除配置（您的测试数据将保留）
+rm -rf ~/.config/qinAegis
 ```
-
-## 安装后配置
-
-```bash
-# 初始化配置（引导设置 AI 模型等）
-qinAegis init
-
-# 添加项目
-qinAegis project add --name my-app --url http://localhost:3000
-
-# 探索项目
-qinAegis explore --project my-app
-```
-
-## 常见问题
-
-### Q: 安装失败怎么办？
-
-1. 确认 Homebrew 已正确安装
-2. 确认 macOS 版本 >= 12.0
-3. 尝试手动安装 Playwright：`pnpm exec playwright install chromium`
-
-### Q: Playwright 下载慢？
-
-可以使用国内镜像：
-```bash
-PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com npx playwright install chromium
-```
-
-### Q: 需要 Docker 吗？
-
-**不需要**。qinAegis 使用 Playwright 直接管理浏览器实例，无需 Docker 或任何容器运行时。
-
-## 更多信息
-
-- 用户手册：[docs/USER_GUIDE.md](./docs/USER_GUIDE.md)
-- 完整文档：[README_zh.md](./README_zh.md)

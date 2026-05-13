@@ -20,21 +20,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
 
+      - name: Build React UI
+        run: |
+          cd crates/web_client/ui
+          npm install
+          npm run build
+
       - name: Build Release
         run: |
           cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
-          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
-            -C target/aarch64-apple-darwin/release qinAegis-web
 
       - name: Generate SHA256
         run: |
           echo "aarch64-apple-darwin" > sha256_aarch64.txt
-          shasum -a 256 qinAegis-aarch64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_aarch64.txt
+          shasum -a 256 target/aarch64-apple-darwin/release/qinAegis-web | awk '{print $1}' >> sha256_aarch64.txt
 
       - name: Create DMG
         run: |
@@ -42,19 +51,16 @@ jobs:
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
           echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-arm64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-arm64.dmg 2>/dev/null || true
 
-      - name: Create macOS App Bundle
+      - name: Create tarball
         run: |
-          BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
-          mkdir -p "$BUNDLE/Contents/MacOS"
-          cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          tar -czf QinAegis-aarch64.darwin-app.tar.gz "$BUNDLE"
+          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
+            -C target/aarch64-apple-darwin/release qinAegis-web
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -62,7 +68,6 @@ jobs:
           name: qinAegis-aarch64-apple-darwin
           path: |
             qinAegis-aarch64-apple-darwin.tar.gz
-            QinAegis-aarch64.darwin-app.tar.gz
             QinAegis-${{ env.VERSION }}-mac-arm64.dmg
             sha256_aarch64.txt
 
@@ -74,21 +79,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
 
+      - name: Build React UI
+        run: |
+          cd crates/web_client/ui
+          npm install
+          npm run build
+
       - name: Build Release
         run: |
           cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
-          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
-            -C target/x86_64-apple-darwin/release qinAegis-web
 
       - name: Generate SHA256
         run: |
           echo "x86_64-apple-darwin" > sha256_x86_64.txt
-          shasum -a 256 qinAegis-x86_64-apple-darwin.tar.gz | awk '{print $1}' >> sha256_x86_64.txt
+          shasum -a 256 target/x86_64-apple-darwin/release/qinAegis-web | awk '{print $1}' >> sha256_x86_64.txt
 
       - name: Create DMG
         run: |
@@ -96,19 +110,16 @@ jobs:
           rm -rf "$BUNDLE"
           mkdir -p "$BUNDLE/Contents/MacOS"
           cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.qinAegis</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developor-tools</string></dict></plist>'
+          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
           echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
           codesign --force --deep --sign - "$BUNDLE"
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-x64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-x64.dmg 2>/dev/null || true
 
-      - name: Create macOS App Bundle
+      - name: Create tarball
         run: |
-          BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
-          mkdir -p "$BUNDLE/Contents/MacOS"
-          cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          tar -czf QinAegis-x86_64.darwin-app.tar.gz "$BUNDLE"
+          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
+            -C target/x86_64-apple-darwin/release qinAegis-web
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -116,7 +127,6 @@ jobs:
           name: qinAegis-x86_64-apple-darwin
           path: |
             qinAegis-x86_64-apple-darwin.tar.gz
-            QinAegis-x86_64.darwin-app.tar.gz
             QinAegis-${{ env.VERSION }}-mac-x64.dmg
             sha256_x86_64.txt
 
@@ -147,10 +157,8 @@ jobs:
         with:
           files: |
             artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
-            artifacts/arm64/QinAegis-aarch64.darwin-app.tar.gz
             artifacts/arm64/QinAegis-${{ env.VERSION }}-mac-arm64.dmg
             artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
-            artifacts/x86/QinAegis-x86_64.darwin-app.tar.gz
             artifacts/x86/QinAegis-${{ env.VERSION }}-mac-x64.dmg
             sha256.txt
           draft: true
