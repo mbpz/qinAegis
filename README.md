@@ -20,7 +20,7 @@ qinAegis is not another browser automation SDK. It is a productized testing work
 ### Homebrew (Recommended)
 
 ```bash
-brew install --cask mbpz/qinAegis/qinAegis
+brew install mbpz/homebrew-qinAegis/qinaegis
 ```
 
 After installation, find **QinAegis.app** in your Applications folder.
