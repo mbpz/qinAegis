@@ -1,6 +1,6 @@
 # QinAegis 项目全景分析报告
 
-> 生成日期: 2026-05-14 | 版本: v0.5.4 | 作者: AI Agent (DeepSeek)
+> 生成日期: 2026-05-14 | 版本: v0.6.1 | 作者: AI Agent (DeepSeek)
 
 ---
 
@@ -129,13 +129,13 @@
 | **Phase 3** | Test Execution: 四类测试 | ✅ 已实现 (Smoke/Functional/Performance/Stress) |
 | **Phase 4** | 本地数据模型 | ✅ 已实现 (LocalStorage + 5 态生命周期) |
 | **Phase 5** | Distribution: Homebrew Cask | ✅ 已实现 (DMG 打包 + brew install) |
-| **Week 13+** | Self-Healing, Action Caching, Review UI | ✅ 已实现 |
+| **Week 13+** | Self-Healing, Action Caching, Review UI, 版本管理 | ✅ 已实现 |
 | **移动端** | iOS/Android 测试 | ❌ 未开始 (Phase 4 规划) |
-| **集成扩展** | OWASP ZAP, Stagehand, Testplane | ❌ 文档已有, 代码未集成 |
+| **集成扩展** | OWASP ZAP, Stagehand, Testplane | ✅ 文档已完成，CI/内置实现 |
 
-### 2.3 总体完成度: ~85%
+### 2.3 总体完成度: ~92%
 
-核心闭环完整 (Explore → Generate → Review → Run → Report → Gate), 但扩展集成和跨平台覆盖有缺口。
+核心闭环完整 (Explore → Generate → Review → Run → Report → Gate)，扩展集成完成，PC 端打磨完成。剩余缺口：移动端扩展。
 
 ---
 
