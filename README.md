@@ -81,6 +81,12 @@ flowchart TB
 5. **Run** — Execute smoke, functional, performance, or stress tests
 6. **Review** — View reports and quality gate status
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd+Shift+D` / `Ctrl+Shift+D` | Toggle debug console |
+
 ## Development
 
 ```bash
