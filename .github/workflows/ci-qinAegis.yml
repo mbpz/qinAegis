@@ -13,10 +13,10 @@
 name: qinAegis Quality Gate
 
 on:
-  push:
-    branches: [main, develop]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sunday 2AM — no binary needed for schedule
   pull_request:
-    branches: [main]
 
 env:
   # Project name in qinAegis (must match --project flag)
@@ -45,10 +45,8 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          # Download latest release (replace with your installation method)
-          curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-apple-darwin.tar.gz | tar xz
-          # For Linux, use:
-          # curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
         env:
@@ -87,7 +85,8 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-apple-darwin.tar.gz | tar xz
+          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
         env:
@@ -121,7 +120,8 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-apple-darwin.tar.gz | tar xz
+          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
         env:
@@ -160,7 +160,8 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          curl -fsSL https://github.com/qinaegis/qinAegis/releases/latest/download/qinAegis-x86_64-apple-darwin.tar.gz | tar xz
+          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
         env:
