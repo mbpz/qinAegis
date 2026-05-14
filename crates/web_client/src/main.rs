@@ -450,6 +450,48 @@ impl AppState {
                                             }
                                         }
                                     }
+
+                                    // For security type, run OWASP ZAP scan
+                                    if test_type == "security" {
+                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
+                                        if let Some(target_url) = project_url {
+                                            let zap_path = run_dir.join("zap-report.json");
+                                            let llm_cfg = LlmConfig {
+                                                api_key: resolve_env_var(&cfg.llm.api_key),
+                                                base_url: resolve_env_var(&cfg.llm.base_url),
+                                                model: cfg.llm.model.clone(),
+                                            };
+                                            let sandbox_cfg = SandboxConfig {
+                                                cdp_port: cfg.sandbox.cdp_port,
+                                            };
+                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
+                                                Ok(process) => {
+                                                    let zap_result = process.call(JsonRpcRequest::ZapScan { target_url }).await;
+                                                    drop(process);
+                                                    if let Ok(resp) = zap_result {
+                                                        if resp.ok {
+                                                            if let Some(data) = resp.data {
+                                                                if let Err(e) = std::fs::write(&zap_path, serde_json::to_string(&data).unwrap()) {
+                                                                    let mut o = output.lock().unwrap();
+                                                                    o.push_str(&format!("[{}] ✗ Failed to save ZAP result: {}\n", job_id, e));
+                                                                } else {
+                                                                    let mut o = output.lock().unwrap();
+                                                                    o.push_str(&format!("[{}] ZAP scan completed: {} alerts\n", job_id, data.get("alert_count").and_then(|v| v.as_u64()).unwrap_or(0)));
+                                                                }
+                                                            }
+                                                        } else {
+                                                            let mut o = output.lock().unwrap();
+                                                            o.push_str(&format!("[{}] ZAP scan failed: {}\n", job_id, resp.error.unwrap_or_default()));
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    let mut o = output.lock().unwrap();
+                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for ZAP: {}\n", job_id, e));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 {

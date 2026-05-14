@@ -38,6 +38,8 @@ pub enum JsonRpcRequest {
     Lighthouse { url: String },
     #[serde(rename = "stress")]
     Stress { target_url: String, users: u32, spawn_rate: u32, duration: u32 },
+    #[serde(rename = "zap_scan")]
+    ZapScan { target_url: String },
     #[serde(rename = "shutdown")]
     Shutdown,
 }
@@ -236,6 +238,7 @@ impl MidsceneProcess {
             JsonRpcRequest::RunYaml { .. } => "run_yaml",
             JsonRpcRequest::Lighthouse { .. } => "lighthouse",
             JsonRpcRequest::Stress { .. } => "stress",
+            JsonRpcRequest::ZapScan { .. } => "zap_scan",
             JsonRpcRequest::Shutdown => "shutdown",
         };
         println!("[protocol] Sending {} request...", method_name);

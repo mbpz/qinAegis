@@ -16,6 +16,7 @@ const testTypes = [
   { value: 'functional', label: 'Functional Test', desc: 'Full feature coverage' },
   { value: 'performance', label: 'Performance Test', desc: 'Web Vitals measurement' },
   { value: 'stress', label: 'Stress Test', desc: 'Load and concurrency' },
+  { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
 export default function RunView({ output, onClear }: RunViewProps) {

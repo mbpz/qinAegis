@@ -84,7 +84,7 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
-    if (!['explore', 'lighthouse', 'stress'].includes(req.method)) {
+    if (!['explore', 'lighthouse', 'stress', 'zap_scan'].includes(req.method)) {
       await ensureConnected();
     } else {
       await ensureBrowser();
@@ -182,6 +182,21 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const { target_url, users, spawn_rate, duration } = req.args as { target_url: string; users: number; spawn_rate: number; duration: number };
         const { runLocust } = await import('./locust_runner.js');
         const result = await runLocust(target_url, users, spawn_rate, duration);
+        return { id: req.id || '0', ok: true, data: result };
+      }
+      case 'zap_scan': {
+        const { target_url } = req.args as { target_url: string };
+        try {
+          new URL(target_url);
+          if (!['http:', 'https:'].includes(new URL(target_url).protocol)) {
+            throw new Error('Only http/https URLs are allowed');
+          }
+        } catch (e) {
+          return { id: req.id || '0', ok: false, error: `Invalid URL: ${target_url}` };
+        }
+        const outputPath = `/tmp/zap_report_${Date.now()}.json`;
+        const { runZapScan } = await import('./zap_runner.js');
+        const result = await runZapScan(target_url, outputPath);
         return { id: req.id || '0', ok: true, data: result };
       }
       case 'shutdown': {
