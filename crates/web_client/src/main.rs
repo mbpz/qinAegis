@@ -1090,6 +1090,40 @@ fn main() -> Result<()> {
             .build(&window)?;
 
         let init_script = r#"
+            window.__toggleDebug = function() {
+                var panel = document.getElementById('debug-panel');
+                if (!panel) {
+                    panel = document.createElement('div');
+                    panel.id = 'debug-panel';
+                    panel.style.cssText = 'position:fixed;bottom:0;right:0;width:400px;height:250px;background:#161b22;border:1px solid #30363d;border-radius:8px 0 0 0;padding:12px;z-index:9999;overflow:auto;font-family:monospace;font-size:12px;color:#e6edf3;display:flex;flex-direction:column';
+                    panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-weight:bold;color:#58a6ff;">Debug Console</span><button id="debug-close" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:14px;">×</button></div><div id="debug-log" style="flex:1;overflow-y:auto;"></div>';
+                    document.body.appendChild(panel);
+                    document.getElementById('debug-close').onclick = function() { panel.style.display = 'none'; };
+                }
+                panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+            };
+            document.addEventListener('keydown', function(e) {
+                if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'D') {
+                    e.preventDefault();
+                    window.__toggleDebug();
+                }
+            });
+            var _origLog = console.log;
+            console.log = function() {
+                var args = Array.prototype.slice.call(arguments).map(function(a) { return typeof a === 'object' ? JSON.stringify(a) : String(a); });
+                var panel = document.getElementById('debug-panel');
+                if (panel) {
+                    var log = document.getElementById('debug-log');
+                    if (log) {
+                        var line = document.createElement('div');
+                        line.style.cssText = 'border-bottom:1px solid #21262d;padding:2px 0;word-break:break-all;color:#8b949e';
+                        line.textContent = '> ' + args.join(' ');
+                        log.appendChild(line);
+                        log.scrollTop = log.scrollHeight;
+                    }
+                }
+                _origLog.apply(console, arguments);
+            };
             window.rpc = function(method, params) {
                 var controller = null;
                 var timeoutId = null;
