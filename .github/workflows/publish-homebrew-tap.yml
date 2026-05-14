@@ -34,7 +34,7 @@ jobs:
 
       - name: Push to homebrew-tap
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           cd Casks
           git init
