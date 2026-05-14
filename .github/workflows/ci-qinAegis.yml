@@ -38,14 +38,14 @@ jobs:
   # ===========================================================================
   e2e-tests:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -78,14 +78,14 @@ jobs:
   # ===========================================================================
   performance:
     name: Performance Tests
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -113,14 +113,14 @@ jobs:
   # ===========================================================================
   stress-test:
     name: Stress Tests
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -160,7 +160,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-apple-darwin.tar.gz" | tar xz
 
       - name: Configure LLM
