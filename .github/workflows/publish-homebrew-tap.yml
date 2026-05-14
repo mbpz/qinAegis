@@ -14,10 +14,9 @@ jobs:
       - name: Download DMGs
         id: download
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          VERSION="${VERSION#v}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/QinAegis-${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
+          VERSION="${GITHUB_REF_NAME#v}"
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
+          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
           ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
           X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -31,7 +30,7 @@ jobs:
           ARM_SHA="${{ steps.download.outputs.arm_sha }}"
           X64_SHA="${{ steps.download.outputs.x64_sha }}"
           mkdir -p Casks
-          printf 'cask "qinaegis" do\n  arch arm: "arm64", intel: "x64"\n\n  version "%s"\n  sha256 arm:   "%s",\n         intel: "%s"\n\n  url "https://github.com/mbpz/qinAegis/releases/download/%s/QinAegis-%s-mac-#{arch}.dmg"\n  name "QinAegis"\n  desc "AI-powered terminal productivity tool"\n  homepage "https://github.com/mbpz/qinAegis"\n\n  livecheck do\n    url :url\n    strategy :github_latest\n  end\n\n  auto_updates false\n  depends_on macos: ">= :catalina"\n\n  artifact "QinAegis.app", target: "/Applications/QinAegis.app"\n\n  uninstall quit: "com.qinaegis.qinAegis",\n            delete: "/Applications/QinAegis.app"\n\n  zap trash: [\n    "~/Library/Application Support/com.qinaegis.qinAegis",\n    "~/Library/Preferences/com.qinaegis.qinAegis.plist",\n    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",\n  ]\nend\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$VERSION" "$VERSION" > Casks/qinaegis.rb
+          printf 'cask "qinaegis" do\n  arch arm: "arm64", intel: "x64"\n\n  version "%s"\n  sha256 arm:   "%s",\n         intel: "%s"\n\n  url "https://github.com/mbpz/qinAegis/releases/download/v%s/QinAegis-v%s-mac-#{arch}.dmg"\n  name "QinAegis"\n  desc "AI-powered terminal productivity tool"\n  homepage "https://github.com/mbpz/qinAegis"\n\n  livecheck do\n    url :url\n    strategy :github_latest\n  end\n\n  auto_updates false\n  depends_on macos: ">= :catalina"\n\n  artifact "QinAegis.app", target: "/Applications/QinAegis.app"\n\n  uninstall quit: "com.qinaegis.qinAegis",\n            delete: "/Applications/QinAegis.app"\n\n  zap trash: [\n    "~/Library/Application Support/com.qinaegis.qinAegis",\n    "~/Library/Preferences/com.qinaegis.qinAegis.plist",\n    "~/Library/Saved Application State/com.qinaegis.qinAegis.savedState",\n  ]\nend\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$VERSION" "$VERSION" > Casks/qinaegis.rb
 
       - name: Push to homebrew-tap
         env:
