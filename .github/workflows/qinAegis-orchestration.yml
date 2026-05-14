@@ -69,7 +69,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -127,7 +127,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -184,7 +184,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -228,7 +228,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -279,7 +279,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -342,7 +342,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Install k6
@@ -402,7 +402,7 @@ jobs:
 
       - name: Install qinAegis
         run: |
-          VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+          VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
           curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
 
       - name: Configure LLM
@@ -585,7 +585,7 @@ quick-smoke:
           - uses: actions/checkout@v4
           - name: Install qinAegis
             run: |
-              VERSION=$(gh release list --limit 1 --exclude-drafts | awk '{print $1}')
+              VERSION=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/mbpz/qinAegis/releases/latest" | jq -r '.tag_name')
               curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/${VERSION}/qinAegis-x86_64-unknown-linux-gnu.tar.gz" | tar xz
           - name: Configure LLM
             run: |
