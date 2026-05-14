@@ -1279,7 +1279,7 @@ qinAegis export --project My App --format html
 - [x] 集成 OWASP ZAP 安全扫描（文档已完成，CI workflow 调用 zap-baseline.py）
 - [x] 集成 Stagehand（文档已完成，Midscene 作为主引擎，Stagehand 作为备选视觉引擎）
 - [x] 集成 Testplane 视觉回归（文档已完成，PC 客户端内置视觉测试能力，通过 Midscene 实现）
-- [ ] Playwright Test Agents 参考（文档已完成）
+- [x] Playwright Test Agents 参考（文档已完成，npx playwright test AI 功能已内置）
 
 ---
 

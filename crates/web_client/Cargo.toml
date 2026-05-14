@@ -1,6 +1,6 @@
 [package]
 name = "qinAegis-web"
-version = "0.1.0"
+version = "0.6.3"
 edition = "2021"
 description = "QinAegis WebView Desktop Client"
 

@@ -15,7 +15,7 @@ export default function SettingsView() {
   const [config, setConfig] = useState<ConfigState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -74,13 +74,33 @@ export default function SettingsView() {
         <div className="card-title">AI Model Configuration</div>
         <div className="input-group">
           <label>API Key</label>
-          <input
-            className="input"
-            type="password"
-            placeholder="sk-..."
-            value={config?.llm?.api_key || ''}
-            onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, api_key: e.target.value } })}
-          />
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              type={showApiKey ? 'text' : 'password'}
+              className="input"
+              placeholder="sk-..."
+              value={config?.llm?.api_key || ''}
+              onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, api_key: e.target.value } })}
+              style={{ paddingRight: '40px' }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--text-secondary)',
+                fontSize: '16px',
+                padding: '4px',
+              }}
+              title={showApiKey ? 'Hide' : 'Show'}
+            >
+              {showApiKey ? '🙈' : '👁'}
+            </button>
+          </div>
         </div>
         <div className="form-row">
           <div className="input-group">

@@ -7,6 +7,7 @@ interface InitWizardProps {
 export default function InitWizard({ onComplete }: InitWizardProps) {
   const [step, setStep] = useState(1);
   const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState('https://api.minimax.chat/v1');
   const [model, setModel] = useState('MiniMax-VL-01');
   const [cdpPort, setCdpPort] = useState('9222');
@@ -52,14 +53,34 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
               <h2>AI Model Configuration</h2>
               <div className="form-group">
                 <label>API Key *</label>
-                <input
-                  type="password"
-                  className="input"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  autoFocus
-                />
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    className="input"
+                    placeholder="sk-..."
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    autoFocus
+                    style={{ paddingRight: '40px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--text-secondary)',
+                      fontSize: '16px',
+                      padding: '4px',
+                    }}
+                    title={showKey ? 'Hide' : 'Show'}
+                  >
+                    {showKey ? '🙈' : '👁'}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Base URL</label>

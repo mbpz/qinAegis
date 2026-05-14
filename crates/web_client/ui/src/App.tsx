@@ -54,7 +54,7 @@ function App() {
   const loadVersion = async () => {
     try {
       const v = await window.getVersion();
-      setAppVersion(v.version || '0.1.0');
+      setAppVersion(v.version || 'unknown');
       const status = await window.checkUpdate();
       setUpdateStatus(status.upToDate ? null : { hasUpdate: true, latest: status.latest });
     } catch (e) {

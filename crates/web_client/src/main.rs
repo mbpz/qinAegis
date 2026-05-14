@@ -18,7 +18,7 @@ mod assets;
 // AppState — holds UI state + output buffer
 // ============================================================================
 
-pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_VERSION: &str = env!("APP_BUILD_VERSION");
 
 #[derive(Debug)]
 pub struct AppState {
