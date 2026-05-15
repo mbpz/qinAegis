@@ -23,7 +23,7 @@ pub mod healer;
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};
-pub use llm::{ArcLlmClient, LlmClient, MiniMaxClient, Message};
+pub use llm::{ArcLlmClient, LlmClient, MiniMaxClient, Message, LlmRouter, ProviderConfig, RoutingStrategy};
 pub use protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess, LlmConfig, SandboxConfig};
 pub use executor::{TestExecutor, TestCaseRef, TestResult};
 pub use reporter::Reporter;

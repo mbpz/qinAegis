@@ -228,3 +228,147 @@ struct ChatRequest {
     messages: Vec<Message>,
     max_tokens: Option<u32>,
 }
+
+// ============================================================================
+// LlmRouter — multi-provider routing with auto-fallback
+// ============================================================================
+
+/// Configuration for a single LLM provider in the router.
+#[derive(Debug, Clone)]
+pub struct ProviderConfig {
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+}
+
+impl ProviderConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.api_key.is_empty() && !self.base_url.is_empty() && !self.model.is_empty()
+    }
+}
+
+/// Routing strategy for selecting between multiple LLM providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoutingStrategy {
+    /// Use primary only, fallback to secondary on failure.
+    PrimaryWithFallback,
+    /// Route based on task complexity: simple → primary, complex → secondary.
+    ComplexityBased,
+}
+
+impl Default for RoutingStrategy {
+    fn default() -> Self {
+        Self::PrimaryWithFallback
+    }
+}
+
+/// Multi-LLM router that implements LlmClient for transparent replacement.
+///
+/// Supports:
+/// - Auto-fallback: try primary, retry with secondary on failure
+/// - Complexity-based routing: route complex/vision tasks to secondary
+pub struct LlmRouter {
+    primary: ArcLlmClient,
+    secondary: Option<ArcLlmClient>,
+    strategy: RoutingStrategy,
+}
+
+impl LlmRouter {
+    /// Create a new router with a primary provider and optional secondary.
+    pub fn new(primary: ArcLlmClient, secondary: Option<ArcLlmClient>) -> Self {
+        Self {
+            primary,
+            secondary,
+            strategy: RoutingStrategy::default(),
+        }
+    }
+
+    /// Create from ProviderConfig values (convenience constructor).
+    pub fn from_configs(
+        primary_cfg: ProviderConfig,
+        secondary_cfg: Option<ProviderConfig>,
+    ) -> Result<Self, LlmError> {
+        let primary = ArcLlmClient::new(MiniMaxClient::new(
+            primary_cfg.base_url,
+            primary_cfg.api_key,
+            primary_cfg.model,
+        ));
+
+        let secondary = secondary_cfg
+            .filter(|c| c.is_configured())
+            .map(|cfg| {
+                ArcLlmClient::new(MiniMaxClient::new(
+                    cfg.base_url,
+                    cfg.api_key,
+                    cfg.model,
+                ))
+            });
+
+        Ok(Self::new(primary, secondary))
+    }
+
+    /// Set the routing strategy.
+    pub fn with_strategy(mut self, strategy: RoutingStrategy) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    /// Check if a secondary provider is configured.
+    pub fn has_secondary(&self) -> bool {
+        self.secondary.is_some()
+    }
+
+    /// Select which client to use based on the routing strategy.
+    fn select_client(&self, options: &ChatOptions) -> &ArcLlmClient {
+        match self.strategy {
+            RoutingStrategy::PrimaryWithFallback => &self.primary,
+            RoutingStrategy::ComplexityBased => {
+                // If vision is explicitly requested or max_tokens is high, use secondary
+                let needs_vision = options.vision.unwrap_or(false);
+                let is_complex = options.max_tokens.unwrap_or(0) > 2048;
+                if (needs_vision || is_complex) && self.secondary.is_some() {
+                    self.secondary.as_ref().unwrap()
+                } else {
+                    &self.primary
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl LlmClient for LlmRouter {
+    async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+        self.chat_with_options(messages, ChatOptions::default()).await
+    }
+
+    async fn chat_with_options(
+        &self,
+        messages: &[Message],
+        options: ChatOptions,
+    ) -> Result<String, LlmError> {
+        let client = self.select_client(&options);
+
+        // Try primary (or complexity-routed) client first
+        match client.chat_with_options(messages, options.clone()).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                // If we already used secondary, don't try again
+                if self.secondary.is_none()
+                    || std::ptr::eq(client as *const _, self.secondary.as_ref().unwrap() as *const _)
+                {
+                    return Err(e);
+                }
+
+                // Fallback to secondary
+                tracing::warn!("primary LLM failed ({:?}), falling back to secondary: {}", e, e);
+                self.secondary
+                    .as_ref()
+                    .unwrap()
+                    .chat_with_options(messages, options)
+                    .await
+            }
+        }
+    }
+}

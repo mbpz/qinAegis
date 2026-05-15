@@ -1,43 +1,37 @@
-# Formula/qinAegis.rb
-class QinAegis < Formula
-  desc "AI-powered automated testing TUI for web projects"
-  homepage "https://github.com/yourorg/qinAegis"
+cask "qinaegis" do
+  arch arm: "arm64", intel: "x64"
+
   version "0.1.0"
+  sha256 arm:   "REPLACE_WITH_ARM_SHA256",
+         intel: "REPLACE_WITH_X86_SHA256"
 
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/yourorg/qinAegis/releases/download/v0.1.0/qinAegis-aarch64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ARM_SHA256"
-    else
-      url "https://github.com/yourorg/qinAegis/releases/download/v0.1.0/qinAegis-x86_64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_X86_SHA256"
-    end
+  url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/QinAegis-v#{version}-mac-#{arch}.dmg"
+  name "QinAegis"
+  desc "AI-powered quality engineering platform for Web applications"
+  homepage "https://github.com/mbpz/qinAegis"
+
+  livecheck do
+    url :url
+    strategy :github_latest
   end
 
-  depends_on :macos
+  auto_updates true
+  depends_on macos: ">= :catalina"
 
-  def install
-    bin.install "qinAegis"
-  end
+  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
 
-  def post_install
-    (var/"log/qinAegis").mkpath
-  end
+  uninstall quit: "com.qinaegis.app",
+            delete: "/Applications/QinAegis.app"
 
-  def caveats
-    <<~EOS
-      快速开始：
-        qinAegis init
+  zap trash: [
+    "~/.qinAegis",
+    "~/Library/Application Support/com.qinaegis.app",
+    "~/Library/Preferences/com.qinaegis.app.plist",
+    "~/Library/Saved Application State/com.qinaegis.app.savedState",
+  ]
 
-      Playwright 浏览器会在首次运行时自动安装。
-      无需 Docker 或容器运行时。
-
-      完整文档：
-        https://github.com/yourorg/qinAegis/blob/main/README_zh.md
-    EOS
-  end
-
-  test do
-    system "#{bin}/qinAegis", "--version"
-  end
+  caveats <<~EOS
+    After installation, find QinAegis in your Applications folder.
+    Double-click to launch the GUI application.
+  EOS
 end

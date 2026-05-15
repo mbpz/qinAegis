@@ -1,11 +1,18 @@
 import { useState, useEffect } from 'react';
 
+interface LlmConfigState {
+  provider?: string;
+  api_key: string;
+  base_url: string;
+  model: string;
+  secondary_provider?: string;
+  secondary_api_key: string;
+  secondary_base_url: string;
+  secondary_model: string;
+}
+
 interface ConfigState {
-  llm: {
-    api_key: string;
-    base_url: string;
-    model: string;
-  };
+  llm: LlmConfigState;
   sandbox: {
     cdp_port: number;
   };
@@ -16,6 +23,8 @@ export default function SettingsView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showSecondaryApiKey, setShowSecondaryApiKey] = useState(false);
+  const [showSecondary, setShowSecondary] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -125,6 +134,86 @@ export default function SettingsView() {
             />
           </div>
         </div>
+      </div>
+
+      <div className="card">
+        <div
+          className="card-title"
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => setShowSecondary(!showSecondary)}
+        >
+          {showSecondary ? '▼' : '▶'} Secondary LLM (Optional — for fallback & complex tasks)
+        </div>
+        {showSecondary && (
+          <>
+            <div className="input-group">
+              <label>Provider</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="minimax"
+                value={config?.llm?.secondary_provider || ''}
+                onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_provider: e.target.value } })}
+              />
+            </div>
+            <div className="input-group">
+              <label>API Key</label>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <input
+                  type={showSecondaryApiKey ? 'text' : 'password'}
+                  className="input"
+                  placeholder="sk-..."
+                  value={config?.llm?.secondary_api_key || ''}
+                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_api_key: e.target.value } })}
+                  style={{ paddingRight: '40px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecondaryApiKey(!showSecondaryApiKey)}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)',
+                    fontSize: '16px',
+                    padding: '4px',
+                  }}
+                  title={showSecondaryApiKey ? 'Hide' : 'Show'}
+                >
+                  {showSecondaryApiKey ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="input-group">
+                <label>Base URL</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="https://api.minimax.chat/v1"
+                  value={config?.llm?.secondary_base_url || ''}
+                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_base_url: e.target.value } })}
+                />
+              </div>
+              <div className="input-group">
+                <label>Model</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Qwen3-VL-7B"
+                  value={config?.llm?.secondary_model || ''}
+                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_model: e.target.value } })}
+                />
+              </div>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '8px 0 0' }}>
+              The secondary LLM is used as a fallback when the primary fails, or for complex vision tasks.
+              Leave empty to use only the primary provider.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="card">

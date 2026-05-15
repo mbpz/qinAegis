@@ -2,7 +2,8 @@ use anyhow::Result;
 use qin_aegis_core::{
     AppConfig, resolve_env_var, Explorer, LlmClient, Message, LlmConfig, SandboxConfig,
     TestCaseService, TestExecutor, TestCaseRef,
-    ArcLlmClient, MiniMaxClient, LocalStorage, LocalStorageInstance,
+    ArcLlmClient, MiniMaxClient, LlmRouter, ProviderConfig,
+    LocalStorage, LocalStorageInstance,
     storage::{CaseStatus, Storage},
     LighthouseResult, LocustResult,
     protocol::{JsonRpcRequest, MidsceneProcess},
@@ -13,6 +14,35 @@ use std::collections::HashMap;
 use std::thread;
 
 mod assets;
+
+/// Create an LlmRouter from config.
+/// Falls back to a single-provider ArcLlmClient if no secondary is configured.
+fn create_llm_client(cfg: &AppConfig) -> ArcLlmClient {
+    let primary = ProviderConfig {
+        provider: cfg.llm.provider.clone(),
+        base_url: resolve_env_var(&cfg.llm.base_url),
+        api_key: resolve_env_var(&cfg.llm.api_key),
+        model: cfg.llm.model.clone(),
+    };
+    let secondary = if !cfg.llm.secondary_api_key.is_empty() && !cfg.llm.secondary_model.is_empty() {
+        Some(ProviderConfig {
+            provider: cfg.llm.secondary_provider.clone(),
+            base_url: resolve_env_var(&cfg.llm.secondary_base_url),
+            api_key: resolve_env_var(&cfg.llm.secondary_api_key),
+            model: cfg.llm.secondary_model.clone(),
+        })
+    } else {
+        None
+    };
+
+    let primary_clone = primary.clone();
+    match LlmRouter::from_configs(primary, secondary) {
+        Ok(router) => ArcLlmClient::new(router),
+        Err(_) => ArcLlmClient::new(MiniMaxClient::new(
+            primary_clone.base_url, primary_clone.api_key, primary_clone.model,
+        )),
+    }
+}
 
 // ============================================================================
 // AppState — holds UI state + output buffer
@@ -132,6 +162,19 @@ impl AppState {
                 }
                 if let Some(m) = llm.get("model").and_then(|v| v.as_str()) {
                     cfg.llm.model = m.to_string();
+                }
+                // Secondary LLM
+                if let Some(p) = llm.get("secondary_provider").and_then(|v| v.as_str()) {
+                    cfg.llm.secondary_provider = p.to_string();
+                }
+                if let Some(u) = llm.get("secondary_base_url").and_then(|v| v.as_str()) {
+                    cfg.llm.secondary_base_url = u.to_string();
+                }
+                if let Some(k) = llm.get("secondary_api_key").and_then(|v| v.as_str()) {
+                    cfg.llm.secondary_api_key = k.to_string();
+                }
+                if let Some(m) = llm.get("secondary_model").and_then(|v| v.as_str()) {
+                    cfg.llm.secondary_model = m.to_string();
                 }
             }
             if let Some(sandbox) = obj.get("sandbox").and_then(|v| v.as_object()) {
@@ -254,11 +297,7 @@ impl AppState {
                     }
                 };
 
-                let llm = ArcLlmClient::new(MiniMaxClient::new(
-                    resolve_env_var(&cfg.llm.base_url),
-                    resolve_env_var(&cfg.llm.api_key),
-                    cfg.llm.model.clone(),
-                ));
+                let llm = create_llm_client(&cfg);
 
                 let service = TestCaseService::new(llm, LocalStorageInstance);
 
@@ -697,16 +736,7 @@ impl AppState {
         }).collect();
 
         let plan_text = if let Some(ref cfg) = self.config {
-            let llm_cfg = LlmConfig {
-                api_key: resolve_env_var(&cfg.llm.api_key),
-                base_url: resolve_env_var(&cfg.llm.base_url),
-                model: cfg.llm.model.clone(),
-            };
-            let llm = ArcLlmClient::new(MiniMaxClient::new(
-                llm_cfg.base_url,
-                llm_cfg.api_key,
-                llm_cfg.model,
-            ));
+            let llm = create_llm_client(cfg);
 
             let summary = case_summaries.join("\n");
             let prompt = format!(

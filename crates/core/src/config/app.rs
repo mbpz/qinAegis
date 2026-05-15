@@ -42,6 +42,16 @@ pub struct LlmConfigSection {
     /// Resolved lazily via resolve().
     pub api_key: String,
     pub model: String,
+    /// Secondary LLM for fallback or complex vision tasks.
+    /// When empty, only the primary LLM is used.
+    #[serde(default)]
+    pub secondary_provider: String,
+    #[serde(default)]
+    pub secondary_base_url: String,
+    #[serde(default)]
+    pub secondary_api_key: String,
+    #[serde(default)]
+    pub secondary_model: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +95,10 @@ impl Default for LlmConfigSection {
             base_url: "https://api.minimax.chat/v1".to_string(),
             api_key: String::new(),
             model: "MiniMax-VL-01".to_string(),
+            secondary_provider: String::new(),
+            secondary_base_url: String::new(),
+            secondary_api_key: String::new(),
+            secondary_model: String::new(),
         }
     }
 }
@@ -151,6 +165,19 @@ impl AppConfig {
         if !other.llm.model.is_empty() {
             self.llm.model = other.llm.model;
         }
+        // Secondary LLM
+        if !other.llm.secondary_provider.is_empty() {
+            self.llm.secondary_provider = other.llm.secondary_provider;
+        }
+        if !other.llm.secondary_base_url.is_empty() {
+            self.llm.secondary_base_url = other.llm.secondary_base_url;
+        }
+        if !other.llm.secondary_api_key.is_empty() {
+            self.llm.secondary_api_key = other.llm.secondary_api_key;
+        }
+        if !other.llm.secondary_model.is_empty() {
+            self.llm.secondary_model = other.llm.secondary_model;
+        }
         // Sandbox
         if other.sandbox.cdp_port != 0 {
             self.sandbox.cdp_port = other.sandbox.cdp_port;
@@ -169,6 +196,8 @@ impl AppConfig {
     pub fn resolve_env(&mut self) {
         self.llm.api_key = resolve_env_var(&self.llm.api_key);
         self.llm.base_url = resolve_env_var(&self.llm.base_url);
+        self.llm.secondary_api_key = resolve_env_var(&self.llm.secondary_api_key);
+        self.llm.secondary_base_url = resolve_env_var(&self.llm.secondary_base_url);
     }
 
     /// Save to global config path.
