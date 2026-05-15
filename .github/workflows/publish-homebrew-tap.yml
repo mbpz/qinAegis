@@ -7,9 +7,6 @@ on:
     workflows: ["Release"]
     types: [completed]
     branches: [main]
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
