@@ -167,5 +167,5 @@ jobs:
             artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
             artifacts/x86/QinAegis-${{ env.VERSION }}-mac-x64.dmg
             sha256.txt
-          draft: true
+          draft: false
           generate_release_notes: true
