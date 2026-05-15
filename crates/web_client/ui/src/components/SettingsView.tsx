@@ -16,6 +16,7 @@ export default function SettingsView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadConfig();
