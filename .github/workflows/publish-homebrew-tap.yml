@@ -21,12 +21,29 @@ jobs:
     # Only run if triggered by workflow_run (Release CI) and it succeeded
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Download DMGs
+      - name: Download DMGs (with retry)
         id: download
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg
-          curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg
+          MAX_RETRIES=5
+          RETRY_DELAY=10
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i: Downloading DMGs for v${VERSION}..."
+            if curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-arm64.dmg" -o /tmp/arm64.dmg \
+              && curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-x64.dmg" -o /tmp/x64.dmg \
+              && curl -fsSL "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/sha256.txt" -o /tmp/sha256.txt; then
+              echo "Download successful"
+              break
+            fi
+            if [ $i -lt $MAX_RETRIES ]; then
+              echo "Download failed, retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+            else
+              echo "All retries exhausted"
+              exit 1
+            fi
+          done
           ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
           X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
