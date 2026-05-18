@@ -49,7 +49,7 @@ jobs:
       - name: Generate SHA256
         run: |
           echo "aarch64-apple-darwin" > sha256_aarch64.txt
-          shasum -a 256 target/aarch64-apple-darwin/release/qinAegis-web | awk '{print $1}' >> sha256_aarch64.txt
+          shasum -a 256 QinAegis-${VERSION}-mac-arm64.dmg | awk '{print $1}' >> sha256_aarch64.txt
 
       - name: Create DMG
         run: |
@@ -108,7 +108,7 @@ jobs:
       - name: Generate SHA256
         run: |
           echo "x86_64-apple-darwin" > sha256_x86_64.txt
-          shasum -a 256 target/x86_64-apple-darwin/release/qinAegis-web | awk '{print $1}' >> sha256_x86_64.txt
+          shasum -a 256 QinAegis-${VERSION}-mac-x64.dmg | awk '{print $1}' >> sha256_x86_64.txt
 
       - name: Create DMG
         run: |
