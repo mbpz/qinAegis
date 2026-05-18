@@ -927,6 +927,7 @@ fn main() -> Result<()> {
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios", target_os = "android"))]
     {
         let webview = wry::WebViewBuilder::new()
+            .with_clipboard(true)
             .with_custom_protocol("app".into(), move |_id, request| {
                 let uri = request.uri();
                 let path = uri.path().trim_start_matches('/');
@@ -1194,6 +1195,9 @@ fn main() -> Result<()> {
             window.exportProject = function(project) { return window.rpc('exportProject', {project: project || 'default'}); };
             window.getReviewCases = function(project) { return window.rpc('getReviewCases', {project: project || 'default'}); };
             window.updateCaseStatus = function(project, case_id, status) { return window.rpc('updateCaseStatus', {project: project || 'default', case_id: case_id, status: status}); };
+            window.getVersion = function() { return window.rpc('getVersion', {}); };
+            window.checkUpdate = function() { return window.rpc('checkUpdate', {}); };
+            window.open = function(url) { return window.rpc('openExternal', {url: url}); };
             console.log('RPC bridge ready');
         "#;
 
