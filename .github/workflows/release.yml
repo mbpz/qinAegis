@@ -46,10 +46,10 @@ jobs:
         run: |
           cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
 
-      - name: Generate SHA256
+      - name: Create tarball
         run: |
-          echo "aarch64-apple-darwin" > sha256_aarch64.txt
-          shasum -a 256 QinAegis-${VERSION}-mac-arm64.dmg | awk '{print $1}' >> sha256_aarch64.txt
+          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
+            -C target/aarch64-apple-darwin/release qinAegis-web
 
       - name: Create DMG
         run: |
@@ -63,10 +63,10 @@ jobs:
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-arm64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-arm64.dmg 2>/dev/null || true
 
-      - name: Create tarball
+      - name: Generate SHA256
         run: |
-          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
-            -C target/aarch64-apple-darwin/release qinAegis-web
+          echo "aarch64-apple-darwin" > sha256_aarch64.txt
+          shasum -a 256 QinAegis-${VERSION}-mac-arm64.dmg | awk '{print $1}' >> sha256_aarch64.txt
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -105,10 +105,10 @@ jobs:
         run: |
           cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
 
-      - name: Generate SHA256
+      - name: Create tarball
         run: |
-          echo "x86_64-apple-darwin" > sha256_x86_64.txt
-          shasum -a 256 QinAegis-${VERSION}-mac-x64.dmg | awk '{print $1}' >> sha256_x86_64.txt
+          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
+            -C target/x86_64-apple-darwin/release qinAegis-web
 
       - name: Create DMG
         run: |
@@ -122,10 +122,10 @@ jobs:
           hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-x64.dmg -srcfolder "$BUNDLE"
           xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-x64.dmg 2>/dev/null || true
 
-      - name: Create tarball
+      - name: Generate SHA256
         run: |
-          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
-            -C target/x86_64-apple-darwin/release qinAegis-web
+          echo "x86_64-apple-darwin" > sha256_x86_64.txt
+          shasum -a 256 QinAegis-${VERSION}-mac-x64.dmg | awk '{print $1}' >> sha256_x86_64.txt
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
