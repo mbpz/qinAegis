@@ -187,9 +187,13 @@ impl AppState {
         match cfg.save_global() {
             Ok(_) => {
                 self.config = Some(cfg);
+                println!("Config saved successfully");
                 r#"{"ok":true}"#.to_string()
             }
-            Err(e) => format!(r#"{{"error":"{}"}}"#, e),
+            Err(e) => {
+                eprintln!("Failed to save config: {}", e);
+                format!(r#"{{"error":"{}"}}"#, e)
+            }
         }
     }
 
@@ -1180,7 +1184,7 @@ fn main() -> Result<()> {
                 });
             };
             window.getState = function() { return window.rpc('getState', {}); };
-            window.setConfig = function(c) { return window.rpc('setConfig', {config: c}); };
+            window.setConfig = function(c) { console.log('setConfig called with:', JSON.stringify(c)); return window.rpc('setConfig', {config: c}); };
             window.runExplore = function(url, depth) { return window.rpc('runExplore', {url: url, depth: depth}); };
             window.runGenerate = function(req, spec) { return window.rpc('runGenerate', {requirement: req, spec: spec || null}); };
             window.runTests = function(project, type) { return window.rpc('runTests', {project: project, type: type}); };
