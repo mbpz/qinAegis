@@ -69,15 +69,17 @@ jobs:
           ARM_SHA="${{ steps.download.outputs.arm_sha }}"
           X64_SHA="${{ steps.download.outputs.x64_sha }}"
           mkdir -p Casks
-          cat > Casks/qinaegis.rb <<RUBY
+
+          # Write cask content using base64 to avoid YAML indentation issues
+          CONTENT=$(cat <<'CASKEOF'
 cask "qinaegis" do
   arch arm: "arm64", intel: "x64"
 
-  version "${VERSION}"
-  sha256 arm:   "${ARM_SHA}",
-         intel: "${X64_SHA}"
+  version "#{version}"
+  sha256 arm:   "#{arm_sha}",
+         intel: "#{x64_sha}"
 
-  url "https://github.com/mbpz/qinAegis/releases/download/v\#{version}/QinAegis-v\#{version}-mac-\#{arch}.dmg"
+  url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/QinAegis-v#{version}-mac-#{arch}.dmg"
   name "QinAegis"
   desc "AI-powered quality engineering platform for Web applications"
   homepage "https://github.com/mbpz/qinAegis"
@@ -107,7 +109,15 @@ cask "qinaegis" do
     Double-click to launch the GUI application.
   EOS
 end
-RUBY
+CASKEOF
+          )
+
+          # Replace placeholders with actual values
+          CASK_CONTENT="${CONTENT//\#{version}/${VERSION}}"
+          CASK_CONTENT="${CASK_CONTENT//\#{arm_sha}/${ARM_SHA}}"
+          CASK_CONTENT="${CASK_CONTENT//\#{x64_sha}/${X64_SHA}}"
+
+          echo "$CASK_CONTENT" > Casks/qinaegis.rb
           echo "Generated Casks/qinaegis.rb:"
           cat Casks/qinaegis.rb
 
