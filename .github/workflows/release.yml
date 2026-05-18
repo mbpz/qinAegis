@@ -169,3 +169,5 @@ jobs:
             sha256.txt
           draft: false
           generate_release_notes: true
+          # Overwrite existing release assets (important for re-runs with fixes)
+          overwrite: true
