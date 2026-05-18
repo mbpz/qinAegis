@@ -8,6 +8,13 @@ export default defineConfig({
   build: {
     outDir: '../src/assets',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/index.js',
+        chunkFileNames: 'assets/index.js',
+        assetFileNames: 'assets/index.[ext]',
+      },
+    },
   },
   resolve: {
     alias: {
