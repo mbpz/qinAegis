@@ -36,14 +36,10 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - name: Build React UI
-        run: |
-          cd crates/web_client/ui
-          npm install
-          npm run build
-
       - name: Build Release
         run: |
+          cd crates/web_client/ui && npm install && npm run build
+          cd ../..
           cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
 
       - name: Create tarball
@@ -95,14 +91,10 @@ jobs:
         with:
           targets: x86_64-apple-darwin
 
-      - name: Build React UI
-        run: |
-          cd crates/web_client/ui
-          npm install
-          npm run build
-
       - name: Build Release
         run: |
+          cd crates/web_client/ui && npm install && npm run build
+          cd ../..
           cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
 
       - name: Create tarball
