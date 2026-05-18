@@ -22,8 +22,6 @@ export default function SettingsView() {
   const [config, setConfig] = useState<ConfigState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showSecondaryApiKey, setShowSecondaryApiKey] = useState(false);
   const [showSecondary, setShowSecondary] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -86,30 +84,13 @@ export default function SettingsView() {
           <label>API Key</label>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <input
-              type={showApiKey ? 'text' : 'password'}
+              type="text"
               className="input"
               placeholder="sk-..."
               value={config?.llm?.api_key || ''}
               onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, api_key: e.target.value } })}
               style={{ paddingRight: '40px' }}
             />
-            <button
-              type="button"
-              onClick={() => setShowApiKey(!showApiKey)}
-              style={{
-                position: 'absolute',
-                right: '8px',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-                fontSize: '16px',
-                padding: '4px',
-              }}
-              title={showApiKey ? 'Hide' : 'Show'}
-            >
-              {showApiKey ? '🙈' : '👁'}
-            </button>
           </div>
         </div>
         <div className="form-row">
@@ -160,30 +141,13 @@ export default function SettingsView() {
               <label>API Key</label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <input
-                  type={showSecondaryApiKey ? 'text' : 'password'}
+                  type="text"
                   className="input"
                   placeholder="sk-..."
                   value={config?.llm?.secondary_api_key || ''}
                   onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_api_key: e.target.value } })}
                   style={{ paddingRight: '40px' }}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowSecondaryApiKey(!showSecondaryApiKey)}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text-secondary)',
-                    fontSize: '16px',
-                    padding: '4px',
-                  }}
-                  title={showSecondaryApiKey ? 'Hide' : 'Show'}
-                >
-                  {showSecondaryApiKey ? '🙈' : '👁'}
-                </button>
               </div>
             </div>
             <div className="form-row">
