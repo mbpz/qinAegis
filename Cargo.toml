@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/web_client"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.7.2"
 edition = "2021"
 authors = ["QinAegis Team"]
 
