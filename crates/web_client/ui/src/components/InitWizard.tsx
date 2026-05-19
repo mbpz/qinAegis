@@ -18,8 +18,6 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
     if (!apiKey.trim()) { setError('API key is required'); return; }
     setSaving(true);
     setError('');
-    console.log('handleSave called, window.setConfig type:', typeof window.setConfig);
-    console.log('window object keys:', Object.keys(window).filter(k => k.includes('Config') || k.includes('rpc')));
     try {
       const config = {
         llm: {
@@ -31,9 +29,18 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
           cdp_port: parseInt(cdpPort, 10) || 9222,
         },
       };
-      // Direct call - will throw TypeError if setConfig is not a function
-      await window.setConfig(config);
-      onComplete();
+      // Use fetch directly to call RPC
+      const paramsStr = encodeURIComponent(JSON.stringify({config}));
+      const url = 'app://localhost/invoke?method=setConfig&params=' + paramsStr;
+      const resp = await fetch(url);
+      const result = await resp.text();
+      console.log('setConfig raw response:', result);
+      const parsed = JSON.parse(result);
+      if (parsed.ok) {
+        onComplete();
+      } else {
+        setError('Failed to save config: ' + (parsed.error || 'unknown error'));
+      }
     } catch (e) {
       console.error('setConfig error:', e);
       setError('Failed to save config: ' + e);

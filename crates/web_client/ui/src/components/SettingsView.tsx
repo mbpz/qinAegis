@@ -32,7 +32,11 @@ export default function SettingsView() {
 
   const loadConfig = async () => {
     try {
-      const state = await window.getState();
+      // Use fetch directly to call RPC
+      const url = 'app://localhost/invoke?method=getState&params=%7B%7D';
+      const resp = await fetch(url);
+      const text = await resp.text();
+      const state = JSON.parse(text);
       if (state?.config) {
         setConfig(state.config);
       }
@@ -45,17 +49,21 @@ export default function SettingsView() {
 
   const handleSave = async () => {
     if (!config) return;
-    if (typeof window.setConfig !== 'function') {
-      console.error('window.setConfig is not a function:', window.setConfig);
-      setMessage('Error: RPC not ready. Try refreshing the page.');
-      return;
-    }
     setSaving(true);
     try {
-      const result = await window.setConfig(config);
-      console.log('setConfig result:', result);
-      setMessage('Settings saved successfully!');
-      setTimeout(() => setMessage(''), 3000);
+      // Use fetch directly to call RPC
+      const paramsStr = encodeURIComponent(JSON.stringify({config}));
+      const url = 'app://localhost/invoke?method=setConfig&params=' + paramsStr;
+      const resp = await fetch(url);
+      const result = await resp.text();
+      console.log('setConfig raw response:', result);
+      const parsed = JSON.parse(result);
+      if (parsed.ok) {
+        setMessage('Settings saved successfully!');
+        setTimeout(() => setMessage(''), 3000);
+      } else {
+        setMessage('Failed to save settings: ' + (parsed.error || 'unknown error'));
+      }
     } catch (e) {
       console.error('setConfig error:', e);
       setMessage('Failed to save settings: ' + e);
