@@ -20,3 +20,4 @@ package-lock.json
 # Test artifacts
 tests/snapshots/
 build
+crates/web_client/src/assets/assets/
