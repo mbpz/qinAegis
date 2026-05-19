@@ -5,6 +5,15 @@ interface ExploreViewProps {
   onClear: () => void;
 }
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function ExploreView({ output, onClear }: ExploreViewProps) {
   const [url, setUrl] = useState('');
   const [depth, setDepth] = useState(3);
@@ -14,7 +23,7 @@ export default function ExploreView({ output, onClear }: ExploreViewProps) {
     if (!url) return;
     setLoading(true);
     try {
-      await window.runExplore(url, depth);
+      await rpcCall('runExplore', { url, depth });
     } finally {
       setLoading(false);
     }

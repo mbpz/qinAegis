@@ -19,6 +19,15 @@ const testTypes = [
   { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function RunView({ output, onClear }: RunViewProps) {
   const [projects, setProjects] = useState<string[]>(['default']);
   const [project, setProject] = useState('default');
@@ -29,13 +38,13 @@ export default function RunView({ output, onClear }: RunViewProps) {
   const [testPlan, setTestPlan] = useState<TestPlan | null>(null);
 
   useEffect(() => {
-    window.getProjects().then(setProjects).catch(() => {});
+    rpcCall('getProjects').then(setProjects).catch(() => {});
   }, []);
 
   const handlePreview = async () => {
     setPreviewLoading(true);
     try {
-      const result = await window.previewTestPlan(project, testType);
+      const result = await rpcCall('previewTestPlan', { project, type: testType });
       setTestPlan(JSON.parse(result));
       setShowPreview(true);
     } catch {
@@ -50,7 +59,7 @@ export default function RunView({ output, onClear }: RunViewProps) {
     setShowPreview(false);
     setLoading(true);
     try {
-      await window.runTests(project, testType);
+      await rpcCall('runTests', { project, type: testType });
     } finally {
       setLoading(false);
     }

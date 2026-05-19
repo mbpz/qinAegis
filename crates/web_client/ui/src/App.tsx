@@ -46,6 +46,15 @@ function App() {
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
 
+  // Direct RPC call helper
+  const rpcCall = async (method: string, params: object = {}): Promise<any> => {
+    const paramsStr = encodeURIComponent(JSON.stringify(params));
+    const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+    const resp = await fetch(url);
+    const text = await resp.text();
+    return JSON.parse(text);
+  };
+
   useEffect(() => {
     checkConfig();
     loadProjects();
@@ -54,9 +63,9 @@ function App() {
 
   const loadVersion = async () => {
     try {
-      const v = await window.getVersion();
+      const v = await rpcCall('getVersion');
       setAppVersion(v.version || 'unknown');
-      const status = await window.checkUpdate();
+      const status = await rpcCall('checkUpdate');
       setUpdateStatus(status.upToDate ? null : { hasUpdate: true, latest: status.latest });
     } catch (e) {
       console.error('Failed to load version:', e);
@@ -65,7 +74,7 @@ function App() {
 
   const checkConfig = async () => {
     try {
-      const result = await window.checkConfig();
+      const result = await rpcCall('checkConfig');
       setIsConfigured(result.configured);
     } catch (e) {
       console.error('Failed to check config:', e);
@@ -83,7 +92,7 @@ function App() {
 
   const loadProjects = async () => {
     try {
-      const result = await window.getProjects();
+      const result = await rpcCall('getProjects');
       setProjects(result || []);
     } catch (e) {
       console.error('Failed to load projects:', e);
@@ -92,11 +101,16 @@ function App() {
 
   const loadOutput = async () => {
     try {
-      const result = await window.getOutput();
+      const result = await rpcCall('getOutput');
       setOutput(result || '');
     } catch (e) {
       console.error('Failed to fetch output:', e);
     }
+  };
+
+  const handleClearOutput = async () => {
+    await rpcCall('clearOutput', {});
+    setOutput('');
   };
 
   const handleWizardComplete = () => {
@@ -108,11 +122,11 @@ function App() {
       case 'dashboard':
         return <Dashboard projects={projects} onNavigate={setCurrentView} />;
       case 'explore':
-        return <ExploreView output={output} onClear={async () => { await window.clearOutput(); setOutput(''); }} />;
+        return <ExploreView output={output} onClear={handleClearOutput} />;
       case 'generate':
-        return <GenerateView output={output} onClear={async () => { await window.clearOutput(); setOutput(''); }} />;
+        return <GenerateView output={output} onClear={handleClearOutput} />;
       case 'run':
-        return <RunView output={output} onClear={async () => { await window.clearOutput(); setOutput(''); }} />;
+        return <RunView output={output} onClear={handleClearOutput} />;
       case 'reports':
         return <ReportView />;
       case 'review':
@@ -145,7 +159,7 @@ function App() {
           <span
             className="update-badge"
             title={`New version available: ${updateStatus.latest}`}
-            onClick={() => window.open('https://github.com/your-repo/releases', '_blank')}
+            onClick={() => { const a = document.createElement('a'); a.href = 'https://github.com/your-repo/releases'; a.target = '_blank'; a.click(); }}
           >
             Update
           </span>

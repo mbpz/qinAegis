@@ -5,6 +5,15 @@ interface GenerateViewProps {
   onClear: () => void;
 }
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function GenerateView({ output, onClear }: GenerateViewProps) {
   const [requirement, setRequirement] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,7 +22,7 @@ export default function GenerateView({ output, onClear }: GenerateViewProps) {
     if (!requirement) return;
     setLoading(true);
     try {
-      await window.runGenerate(requirement);
+      await rpcCall('runGenerate', { requirement });
     } finally {
       setLoading(false);
     }

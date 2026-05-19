@@ -17,6 +17,15 @@ interface GateStatus {
   last_run_total?: number;
 }
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function ReportView() {
   const [projects, setProjects] = useState<string[]>(['default']);
   const [selectedProject, setSelectedProject] = useState('default');
@@ -28,7 +37,7 @@ export default function ReportView() {
   const [loadingHtml, setLoadingHtml] = useState(false);
 
   useEffect(() => {
-    window.getProjects().then(setProjects).catch(() => {});
+    rpcCall('getProjects').then(setProjects).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -39,8 +48,8 @@ export default function ReportView() {
     setLoading(true);
     try {
       const [reportsData, gateData] = await Promise.all([
-        window.getReports(selectedProject),
-        window.getGateStatus(selectedProject),
+        rpcCall('getReports', { project: selectedProject }),
+        rpcCall('getGateStatus', { project: selectedProject }),
       ]);
       setReports(reportsData || []);
       setGate(gateData || null);
@@ -56,7 +65,7 @@ export default function ReportView() {
     setLoadingHtml(true);
     setReportHtml(null);
     try {
-      const result = await window.getReportHtml(selectedProject, runId);
+      const result = await rpcCall('getReportHtml', { project: selectedProject, run_id: runId });
       if (result.ok && result.html) {
         setReportHtml(result.html);
       } else {
@@ -71,7 +80,7 @@ export default function ReportView() {
 
   const handleExport = async () => {
     try {
-      const data = await window.exportProject(selectedProject);
+      const data = await rpcCall('exportProject', { project: selectedProject });
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

@@ -25,6 +25,15 @@ const statusColors: Record<string, string> = {
   archived: 'var(--text-secondary)',
 };
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function ReviewView() {
   const [projects, setProjects] = useState<string[]>(['default']);
   const [selectedProject, setSelectedProject] = useState('default');
@@ -34,7 +43,7 @@ export default function ReviewView() {
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    window.getProjects().then(setProjects).catch(() => {});
+    rpcCall('getProjects').then(setProjects).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -44,7 +53,7 @@ export default function ReviewView() {
   const loadCases = async () => {
     setLoading(true);
     try {
-      const result = await window.getReviewCases(selectedProject);
+      const result = await rpcCall('getReviewCases', { project: selectedProject });
       setCases(result || []);
     } catch (e) {
       console.error('Failed to load cases:', e);
@@ -56,7 +65,7 @@ export default function ReviewView() {
   const handleStatusChange = async (caseId: string, newStatus: string) => {
     setUpdating(caseId);
     try {
-      await window.updateCaseStatus(selectedProject, caseId, newStatus);
+      await rpcCall('updateCaseStatus', { project: selectedProject, case_id: caseId, status: newStatus });
       await loadCases();
     } catch (e) {
       alert('Failed to update case status: ' + e);

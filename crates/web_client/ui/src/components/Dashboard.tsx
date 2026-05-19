@@ -16,6 +16,15 @@ interface GateStatus {
   last_run_total?: number;
 }
 
+// Direct RPC call helper
+async function rpcCall(method: string, params: object = {}): Promise<any> {
+  const paramsStr = encodeURIComponent(JSON.stringify(params));
+  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+  const resp = await fetch(url);
+  const text = await resp.text();
+  return JSON.parse(text);
+}
+
 export default function Dashboard({ projects, onNavigate }: DashboardProps) {
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -30,7 +39,7 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
   const loadGateStatus = async () => {
     if (projects.length === 0) return;
     try {
-      const status = await window.getGateStatus(projects[0]);
+      const status = await rpcCall('getGateStatus', { project: projects[0] });
       setGateStatus(status);
     } catch (e) {
       console.error('Failed to load gate status:', e);
@@ -42,7 +51,7 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
     if (!newProjectUrl.trim()) { alert('Project URL is required'); return; }
     setAddingProject(true);
     try {
-      await window.createProject(newProjectName.trim(), newProjectUrl.trim(), ['react']);
+      await rpcCall('createProject', { name: newProjectName.trim(), url: newProjectUrl.trim(), tech_stack: ['react'] });
       setShowAddProject(false);
       setNewProjectName('');
       setNewProjectUrl('');
