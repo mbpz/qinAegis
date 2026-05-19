@@ -24,6 +24,7 @@ export default function SettingsView() {
   const [saving, setSaving] = useState(false);
   const [showSecondary, setShowSecondary] = useState(false);
   const [message, setMessage] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -84,13 +85,29 @@ export default function SettingsView() {
           <label>API Key</label>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <input
-              type="text"
+              type={showApiKey ? 'text' : 'password'}
               className="input"
               placeholder="sk-..."
               value={config?.llm?.api_key || ''}
               onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, api_key: e.target.value } })}
               style={{ paddingRight: '40px' }}
             />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px',
+                color: 'var(--text-secondary)',
+              }}
+              title={showApiKey ? 'Hide API Key' : 'Show API Key'}
+            >
+              {showApiKey ? '👁' : '👁‍🗨'}
+            </button>
           </div>
         </div>
         <div className="form-row">

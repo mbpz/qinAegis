@@ -16,10 +16,11 @@ mkdir -p "$BUILD_DIR"
 
 # Build React UI
 echo "Building React UI..."
-cd /Users/jinguo.zeng/dmall/project/qinAegis/crates/web_client/ui
+cd crates/web_client/ui
 npm install
 npm run build
-cd /Users/jinguo.zeng/dmall/project/qinAegis
+cd ../..
+# vite's outDir is ../src/assets, which matches the embedded assets path - no copy needed
 
 # Build Rust binary
 echo "Building Rust binary..."

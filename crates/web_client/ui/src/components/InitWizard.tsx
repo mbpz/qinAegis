@@ -12,6 +12,7 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
   const [cdpPort, setCdpPort] = useState('9222');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showKey, setShowKey] = useState(false);
 
   const handleSave = async () => {
     if (!apiKey.trim()) { setError('API key is required'); return; }
@@ -54,7 +55,7 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
                 <label>API Key *</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                   <input
-                    type="text"
+                    type={showKey ? 'text' : 'password'}
                     className="input"
                     placeholder="sk-..."
                     value={apiKey}
@@ -62,6 +63,22 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
                     autoFocus
                     style={{ paddingRight: '40px' }}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      color: 'var(--text-secondary)',
+                    }}
+                    title={showKey ? 'Hide API Key' : 'Show API Key'}
+                  >
+                    {showKey ? '👁' : '👁‍🗨'}
+                  </button>
                 </div>
               </div>
               <div className="form-group">
