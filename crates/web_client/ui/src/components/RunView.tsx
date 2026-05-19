@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { rpcCall } from '../utils/rpc';
 
 interface TestPlan {
   plan: string;
@@ -19,14 +20,6 @@ const testTypes = [
   { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
-// Direct RPC call helper
-async function rpcCall(method: string, params: object = {}): Promise<any> {
-  const paramsStr = encodeURIComponent(JSON.stringify(params));
-  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
-  const resp = await fetch(url);
-  const text = await resp.text();
-  return JSON.parse(text);
-}
 
 export default function RunView({ output, onClear }: RunViewProps) {
   const [projects, setProjects] = useState<string[]>(['default']);

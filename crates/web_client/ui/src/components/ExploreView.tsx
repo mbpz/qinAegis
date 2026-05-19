@@ -1,18 +1,11 @@
 import { useState } from 'react';
+import { rpcCall } from '../utils/rpc';
 
 interface ExploreViewProps {
   output: string;
   onClear: () => void;
 }
 
-// Direct RPC call helper
-async function rpcCall(method: string, params: object = {}): Promise<any> {
-  const paramsStr = encodeURIComponent(JSON.stringify(params));
-  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
-  const resp = await fetch(url);
-  const text = await resp.text();
-  return JSON.parse(text);
-}
 
 export default function ExploreView({ output, onClear }: ExploreViewProps) {
   const [url, setUrl] = useState('');

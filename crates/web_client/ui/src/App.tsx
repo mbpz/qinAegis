@@ -8,35 +8,10 @@ import ReportView from './components/ReportView';
 import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
 import InitWizard from './components/InitWizard';
+import { rpcCall } from './utils/rpc';
 import './styles.css';
 
 type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings';
-
-declare global {
-  interface Window {
-    __rpcReady: boolean;
-    rpc: (method: string, params: object) => Promise<any>;
-    getState: () => Promise<any>;
-    setConfig: (config: any) => Promise<any>;
-    runExplore: (url: string, depth: number) => Promise<any>;
-    runGenerate: (requirement: string, spec?: string) => Promise<any>;
-    runTests: (project: string, type: string) => Promise<any>;
-    getOutput: () => Promise<any>;
-    clearOutput: () => Promise<any>;
-    getProjects: () => Promise<any>;
-    getReports: (project: string) => Promise<any>;
-    getGateStatus: (project: string) => Promise<any>;
-    createProject: (name: string, url: string, tech_stack: string[]) => Promise<any>;
-    checkConfig: () => Promise<{configured: boolean}>;
-    getReportHtml: (project: string, run_id: string) => Promise<any>;
-    exportProject: (project: string) => Promise<any>;
-    getReviewCases: (project: string) => Promise<any>;
-    updateCaseStatus: (project: string, case_id: string, status: string) => Promise<any>;
-    previewTestPlan: (project: string, testType: string) => Promise<any>;
-    getVersion: () => Promise<any>;
-    checkUpdate: () => Promise<any>;
-  }
-}
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -45,15 +20,6 @@ function App() {
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
-
-  // Direct RPC call helper
-  const rpcCall = async (method: string, params: object = {}): Promise<any> => {
-    const paramsStr = encodeURIComponent(JSON.stringify(params));
-    const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
-    const resp = await fetch(url);
-    const text = await resp.text();
-    return JSON.parse(text);
-  };
 
   useEffect(() => {
     checkConfig();
