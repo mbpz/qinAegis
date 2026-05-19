@@ -1144,6 +1144,7 @@ fn main() -> Result<()> {
             .build(&window)?;
 
         let init_script = r#"
+            window.__rpcReady = false;
             window.__toggleDebug = function() {
                 var panel = document.getElementById('debug-panel');
                 if (!panel) {
@@ -1225,7 +1226,8 @@ fn main() -> Result<()> {
             window.getVersion = function() { return window.rpc('getVersion', {}); };
             window.checkUpdate = function() { return window.rpc('checkUpdate', {}); };
             window.open = function(url) { return window.rpc('openExternal', {url: url}); };
-            console.log('RPC bridge ready');
+            window.__rpcReady = true;
+            console.log('RPC bridge ready - setConfig available:', typeof window.setConfig === 'function');
         "#;
 
         if let Err(e) = webview.evaluate_script(init_script) {
