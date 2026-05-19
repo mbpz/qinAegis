@@ -21,3 +21,4 @@ package-lock.json
 tests/snapshots/
 build
 crates/web_client/src/assets/assets/
+icons/icon.iconset/

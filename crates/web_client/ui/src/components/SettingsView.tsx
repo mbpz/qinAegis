@@ -45,13 +45,20 @@ export default function SettingsView() {
 
   const handleSave = async () => {
     if (!config) return;
+    if (typeof window.setConfig !== 'function') {
+      console.error('window.setConfig is not a function:', window.setConfig);
+      setMessage('Error: RPC not ready. Try refreshing the page.');
+      return;
+    }
     setSaving(true);
     try {
-      await window.setConfig(config);
+      const result = await window.setConfig(config);
+      console.log('setConfig result:', result);
       setMessage('Settings saved successfully!');
       setTimeout(() => setMessage(''), 3000);
     } catch (e) {
-      setMessage('Failed to save settings');
+      console.error('setConfig error:', e);
+      setMessage('Failed to save settings: ' + e);
     } finally {
       setSaving(false);
     }
