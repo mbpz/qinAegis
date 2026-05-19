@@ -586,8 +586,7 @@ impl AppState {
 
     pub fn get_output(&self) -> String {
         let out = self.output.lock().unwrap().clone();
-        let escaped = out.replace('\\', "\\\\").replace('"', "\\\"");
-        format!(r#"{{"output":"{}"}}"#, escaped)
+        serde_json::to_string(&out).unwrap_or_else(|_| r#"{"output":""}"#.to_string())
     }
 
     pub fn clear_output(&mut self) {
@@ -1143,22 +1142,9 @@ fn main() -> Result<()> {
                         .unwrap()
                 } else {
                     let (contents, mime) = assets::getAsset(path);
-                    // Inject RPC bridge for HTML pages to ensure it's available after reload
-                    let final_contents: Cow<[u8]> = if path == "index.html" || path == "" {
-                        let html = std::str::from_utf8(contents).unwrap_or("");
-                        let rpc_script = r#"<script>window.__rpcReady=false;window.__toggleDebug=function(){var p=document.getElementById('debug-panel');if(!p){p=document.createElement('div');p.id='debug-panel';p.style.cssText='position:fixed;bottom:0;right:0;width:450px;height:300px;background:#1a1a2e;border:1px solid #333;border-radius:8px 0 0 0;padding:12px;z-index:99999;overflow:auto;font-family:monospace;font-size:12px;color:#eee;display:flex;flex-direction:column';p.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-weight:bold;color:#4fc3f7">Debug Console <span style="font-size:10px;color:#888">Cmd+Shift+D</span></span><button id="debug-close" style="background:none;border:none;color:#888;cursor:pointer;font-size:16px;">X</button></div><div id="debug-log" style="flex:1;overflow-y:auto;"></div>';document.body.appendChild(p);document.getElementById('debug-close').onclick=function(){p.style.display='none'}};p.style.display=p.style.display==='none'?'flex':'none'};document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.shiftKey&&e.key==='D'){e.preventDefault();window.__toggleDebug()}});var _origLog=console.log;console.log=function(){var a=Array.prototype.slice.call(arguments).map(function(x){return typeof x==='object'?JSON.stringify(x):String(x)});var p=document.getElementById('debug-panel');if(p){var l=document.getElementById('debug-log');if(l){var d=document.createElement('div');d.style.cssText='border-bottom:1px solid #333;padding:2px 0;word-break:break-all;color:#aaa';d.textContent='> '+a.join(' ');l.appendChild(d);l.scrollTop=l.scrollHeight}};_origLog.apply(console,arguments)};window.rpc=function(m,p){var c=null,t=null;return new Promise(function(r,j){var id=Date.now();var paramsStr=encodeURIComponent(JSON.stringify(p));var u='app://localhost/invoke?method='+encodeURIComponent(m)+'&params='+paramsStr+'&id='+id;c=new AbortController();t=setTimeout(function(){c.abort();j(new Error('timeout'))},60000);fetch(u,{signal:c.signal}).then(function(resp){clearTimeout(t);return resp.text()}).then(function(text){try{r(JSON.parse(text))}catch(e){r({error:e.message})}}).catch(function(e){clearTimeout(t);j(e)})})};window.getState=function(){return window.rpc('getState',{})};window.setConfig=function(c){return window.rpc('setConfig',{config:c})};window.runExplore=function(u,d){return window.rpc('runExplore',{url:u,depth:d})};window.runGenerate=function(r,s){return window.rpc('runGenerate',{requirement:r,spec:s||null})};window.runTests=function(p,t){return window.rpc('runTests',{project:p,type:t})};window.getOutput=function(){return window.rpc('getOutput',{})};window.clearOutput=function(){return window.rpc('clearOutput',{})};window.getProjects=function(){return window.rpc('getProjects',{})};window.checkConfig=function(){return window.rpc('checkConfig',{})};window.getReports=function(p){return window.rpc('getReports',{project:p||'default'})};window.getGateStatus=function(p){return window.rpc('getGateStatus',{project:p||'default'})};window.createProject=function(n,u,t){return window.rpc('createProject',{name:n,url:u,tech_stack:t||[]})};window.getReportHtml=function(p,r){return window.rpc('getReportHtml',{project:p||'default',run_id:r})};window.exportProject=function(p){return window.rpc('exportProject',{project:p||'default'})};window.getReviewCases=function(p){return window.rpc('getReviewCases',{project:p||'default'})};window.updateCaseStatus=function(p,c,s){return window.rpc('updateCaseStatus',{project:p||'default',case_id:c,status:s})};window.getVersion=function(){return window.rpc('getVersion',{})};window.checkUpdate=function(){return window.rpc('checkUpdate',{})};window.previewTestPlan=function(p,t){return window.rpc('previewTestPlan',{project:p,type:t})};window.__rpcReady=true;console.log('RPC bridge ready');</script>"#;
-                        let new_html = if html.contains("</body>") {
-                            html.replace("</body>", &format!("{}{}", rpc_script, "</body>"))
-                        } else {
-                            html.to_string() + rpc_script
-                        };
-                        Cow::Owned(new_html.into_bytes())
-                    } else {
-                        Cow::Borrowed(contents)
-                    };
                     wry::http::Response::builder()
                         .header("Content-Type", mime)
-                        .body(final_contents)
+                        .body(Cow::Borrowed(contents))
                         .unwrap()
                 }
             })

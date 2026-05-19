@@ -68,7 +68,9 @@ function App() {
   const loadOutput = async () => {
     try {
       const result = await rpcCall('getOutput');
-      setOutput(result || '');
+      // Handle both direct string and wrapped {output: string} format
+      const outputStr = typeof result === 'string' ? result : (result?.output || '');
+      setOutput(outputStr);
     } catch (e) {
       console.error('Failed to fetch output:', e);
     }
