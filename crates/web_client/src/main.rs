@@ -949,13 +949,15 @@ fn main() -> Result<()> {
                 if path == "invoke" {
                     let method = params.get("method").map(|s| s.as_str()).unwrap_or("");
                     let params_json = params.get("params").map(|s| s.as_str()).unwrap_or("{}");
+                    println!("RPC invoke: method={}, params={}", method, params_json);
 
                     let result = {
                         let mut app = app_clone.lock().expect("app state mutex poisoned");
                         match method {
                             "getState" => {
-                                let cfg_json = app.get_config();
-                                let cfg_val: serde_json::Value = match serde_json::from_str(&cfg_json) {
+                                let get_state_json = app.get_config();
+                                println!("getState returning config: {}", get_state_json);
+                                let cfg_val: serde_json::Value = match serde_json::from_str(&get_state_json) {
                                     Ok(v) => v,
                                     Err(e) => {
                                         return wry::http::Response::builder()
@@ -966,7 +968,10 @@ fn main() -> Result<()> {
                                 };
                                 format!(r#"{{"ok":true,"config":{},"currentView":"{}"}}"#, cfg_val, app.current_view)
                             }
-                            "setConfig" => app.set_config(params_json),
+                            "setConfig" => {
+                                println!("setConfig called with params_json: {}", params_json);
+                                app.set_config(params_json)
+                            }
                             "runExplore" => {
                                 if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
                                     let url = p.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -1205,7 +1210,11 @@ fn main() -> Result<()> {
             console.log('RPC bridge ready');
         "#;
 
-        webview.evaluate_script(init_script)?;
+        if let Err(e) = webview.evaluate_script(init_script) {
+            eprintln!("Failed to evaluate init_script: {}", e);
+        } else {
+            println!("Init script evaluated successfully");
+        }
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = tao::event_loop::ControlFlow::Wait;
