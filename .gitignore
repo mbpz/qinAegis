@@ -22,3 +22,5 @@ tests/snapshots/
 build
 crates/web_client/src/assets/assets/
 icons/icon.iconset/
+icons/icon_*.png
+icons/icon.icns
