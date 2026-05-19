@@ -192,6 +192,7 @@ impl From<serde_json::Value> for FormInfo {
 // 2. New: { type: "input|button|checkbox", label: "...", text: "..." } - flat UI elements
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub(crate) struct AiFormInfo {
     // Old format fields
     #[serde(alias = "actions", default)]

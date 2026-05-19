@@ -216,7 +216,7 @@ impl PlaywrightBrowserAdapter {
                         if let Some(page) = pages.first() {
                             if let Some(ws_url) = page.get("webSocketDebuggerUrl").and_then(|v| v.as_str()) {
                                 // Extract browser WS from page WS: /devtools/page/xxx -> /devtools/browser
-                                if let Some(pos) = ws_url.rfind("/page/") {
+                                if let Some(_pos) = ws_url.rfind("/page/") {
                                     let browser_ws = format!("{}://localhost:{}/devtools/browser", &ws_url[..ws_url.find("://").unwrap_or(0)], self.cdp_port);
                                     return Ok(browser_ws);
                                 }
