@@ -20,6 +20,8 @@ function App() {
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
+  const [updateCheckStatus, setUpdateCheckStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available'>('idle');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     checkConfig();
@@ -31,10 +33,31 @@ function App() {
     try {
       const v = await rpcCall('getVersion');
       setAppVersion(v.version || 'unknown');
-      const status = await rpcCall('checkUpdate');
-      setUpdateStatus(status.upToDate ? null : { hasUpdate: true, latest: status.latest });
     } catch (e) {
       console.error('Failed to load version:', e);
+    }
+  };
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const checkForUpdate = async () => {
+    setUpdateCheckStatus('checking');
+    try {
+      const status = await rpcCall('checkUpdate');
+      if (status.upToDate) {
+        setUpdateCheckStatus('upToDate');
+        showToast('✓ Already latest');
+      } else {
+        setUpdateCheckStatus('available');
+        setUpdateStatus({ hasUpdate: true, latest: status.latest });
+        showToast(`↑ New version: ${status.latest}`);
+      }
+    } catch (e) {
+      console.error('Failed to check update:', e);
+      setUpdateCheckStatus('idle');
     }
   };
 
@@ -54,6 +77,13 @@ function App() {
     }
     const interval = setInterval(loadOutput, 2000);
     return () => clearInterval(interval);
+  }, [currentView]);
+
+  // Clear output when switching views so each view starts fresh
+  useEffect(() => {
+    setOutput('');
+    // Clear backend output buffer too so old results don't persist
+    rpcCall('clearOutput', {}).catch(() => {});
   }, [currentView]);
 
   const loadProjects = async () => {
