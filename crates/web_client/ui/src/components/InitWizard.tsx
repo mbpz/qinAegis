@@ -18,6 +18,8 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
     if (!apiKey.trim()) { setError('API key is required'); return; }
     setSaving(true);
     setError('');
+    console.log('handleSave called, window.setConfig type:', typeof window.setConfig);
+    console.log('window object keys:', Object.keys(window).filter(k => k.includes('Config') || k.includes('rpc')));
     try {
       const config = {
         llm: {
@@ -29,9 +31,11 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
           cdp_port: parseInt(cdpPort, 10) || 9222,
         },
       };
+      // Direct call - will throw TypeError if setConfig is not a function
       await window.setConfig(config);
       onComplete();
     } catch (e) {
+      console.error('setConfig error:', e);
       setError('Failed to save config: ' + e);
     } finally {
       setSaving(false);

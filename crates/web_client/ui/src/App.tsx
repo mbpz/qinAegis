@@ -14,6 +14,7 @@ type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' 
 
 declare global {
   interface Window {
+    __rpcReady: boolean;
     rpc: (method: string, params: object) => Promise<any>;
     getState: () => Promise<any>;
     setConfig: (config: any) => Promise<any>;
