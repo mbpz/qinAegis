@@ -26,6 +26,12 @@ cd "$PROJECT_ROOT"
 echo "Binary check:"
 ls -la "$PROJECT_ROOT/target/release/qinAegis-web" 2>&1 || echo "Binary not found"
 
+# Sync version to Cargo.toml
+echo "Syncing version to Cargo.toml..."
+cd "$PROJECT_ROOT/crates/web_client"
+sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+cd "$PROJECT_ROOT"
+
 # Build Rust binary
 echo "Building Rust binary..."
 HOST_ARCH=$(uname -m)
