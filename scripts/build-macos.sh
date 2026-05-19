@@ -7,7 +7,10 @@ ARCH=${2:-"arm64"}
 echo "Building QinAegis v${VERSION} for ${ARCH}..."
 
 # Go to project root
-cd /Users/jinguo.zeng/dmall/project/qinAegis
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+echo "Project root: $PROJECT_ROOT"
 
 # Setup
 BUILD_DIR="build"
@@ -16,11 +19,12 @@ mkdir -p "$BUILD_DIR"
 
 # Build React UI
 echo "Building React UI..."
-cd crates/web_client/ui
+cd "$PROJECT_ROOT/crates/web_client/ui"
 npm install
 npm run build
-cd ../..
-# vite's outDir is ../src/assets, which matches the embedded assets path - no copy needed
+cd "$PROJECT_ROOT"
+echo "Binary check:"
+ls -la "$PROJECT_ROOT/target/release/qinAegis-web" 2>&1 || echo "Binary not found"
 
 # Build Rust binary
 echo "Building Rust binary..."
@@ -40,14 +44,26 @@ else
     cargo build --release --bin qinAegis-web --target "${TARGET_DIR%%/release}"
 fi
 
+# Generate app icon
+echo "Generating app icon..."
+ICONS_DIR="$PROJECT_ROOT/icons"
+ICONSET="$BUILD_DIR/icon.iconset"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+
+node "$ICONS_DIR/gen-icon.js" "$ICONS_DIR/icon.svg" "$ICONSET"
+iconutil -c icns "$ICONSET" -o "$BUILD_DIR/icon.icns"
+
 # Create app bundle
 echo "Creating app bundle..."
 BUNDLE="$BUILD_DIR/QinAegis.app"
 rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS"
+mkdir -p "$BUNDLE/Contents/Resources"
 cp "$TARGET_DIR/qinAegis-web" "$BUNDLE/Contents/MacOS/QinAegis"
+cp "$BUILD_DIR/icon.icns" "$BUNDLE/Contents/Resources/icon.icns"
 
-PLIST="<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${VERSION}</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>"
+PLIST="<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundleIconFile</key><string>icon.icns</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>${VERSION}</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>"
 echo "$PLIST" > "$BUNDLE/Contents/Info.plist"
 
 # Sign app (ad-hoc)

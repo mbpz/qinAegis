@@ -60,8 +60,13 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        let config_result = AppConfig::load_global();
+        println!("AppState::default - load_global result: {:?}", config_result.is_ok());
+        if let Err(ref e) = config_result {
+            println!("AppState::default - load_global error: {}", e);
+        }
         Self {
-            config: AppConfig::load_global().ok(),
+            config: config_result.ok(),
             output: Arc::new(Mutex::new(String::new())),
             current_view: "dashboard".to_string(),
             next_job_id: std::sync::atomic::AtomicU64::new(1),
@@ -84,18 +89,25 @@ impl AppState {
     }
 
     fn is_configured(&self) -> bool {
-        self.config.as_ref().map(|c| !c.llm.api_key.is_empty()).unwrap_or(false)
+        let configured = self.config.as_ref().map(|c| !c.llm.api_key.is_empty()).unwrap_or(false);
+        println!("is_configured check: config present = {}, api_key not empty = {}", self.config.is_some(), configured);
+        configured
     }
 
     // ── Config ──────────────────────────────────────────────────────────────
 
     pub fn get_config(&self) -> String {
+        println!("get_config called, config present: {}", self.config.is_some());
         match &self.config {
-            Some(cfg) => match serde_json::to_string(cfg) {
-                Ok(s) => s,
-                Err(e) => format!(r#"{{"error":"config serialization failed: {}"}}"#, e),
-            },
-            None => r#"null"#.to_string(),
+            Some(cfg) => {
+                let s = serde_json::to_string(cfg).unwrap_or_else(|e| format!(r#"{{"error":"config serialization failed: {}"}}"#, e));
+                println!("get_config returning: {}", s);
+                s
+            }
+            None => {
+                println!("get_config returning null (no config)");
+                r#"null"#.to_string()
+            }
         }
     }
 
@@ -966,7 +978,9 @@ fn main() -> Result<()> {
                                             .unwrap();
                                     }
                                 };
-                                format!(r#"{{"ok":true,"config":{},"currentView":"{}"}}"#, cfg_val, app.current_view)
+                                let response = format!(r#"{{"ok":true,"config":{},"currentView":"{}"}}"#, cfg_val, app.current_view);
+                                println!("getState response: {}", response);
+                                response
                             }
                             "setConfig" => {
                                 println!("setConfig called with params_json: {}", params_json);
@@ -1188,7 +1202,11 @@ fn main() -> Result<()> {
                     });
                 });
             };
-            window.getState = function() { return window.rpc('getState', {}); };
+            window.getState = function() {
+                var result = window.rpc('getState', {});
+                console.log('getState result:', JSON.stringify(result));
+                return result;
+            };
             window.setConfig = function(c) { console.log('setConfig called with:', JSON.stringify(c)); return window.rpc('setConfig', {config: c}); };
             window.runExplore = function(url, depth) { return window.rpc('runExplore', {url: url, depth: depth}); };
             window.runGenerate = function(req, spec) { return window.rpc('runGenerate', {requirement: req, spec: spec || null}); };

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1A237E"/>
+      <stop offset="100%" style="stop-color:#0D1642"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00E5FF"/>
+      <stop offset="100%" style="stop-color:#00BCD4"/>
+    </linearGradient>
+    <radialGradient id="glassGrad" cx="35%" cy="30%" r="65%">
+      <stop offset="0%" style="stop-color:#E0F7FA;stop-opacity:0.95"/>
+      <stop offset="50%" style="stop-color:#80DEEA;stop-opacity:0.6"/>
+      <stop offset="100%" style="stop-color:#00BCD4;stop-opacity:0.35"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowStrong" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Shield -->
+  <path d="M256 50 L440 145 Q470 170 470 220 L470 300 Q470 370 380 430 L256 500 L132 430 Q42 370 42 300 L42 220 Q42 170 72 145 Z"
+        fill="url(#shieldGrad)" stroke="#00BCD4" stroke-width="5"/>
+  <!-- Shield inner rim -->
+  <path d="M256 75 L410 158 Q435 178 435 220 L435 295 Q435 355 360 405 L256 468 L152 405 Q77 355 77 295 L77 220 Q77 178 102 158 Z"
+        fill="none" stroke="#00E5FF" stroke-width="2" stroke-opacity="0.5"/>
+
+  <!-- Magnifier - large, centered in shield -->
+  <g transform="translate(256, 275) rotate(-20)">
+    <!-- Ring glow -->
+    <circle cx="0" cy="0" r="95" fill="none" stroke="#00E5FF" stroke-width="3" filter="url(#glowStrong)" stroke-opacity="0.6"/>
+    <!-- Main ring -->
+    <circle cx="0" cy="0" r="88" fill="none" stroke="url(#cyanGrad)" stroke-width="14" filter="url(#glow)"/>
+    <circle cx="0" cy="0" r="88" fill="none" stroke="#00E5FF" stroke-width="4"/>
+    <!-- Glass -->
+    <circle cx="0" cy="0" r="78" fill="url(#glassGrad)"/>
+
+    <!-- Checklist inside glass -->
+    <!-- Row 1 - checked -->
+    <g transform="translate(-55, -30)">
+      <rect width="110" height="26" rx="4" fill="#1A237E" fill-opacity="0.7"/>
+      <polyline points="6,13 11,18 21,6" fill="none" stroke="#00E676" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="32" y="9" width="65" height="8" rx="3" fill="#00BCD4" fill-opacity="0.8"/>
+    </g>
+    <!-- Row 2 - checked -->
+    <g transform="translate(-55, 4)">
+      <rect width="110" height="26" rx="4" fill="#1A237E" fill-opacity="0.7"/>
+      <polyline points="6,13 11,18 21,6" fill="none" stroke="#00E676" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="32" y="9" width="50" height="8" rx="3" fill="#00BCD4" fill-opacity="0.8"/>
+    </g>
+    <!-- Row 3 - unchecked -->
+    <g transform="translate(-55, 38)">
+      <rect width="110" height="26" rx="4" fill="#1A237E" fill-opacity="0.4"/>
+      <circle cx="14" cy="13" r="7" fill="none" stroke="#607D8B" stroke-width="2.5"/>
+      <rect x="32" y="9" width="58" height="8" rx="3" fill="#607D8B" fill-opacity="0.5"/>
+    </g>
+  </g>
+
+  <!-- Handle (bottom-right of shield) -->
+  <g transform="translate(256, 275) rotate(-20)">
+    <rect x="75" y="95" width="20" height="70" rx="10" fill="#263238" stroke="#00BCD4" stroke-width="3"/>
+    <line x1="80" y1="108" x2="90" y2="108" stroke="#00BCD4" stroke-width="2" stroke-opacity="0.7"/>
+    <line x1="80" y1="118" x2="90" y2="118" stroke="#00BCD4" stroke-width="2" stroke-opacity="0.7"/>
+    <line x1="80" y1="128" x2="90" y2="128" stroke="#00BCD4" stroke-width="2" stroke-opacity="0.7"/>
+  </g>
+
+  <!-- Circuit node - top center -->
+  <circle cx="256" cy="100" r="12" fill="#00E5FF" filter="url(#glowStrong)"/>
+  <circle cx="256" cy="100" r="6" fill="#FFFFFF"/>
+  <!-- Circuit traces -->
+  <line x1="256" y1="112" x2="256" y2="140" stroke="#00BCD4" stroke-width="3"/>
+  <line x1="256" y1="140" x2="200" y2="170" stroke="#00BCD4" stroke-width="2" stroke-opacity="0.7"/>
+  <line x1="256" y1="140" x2="312" y2="170" stroke="#00BCD4" stroke-width="2" stroke-opacity="0.7"/>
+  <circle cx="200" cy="170" r="5" fill="#00BCD4"/>
+  <circle cx="312" cy="170" r="5" fill="#00BCD4"/>
+</svg>
