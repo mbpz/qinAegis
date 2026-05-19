@@ -162,37 +162,46 @@ impl AppState {
             Err(e) => return format!(r#"{{"error":"{}"}}"#, e),
         };
 
+        // Extract config from {"config": {...}} structure that RPC sends
+        let obj = if let Some(map) = value.as_object() {
+            if let Some(config) = map.get("config").and_then(|v| v.as_object()) {
+                config.clone()
+            } else {
+                map.clone()
+            }
+        } else {
+            return r#"{"error":"invalid JSON"}"#.to_string();
+        };
+
         let mut cfg = self.config.clone().unwrap_or_default();
 
-        if let Some(obj) = value.as_object() {
-            if let Some(llm) = obj.get("llm").and_then(|v| v.as_object()) {
-                if let Some(k) = llm.get("api_key").and_then(|v| v.as_str()) {
-                    cfg.llm.api_key = k.to_string();
-                }
-                if let Some(u) = llm.get("base_url").and_then(|v| v.as_str()) {
-                    cfg.llm.base_url = u.to_string();
-                }
-                if let Some(m) = llm.get("model").and_then(|v| v.as_str()) {
-                    cfg.llm.model = m.to_string();
-                }
-                // Secondary LLM
-                if let Some(p) = llm.get("secondary_provider").and_then(|v| v.as_str()) {
-                    cfg.llm.secondary_provider = p.to_string();
-                }
-                if let Some(u) = llm.get("secondary_base_url").and_then(|v| v.as_str()) {
-                    cfg.llm.secondary_base_url = u.to_string();
-                }
-                if let Some(k) = llm.get("secondary_api_key").and_then(|v| v.as_str()) {
-                    cfg.llm.secondary_api_key = k.to_string();
-                }
-                if let Some(m) = llm.get("secondary_model").and_then(|v| v.as_str()) {
-                    cfg.llm.secondary_model = m.to_string();
-                }
+        if let Some(llm) = obj.get("llm").and_then(|v| v.as_object()) {
+            if let Some(k) = llm.get("api_key").and_then(|v| v.as_str()) {
+                cfg.llm.api_key = k.to_string();
             }
-            if let Some(sandbox) = obj.get("sandbox").and_then(|v| v.as_object()) {
-                if let Some(p) = sandbox.get("cdp_port").and_then(|v| v.as_u64()) {
-                    cfg.sandbox.cdp_port = p as u16;
-                }
+            if let Some(u) = llm.get("base_url").and_then(|v| v.as_str()) {
+                cfg.llm.base_url = u.to_string();
+            }
+            if let Some(m) = llm.get("model").and_then(|v| v.as_str()) {
+                cfg.llm.model = m.to_string();
+            }
+            // Secondary LLM
+            if let Some(p) = llm.get("secondary_provider").and_then(|v| v.as_str()) {
+                cfg.llm.secondary_provider = p.to_string();
+            }
+            if let Some(u) = llm.get("secondary_base_url").and_then(|v| v.as_str()) {
+                cfg.llm.secondary_base_url = u.to_string();
+            }
+            if let Some(k) = llm.get("secondary_api_key").and_then(|v| v.as_str()) {
+                cfg.llm.secondary_api_key = k.to_string();
+            }
+            if let Some(m) = llm.get("secondary_model").and_then(|v| v.as_str()) {
+                cfg.llm.secondary_model = m.to_string();
+            }
+        }
+        if let Some(sandbox) = obj.get("sandbox").and_then(|v| v.as_object()) {
+            if let Some(p) = sandbox.get("cdp_port").and_then(|v| v.as_u64()) {
+                cfg.sandbox.cdp_port = p as u16;
             }
         }
 

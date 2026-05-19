@@ -139,7 +139,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>QinAegis</h1>
-        <span className="version">v{appVersion}</span>
+        <span className="version">{appVersion}</span>
         {updateStatus?.hasUpdate && (
           <span
             className="update-badge"
