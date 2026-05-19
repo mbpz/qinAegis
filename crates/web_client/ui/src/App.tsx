@@ -8,7 +8,7 @@ import ReportView from './components/ReportView';
 import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
 import InitWizard from './components/InitWizard';
-import { rpcCall } from './utils/rpc';
+import { rpc } from './utils/rpc';
 import './styles.css';
 
 type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings';
@@ -31,7 +31,7 @@ function App() {
 
   const loadVersion = async () => {
     try {
-      const v = await rpcCall('getVersion');
+      const v = await rpc.getVersion();
       setAppVersion(v.version || 'unknown');
     } catch (e) {
       console.error('Failed to load version:', e);
@@ -46,7 +46,7 @@ function App() {
   const checkForUpdate = async () => {
     setUpdateCheckStatus('checking');
     try {
-      const status = await rpcCall('checkUpdate');
+      const status = await rpc.checkUpdate();
       if (status.upToDate) {
         setUpdateCheckStatus('upToDate');
         showToast('✓ Already latest');
@@ -63,7 +63,7 @@ function App() {
 
   const checkConfig = async () => {
     try {
-      const result = await rpcCall('checkConfig');
+      const result = await rpc.checkConfig();
       setIsConfigured(result.configured);
     } catch (e) {
       console.error('Failed to check config:', e);
@@ -82,14 +82,13 @@ function App() {
   // Clear output when switching views so each view starts fresh
   useEffect(() => {
     setOutput('');
-    // Clear backend output buffer too so old results don't persist
-    rpcCall('clearOutput', {}).catch(() => {});
+    rpc.clearOutput().catch(() => {});
   }, [currentView]);
 
   const loadProjects = async () => {
     try {
-      const result = await rpcCall('getProjects');
-      setProjects(result || []);
+      const result = await rpc.getProjects();
+      setProjects(result.map(p => p.name) || []);
     } catch (e) {
       console.error('Failed to load projects:', e);
     }
@@ -97,17 +96,15 @@ function App() {
 
   const loadOutput = async () => {
     try {
-      const result = await rpcCall('getOutput');
-      // Handle both direct string and wrapped {output: string} format
-      const outputStr = typeof result === 'string' ? result : (result?.output || '');
-      setOutput(outputStr);
+      const result = await rpc.getOutput();
+      setOutput(result.output || '');
     } catch (e) {
       console.error('Failed to fetch output:', e);
     }
   };
 
   const handleClearOutput = async () => {
-    await rpcCall('clearOutput', {});
+    await rpc.clearOutput();
     setOutput('');
   };
 

@@ -1,14 +1,6 @@
 import { useState, useEffect } from 'react';
-import { rpcCall } from '../utils/rpc';
-
-interface TestCase {
-  id: string;
-  name: string;
-  status: 'draft' | 'reviewed' | 'approved' | 'flaky' | 'archived';
-  priority: string;
-  type: string;
-  requirement_id?: string;
-}
+import { rpc } from '../utils/rpc';
+import type { TestCase } from '../types/rpc';
 
 const statusLabels: Record<string, string> = {
   draft: 'Draft',
@@ -36,7 +28,7 @@ export default function ReviewView() {
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    rpcCall('getProjects').then(setProjects).catch(() => {});
+    rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -46,7 +38,7 @@ export default function ReviewView() {
   const loadCases = async () => {
     setLoading(true);
     try {
-      const result = await rpcCall('getReviewCases', { project: selectedProject });
+      const result = await rpc.getReviewCases(selectedProject);
       setCases(result || []);
     } catch (e) {
       console.error('Failed to load cases:', e);
@@ -58,7 +50,7 @@ export default function ReviewView() {
   const handleStatusChange = async (caseId: string, newStatus: string) => {
     setUpdating(caseId);
     try {
-      await rpcCall('updateCaseStatus', { project: selectedProject, case_id: caseId, status: newStatus });
+      await rpc.updateCaseStatus(selectedProject, caseId, newStatus);
       await loadCases();
     } catch (e) {
       alert('Failed to update case status: ' + e);

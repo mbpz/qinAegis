@@ -1,25 +1,9 @@
 import { useState, useEffect } from 'react';
-
-interface LlmConfigState {
-  provider?: string;
-  api_key: string;
-  base_url: string;
-  model: string;
-  secondary_provider?: string;
-  secondary_api_key: string;
-  secondary_base_url: string;
-  secondary_model: string;
-}
-
-interface ConfigState {
-  llm: LlmConfigState;
-  sandbox: {
-    cdp_port: number;
-  };
-}
+import { rpc } from '../utils/rpc';
+import type { AppConfig } from '../types/rpc';
 
 export default function SettingsView() {
-  const [config, setConfig] = useState<ConfigState | null>(null);
+  const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showSecondary, setShowSecondary] = useState(false);
@@ -32,11 +16,7 @@ export default function SettingsView() {
 
   const loadConfig = async () => {
     try {
-      // Use fetch directly to call RPC
-      const url = 'app://localhost/invoke?method=getState&params=%7B%7D';
-      const resp = await fetch(url);
-      const text = await resp.text();
-      const state = JSON.parse(text);
+      const state = await rpc.getState();
       if (state?.config) {
         setConfig(state.config);
       }
@@ -51,18 +31,12 @@ export default function SettingsView() {
     if (!config) return;
     setSaving(true);
     try {
-      // Use fetch directly to call RPC
-      const paramsStr = encodeURIComponent(JSON.stringify({config}));
-      const url = 'app://localhost/invoke?method=setConfig&params=' + paramsStr;
-      const resp = await fetch(url);
-      const result = await resp.text();
-      console.log('setConfig raw response:', result);
-      const parsed = JSON.parse(result);
-      if (parsed.ok) {
+      const result = await rpc.setConfig(config);
+      if (result.ok) {
         setMessage('Settings saved successfully!');
         setTimeout(() => setMessage(''), 3000);
       } else {
-        setMessage('Failed to save settings: ' + (parsed.error || 'unknown error'));
+        setMessage('Failed to save settings');
       }
     } catch (e) {
       console.error('setConfig error:', e);

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { rpcCall } from '../utils/rpc';
+import { rpc } from '../utils/rpc';
 
 interface ExploreViewProps {
   output: string;
@@ -16,7 +16,7 @@ export default function ExploreView({ output, onClear }: ExploreViewProps) {
     if (!url) return;
     setLoading(true);
     try {
-      await rpcCall('runExplore', { url, depth });
+      await rpc.runExplore(url, depth);
     } finally {
       setLoading(false);
     }

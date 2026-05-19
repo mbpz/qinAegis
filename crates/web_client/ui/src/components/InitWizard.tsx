@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { rpc } from '../utils/rpc';
+import type { AppConfig } from '../types/rpc';
 
 interface InitWizardProps {
   onComplete: () => void;
@@ -19,27 +21,24 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
     setSaving(true);
     setError('');
     try {
-      const config = {
+      const config: AppConfig = {
         llm: {
           api_key: apiKey.trim(),
           base_url: baseUrl.trim(),
           model: model.trim(),
+          secondary_api_key: '',
+          secondary_base_url: '',
+          secondary_model: '',
         },
         sandbox: {
           cdp_port: parseInt(cdpPort, 10) || 9222,
         },
       };
-      // Use fetch directly to call RPC
-      const paramsStr = encodeURIComponent(JSON.stringify({config}));
-      const url = 'app://localhost/invoke?method=setConfig&params=' + paramsStr;
-      const resp = await fetch(url);
-      const result = await resp.text();
-      console.log('setConfig raw response:', result);
-      const parsed = JSON.parse(result);
-      if (parsed.ok) {
+      const result = await rpc.setConfig(config);
+      if (result.ok) {
         onComplete();
       } else {
-        setError('Failed to save config: ' + (parsed.error || 'unknown error'));
+        setError('Failed to save config');
       }
     } catch (e) {
       console.error('setConfig error:', e);

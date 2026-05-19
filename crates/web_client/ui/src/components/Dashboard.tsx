@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View } from '../App';
-import { rpcCall } from '../utils/rpc';
+import { rpc } from '../utils/rpc';
 
 interface DashboardProps {
   projects: string[];
@@ -33,7 +33,7 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
   const loadGateStatus = async () => {
     if (projects.length === 0) return;
     try {
-      const status = await rpcCall('getGateStatus', { project: projects[0] });
+      const status = await rpc.getGateStatus(projects[0]);
       setGateStatus(status);
     } catch (e) {
       console.error('Failed to load gate status:', e);
@@ -45,7 +45,7 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
     if (!newProjectUrl.trim()) { alert('Project URL is required'); return; }
     setAddingProject(true);
     try {
-      await rpcCall('createProject', { name: newProjectName.trim(), url: newProjectUrl.trim(), tech_stack: ['react'] });
+      await rpc.createProject(newProjectName.trim(), newProjectUrl.trim(), ['react']);
       setShowAddProject(false);
       setNewProjectName('');
       setNewProjectUrl('');

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { rpcCall } from '../utils/rpc';
+import { rpc } from '../utils/rpc';
 
 interface GenerateViewProps {
   output: string;
@@ -15,7 +15,7 @@ export default function GenerateView({ output, onClear }: GenerateViewProps) {
     if (!requirement) return;
     setLoading(true);
     try {
-      await rpcCall('runGenerate', { requirement });
+      await rpc.runGenerate(requirement);
     } finally {
       setLoading(false);
     }

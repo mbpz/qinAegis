@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react';
-import { rpcCall } from '../utils/rpc';
-
-interface TestPlan {
-  plan: string;
-  case_count: number;
-  steps: string[];
-}
+import { rpc } from '../utils/rpc';
+import type { TestPlan } from '../types/rpc';
 
 interface RunViewProps {
   output: string;
@@ -31,14 +26,14 @@ export default function RunView({ output, onClear }: RunViewProps) {
   const [testPlan, setTestPlan] = useState<TestPlan | null>(null);
 
   useEffect(() => {
-    rpcCall('getProjects').then(setProjects).catch(() => {});
+    rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
   }, []);
 
   const handlePreview = async () => {
     setPreviewLoading(true);
     try {
-      const result = await rpcCall('previewTestPlan', { project, type: testType });
-      setTestPlan(JSON.parse(result));
+      const result = await rpc.previewTestPlan(project, testType);
+      setTestPlan(result);
       setShowPreview(true);
     } catch {
       setTestPlan({ plan: 'Failed to load preview', case_count: 0, steps: [] });
@@ -52,7 +47,7 @@ export default function RunView({ output, onClear }: RunViewProps) {
     setShowPreview(false);
     setLoading(true);
     try {
-      await rpcCall('runTests', { project, type: testType });
+      await rpc.runTests(project, testType);
     } finally {
       setLoading(false);
     }
