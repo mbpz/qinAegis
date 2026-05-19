@@ -152,7 +152,14 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>QinAegis</h1>
-        <span className="version">{appVersion}</span>
+        <span
+          className="version"
+          onClick={checkForUpdate}
+          title="Click to check for updates"
+        >
+          {updateCheckStatus === 'checking' ? 'Checking...' : appVersion}
+        </span>
+        {toastMessage && <span className="toast">{toastMessage}</span>}
         {updateStatus?.hasUpdate && (
           <span
             className="update-badge"
