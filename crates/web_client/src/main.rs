@@ -12,8 +12,44 @@ use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod assets;
+
+// ============================================================================
+// JobEntry — tracks async job state for cancel/status control
+// ============================================================================
+
+#[derive(Clone, Debug)]
+pub enum JobOutput {
+    Explore(String),
+    Generate(String),
+    TestExec(String),
+}
+
+#[derive(Clone)]
+pub struct JobEntry {
+    pub job_type: String,
+    pub status: String, // idle/running/completed/failed/stopped
+    pub output: Arc<Mutex<String>>,
+    pub cancel_flag: Arc<AtomicBool>,
+    pub result: Option<serde_json::Value>,
+    pub error: Option<String>,
+    // done_tx intentionally omitted - not needed after thread spawn
+}
+
+impl JobEntry {
+    pub fn new(job_type: &str) -> Self {
+        Self {
+            job_type: job_type.to_string(),
+            status: "running".to_string(),
+            output: Arc::new(Mutex::new(String::new())),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+            result: None,
+            error: None,
+        }
+    }
+}
 
 /// Create an LlmRouter from config.
 /// Falls back to a single-provider ArcLlmClient if no secondary is configured.
@@ -50,12 +86,12 @@ fn create_llm_client(cfg: &AppConfig) -> ArcLlmClient {
 
 pub const APP_VERSION: &str = env!("APP_BUILD_VERSION");
 
-#[derive(Debug)]
 pub struct AppState {
     pub config: Option<AppConfig>,
-    pub output: Arc<Mutex<String>>,
+    pub output: Arc<Mutex<String>>, // legacy shared output
     pub current_view: String,
     pub next_job_id: std::sync::atomic::AtomicU64,
+    pub jobs: Arc<Mutex<HashMap<String, JobEntry>>>, // jobId -> JobEntry
 }
 
 impl Default for AppState {
@@ -70,6 +106,7 @@ impl Default for AppState {
             output: Arc::new(Mutex::new(String::new())),
             current_view: "dashboard".to_string(),
             next_job_id: std::sync::atomic::AtomicU64::new(1),
+            jobs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -86,6 +123,84 @@ impl AppState {
     fn append_output(&self, msg: &str) {
         let mut o = self.output.lock().unwrap();
         o.push_str(msg);
+    }
+
+    fn job_append_output(&self, job_id: &str, msg: &str) {
+        if let Ok(jobs) = self.jobs.lock() {
+            if let Some(entry) = jobs.get(job_id) {
+                entry.output.lock().unwrap().push_str(msg);
+            }
+        }
+        // Also append to legacy shared output for backward compat
+        self.append_output(msg);
+    }
+
+    fn update_job_status(&self, job_id: &str, status: &str) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(entry) = jobs.get_mut(job_id) {
+                entry.status = status.to_string();
+            }
+        }
+    }
+
+    fn update_job_result(&self, job_id: &str, result: serde_json::Value) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(entry) = jobs.get_mut(job_id) {
+                entry.result = Some(result);
+            }
+        }
+    }
+
+    fn update_job_error(&self, job_id: &str, error: &str) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            if let Some(entry) = jobs.get_mut(job_id) {
+                entry.error = Some(error.to_string());
+            }
+        }
+    }
+
+    pub fn get_job_status(&self, job_id: &str) -> String {
+        let jobs = self.jobs.lock().unwrap();
+        match jobs.get(job_id) {
+            Some(entry) => {
+                let output = entry.output.lock().unwrap().clone();
+                serde_json::to_string(&serde_json::json!({
+                    "jobId": job_id,
+                    "jobType": entry.job_type,
+                    "status": entry.status,
+                    "output": output,
+                    "result": entry.result,
+                    "error": entry.error,
+                })).unwrap_or_default()
+            }
+            None => {
+                serde_json::to_string(&serde_json::json!({
+                    "error": "job not found"
+                })).unwrap_or_default()
+            }
+        }
+    }
+
+    pub fn stop_job(&mut self, job_id: &str) -> String {
+        let mut jobs = self.jobs.lock().unwrap();
+        match jobs.get_mut(job_id) {
+            Some(entry) if entry.status == "running" => {
+                entry.cancel_flag.store(true, Ordering::Relaxed);
+                entry.status = "stopped".to_string();
+                serde_json::to_string(&serde_json::json!({
+                    "ok": true,
+                    "jobId": job_id
+                })).unwrap_or_default()
+            }
+            Some(_) => serde_json::to_string(&serde_json::json!({
+                "ok": false,
+                "error": "job is not running"
+            })).unwrap_or_default(),
+            None => serde_json::to_string(&serde_json::json!({
+                "ok": false,
+                "error": "job not found"
+            })).unwrap_or_default(),
+        }
     }
 
     fn is_configured(&self) -> bool {
@@ -226,10 +341,20 @@ impl AppState {
         }
 
         let job_id = self.job_id();
-        let output = self.output.clone();
         let cfg = self.config.as_ref().unwrap().clone();
         let url = url.to_string();
+        let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
+
+        // Create JobEntry BEFORE spawning thread
+        let entry = JobEntry::new("explore");
+        let cancel_flag = entry.cancel_flag.clone();
+        let output_arc = entry.output.clone();
+
+        {
+            let mut jobs_guard = jobs.lock().unwrap();
+            jobs_guard.insert(job_id.clone(), entry);
+        }
 
         self.append_output(&format!("[{}] explore dispatched: {} depth={}\n", job_id, url, depth));
 
@@ -239,6 +364,12 @@ impl AppState {
                 .build()
                 .expect("failed to create tokio runtime for explore");
             rt.block_on(async {
+                // Check cancel flag before starting
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
+                }
+
                 let llm_cfg = LlmConfig {
                     api_key: resolve_env_var(&cfg.llm.api_key),
                     base_url: resolve_env_var(&cfg.llm.base_url),
@@ -249,34 +380,68 @@ impl AppState {
                 };
 
                 {
-                    let mut o = output.lock().unwrap();
+                    let mut o = output_arc.lock().unwrap();
                     o.push_str(&format!("[{}] Starting explore: {} depth={}\n", job_id, url, depth));
+                }
+
+                // Check cancel flag before Explorer::new
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
                 }
 
                 match Explorer::new(Some(llm_cfg), Some(sandbox_cfg), None).await {
                     Ok(mut explorer) => {
+                        // Check cancel flag before explore()
+                        if cancel_flag.load(Ordering::Relaxed) {
+                            let _ = explorer.shutdown().await;
+                            Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                            return;
+                        }
+
                         match explorer.explore(&url, depth).await {
                             Ok(result) => {
-                                let mut o = output.lock().unwrap();
+                                let mut o = output_arc.lock().unwrap();
                                 o.push_str(&format!("[{}] ✓ Explored {} pages\n", job_id, result.pages.len()));
                                 o.push_str(&format!("[{}] Output length: {} chars\n", job_id, result.markdown.len()));
+                                Self::set_job_status_internal(&jobs, &job_id, "completed");
                             }
                             Err(e) => {
-                                let mut o = output.lock().unwrap();
+                                let mut o = output_arc.lock().unwrap();
                                 o.push_str(&format!("[{}] ✗ Explore failed: {}\n", job_id, e));
+                                Self::set_job_status_internal(&jobs, &job_id, "failed");
+                                Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                             }
                         }
                         let _ = explorer.shutdown().await;
                     }
                     Err(e) => {
-                        let mut o = output.lock().unwrap();
+                        let mut o = output_arc.lock().unwrap();
                         o.push_str(&format!("[{}] ✗ Failed to start explorer: {}\n", job_id, e));
+                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                     }
                 }
             });
         });
 
         format!(r#"{{"ok":true,"jobId":"{}"}}"#, job_id_for_return)
+    }
+
+    fn set_job_status_internal(jobs: &Arc<Mutex<HashMap<String, JobEntry>>>, job_id: &str, status: &str) {
+        if let Ok(mut j) = jobs.lock() {
+            if let Some(entry) = j.get_mut(job_id) {
+                entry.status = status.to_string();
+            }
+        }
+    }
+
+    fn set_job_error_internal(jobs: &Arc<Mutex<HashMap<String, JobEntry>>>, job_id: &str, error: &str) {
+        if let Ok(mut j) = jobs.lock() {
+            if let Some(entry) = j.get_mut(job_id) {
+                entry.error = Some(error.to_string());
+            }
+        }
     }
 
     // ── Generate ─────────────────────────────────────────────────────────────
@@ -287,11 +452,21 @@ impl AppState {
         }
 
         let job_id = self.job_id();
-        let output = self.output.clone();
         let cfg = self.config.as_ref().unwrap().clone();
         let requirement = requirement.to_string();
         let spec_path = spec_path.map(|s| s.to_string());
+        let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
+
+        // Create JobEntry BEFORE spawning thread
+        let entry = JobEntry::new("generate");
+        let cancel_flag = entry.cancel_flag.clone();
+        let output_arc = entry.output.clone();
+
+        {
+            let mut jobs_guard = jobs.lock().unwrap();
+            jobs_guard.insert(job_id.clone(), entry);
+        }
 
         self.append_output(&format!("[{}] generate dispatched\n", job_id));
 
@@ -301,8 +476,14 @@ impl AppState {
                 .build()
                 .expect("failed to create tokio runtime for generate");
             rt.block_on(async {
+                // Check cancel flag
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
+                }
+
                 {
-                    let mut o = output.lock().unwrap();
+                    let mut o = output_arc.lock().unwrap();
                     o.push_str(&format!("[{}] Generating test cases...\n", job_id));
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
@@ -316,7 +497,7 @@ impl AppState {
                     }) {
                     Some(content) => content,
                     None => {
-                        let mut o = output.lock().unwrap();
+                        let mut o = output_arc.lock().unwrap();
                         o.push_str(&format!("[{}] ⚠ spec file not readable, proceeding without it\n", job_id));
                         String::new()
                     }
@@ -326,15 +507,24 @@ impl AppState {
 
                 let service = TestCaseService::new(llm, LocalStorageInstance);
 
+                // Check cancel flag before generate
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
+                }
+
                 match service.generate_and_save("default", &spec_markdown, &requirement).await {
                     Ok(cases) => {
-                        let mut o = output.lock().unwrap();
+                        let mut o = output_arc.lock().unwrap();
                         let saved: usize = cases.iter().filter(|c| c.saved).count();
                         o.push_str(&format!("[{}] ✓ Generated {} test cases ({} saved)\n", job_id, cases.len(), saved));
+                        Self::set_job_status_internal(&jobs, &job_id, "completed");
                     }
                     Err(e) => {
-                        let mut o = output.lock().unwrap();
+                        let mut o = output_arc.lock().unwrap();
                         o.push_str(&format!("[{}] ✗ Generation failed: {}\n", job_id, e));
+                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                     }
                 }
             });
@@ -351,11 +541,21 @@ impl AppState {
         }
 
         let job_id = self.job_id();
-        let output = self.output.clone();
         let cfg = self.config.as_ref().unwrap().clone();
         let project = project.to_string();
         let test_type = test_type.to_string();
+        let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
+
+        // Create JobEntry BEFORE spawning thread
+        let entry = JobEntry::new("testExec");
+        let cancel_flag = entry.cancel_flag.clone();
+        let output_arc = entry.output.clone();
+
+        {
+            let mut jobs_guard = jobs.lock().unwrap();
+            jobs_guard.insert(job_id.clone(), entry);
+        }
 
         self.append_output(&format!("[{}] run_tests dispatched: project={} type={}\n", job_id, project, test_type));
 
@@ -365,8 +565,14 @@ impl AppState {
                 .build()
                 .expect("failed to create tokio runtime for test execution");
             rt.block_on(async {
+                // Check cancel flag
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
+                }
+
                 {
-                    let mut o = output.lock().unwrap();
+                    let mut o = output_arc.lock().unwrap();
                     o.push_str(&format!("[{}] Running tests: project={} type={}\n", job_id, project, test_type));
                 }
 
@@ -378,6 +584,12 @@ impl AppState {
                 let sandbox_cfg = SandboxConfig {
                     cdp_port: cfg.sandbox.cdp_port,
                 };
+
+                // Check cancel flag before TestExecutor::new
+                if cancel_flag.load(Ordering::Relaxed) {
+                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                    return;
+                }
 
                 match TestExecutor::new(3, Some(llm_cfg), Some(sandbox_cfg)).await {
                     Ok(executor) => {
@@ -398,15 +610,24 @@ impl AppState {
                                     .collect();
 
                                 {
-                                    let mut o = output.lock().unwrap();
+                                    let mut o = output_arc.lock().unwrap();
                                     o.push_str(&format!("[{}] Found {} test cases\n", job_id, filtered.len()));
+                                }
+
+                                // Check cancel flag before run_parallel
+                                if cancel_flag.load(Ordering::Relaxed) {
+                                    let _ = executor.shutdown().await;
+                                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
+                                    return;
                                 }
 
                                 let results = match executor.run_parallel(filtered).await {
                                     Ok(results) => results,
                                     Err(e) => {
-                                        let mut o = output.lock().unwrap();
+                                        let mut o = output_arc.lock().unwrap();
                                         o.push_str(&format!("[{}] ✗ Run failed: {}\n", job_id, e));
+                                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                                         return;
                                     }
                                 };
@@ -419,7 +640,7 @@ impl AppState {
                                 };
                                 let run_dir = LocalStorage::run_dir(&project, &run_id);
                                 if let Err(e) = std::fs::create_dir_all(&run_dir) {
-                                    let mut o = output.lock().unwrap();
+                                    let mut o = output_arc.lock().unwrap();
                                     o.push_str(&format!("[{}] ✗ Failed to create run dir: {}\n", job_id, e));
                                 } else {
                                     let passed = results.iter().filter(|r| r.passed).count();
@@ -433,7 +654,7 @@ impl AppState {
                                             "test_type": test_type,
                                         })).unwrap(),
                                     ) {
-                                        let mut o = output.lock().unwrap();
+                                        let mut o = output_arc.lock().unwrap();
                                         o.push_str(&format!("[{}] ✗ Failed to save summary: {}\n", job_id, e));
                                     }
 
@@ -458,18 +679,18 @@ impl AppState {
                                                         if resp.ok {
                                                             if let Some(data) = resp.data {
                                                                 if let Err(e) = std::fs::write(&lh_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output.lock().unwrap();
+                                                                    let mut o = output_arc.lock().unwrap();
                                                                     o.push_str(&format!("[{}] ✗ Failed to save lighthouse result: {}\n", job_id, e));
                                                                 }
                                                             }
                                                         } else {
-                                                            let mut o = output.lock().unwrap();
+                                                            let mut o = output_arc.lock().unwrap();
                                                             o.push_str(&format!("[{}] Lighthouse failed: {}\n", job_id, resp.error.unwrap_or_default()));
                                                         }
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    let mut o = output.lock().unwrap();
+                                                    let mut o = output_arc.lock().unwrap();
                                                     o.push_str(&format!("[{}] ✗ Failed to spawn midscene for lighthouse: {}\n", job_id, e));
                                                 }
                                             }
@@ -497,18 +718,18 @@ impl AppState {
                                                         if resp.ok {
                                                             if let Some(data) = resp.data {
                                                                 if let Err(e) = std::fs::write(&lc_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output.lock().unwrap();
+                                                                    let mut o = output_arc.lock().unwrap();
                                                                     o.push_str(&format!("[{}] ✗ Failed to save stress result: {}\n", job_id, e));
                                                                 }
                                                             }
                                                         } else {
-                                                            let mut o = output.lock().unwrap();
+                                                            let mut o = output_arc.lock().unwrap();
                                                             o.push_str(&format!("[{}] Stress test failed: {}\n", job_id, resp.error.unwrap_or_default()));
                                                         }
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    let mut o = output.lock().unwrap();
+                                                    let mut o = output_arc.lock().unwrap();
                                                     o.push_str(&format!("[{}] ✗ Failed to spawn midscene for stress: {}\n", job_id, e));
                                                 }
                                             }
@@ -536,21 +757,21 @@ impl AppState {
                                                         if resp.ok {
                                                             if let Some(data) = resp.data {
                                                                 if let Err(e) = std::fs::write(&zap_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output.lock().unwrap();
+                                                                    let mut o = output_arc.lock().unwrap();
                                                                     o.push_str(&format!("[{}] ✗ Failed to save ZAP result: {}\n", job_id, e));
                                                                 } else {
-                                                                    let mut o = output.lock().unwrap();
+                                                                    let mut o = output_arc.lock().unwrap();
                                                                     o.push_str(&format!("[{}] ZAP scan completed: {} alerts\n", job_id, data.get("alert_count").and_then(|v| v.as_u64()).unwrap_or(0)));
                                                                 }
                                                             }
                                                         } else {
-                                                            let mut o = output.lock().unwrap();
+                                                            let mut o = output_arc.lock().unwrap();
                                                             o.push_str(&format!("[{}] ZAP scan failed: {}\n", job_id, resp.error.unwrap_or_default()));
                                                         }
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    let mut o = output.lock().unwrap();
+                                                    let mut o = output_arc.lock().unwrap();
                                                     o.push_str(&format!("[{}] ✗ Failed to spawn midscene for ZAP: {}\n", job_id, e));
                                                 }
                                             }
@@ -559,21 +780,26 @@ impl AppState {
                                 }
 
                                 {
-                                    let mut o = output.lock().unwrap();
+                                    let mut o = output_arc.lock().unwrap();
                                     let passed = results.iter().filter(|r| r.passed).count();
                                     o.push_str(&format!("[{}] ✓ Passed {}/{} tests\n", job_id, passed, results.len()));
+                                    Self::set_job_status_internal(&jobs, &job_id, "completed");
                                 }
                             }
                             Err(e) => {
-                                let mut o = output.lock().unwrap();
+                                let mut o = output_arc.lock().unwrap();
                                 o.push_str(&format!("[{}] ✗ Failed to load cases: {}\n", job_id, e));
+                                Self::set_job_status_internal(&jobs, &job_id, "failed");
+                                Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                             }
                         }
                         let _ = executor.shutdown().await;
                     }
                     Err(e) => {
-                        let mut o = output.lock().unwrap();
+                        let mut o = output_arc.lock().unwrap();
                         o.push_str(&format!("[{}] ✗ Failed to start executor: {}\n", job_id, e));
+                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                     }
                 }
             });
@@ -586,7 +812,8 @@ impl AppState {
 
     pub fn get_output(&self) -> String {
         let out = self.output.lock().unwrap().clone();
-        serde_json::to_string(&out).unwrap_or_else(|_| r#"{"output":""}"#.to_string())
+        let escaped = out.replace('\\', "\\\\").replace('"', "\\\"");
+        format!(r#"{{"output":"{}"}}"#, escaped)
     }
 
     pub fn clear_output(&mut self) {
@@ -1130,6 +1357,22 @@ fn main() -> Result<()> {
                                     r#"{"error":"invalid params"}"#.to_string()
                                 }
                             }
+                            "getJobStatus" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let job_id = p.get("jobId").and_then(|v| v.as_str()).unwrap_or("");
+                                    app.get_job_status(job_id)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
+                            "stopJob" => {
+                                if let Ok(p) = serde_json::from_str::<serde_json::Value>(params_json) {
+                                    let job_id = p.get("jobId").and_then(|v| v.as_str()).unwrap_or("");
+                                    app.stop_job(job_id)
+                                } else {
+                                    r#"{"error":"invalid params"}"#.to_string()
+                                }
+                            }
                             "getVersion" => app.get_version(),
                             "checkUpdate" => app.check_update(),
                             _ => format!(r#"{{"error":"unknown method: {}"}}"#, method),
@@ -1234,6 +1477,8 @@ fn main() -> Result<()> {
             window.updateCaseStatus = function(project, case_id, status) { return window.rpc('updateCaseStatus', {project: project || 'default', case_id: case_id, status: status}); };
             window.getVersion = function() { return window.rpc('getVersion', {}); };
             window.checkUpdate = function() { return window.rpc('checkUpdate', {}); };
+            window.getJobStatus = function(jobId) { return window.rpc('getJobStatus', {jobId: jobId}); };
+            window.stopJob = function(jobId) { return window.rpc('stopJob', {jobId: jobId}); };
             window.open = function(url) { return window.rpc('openExternal', {url: url}); };
             window.__rpcReady = true;
             console.log('RPC bridge ready - setConfig available:', typeof window.setConfig === 'function');

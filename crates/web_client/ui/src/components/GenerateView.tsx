@@ -1,23 +1,16 @@
 import { useState } from 'react';
 import { rpc } from '../utils/rpc';
+import JobProgress from './JobProgress';
 
-interface GenerateViewProps {
-  output: string;
-  onClear: () => void;
-}
-
-
-export default function GenerateView({ output, onClear }: GenerateViewProps) {
+export default function GenerateView() {
   const [requirement, setRequirement] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     if (!requirement) return;
-    setLoading(true);
-    try {
-      await rpc.runGenerate(requirement);
-    } finally {
-      setLoading(false);
+    const result = await rpc.runGenerate(requirement);
+    if (result.ok) {
+      setJobId(result.jobId);
     }
   };
 
@@ -38,17 +31,16 @@ export default function GenerateView({ output, onClear }: GenerateViewProps) {
           />
         </div>
         <div className="form-actions">
-          <button className="btn btn-primary" onClick={handleGenerate} disabled={loading || !requirement}>
-            {loading ? 'Generating...' : 'Generate Cases'}
+          <button className="btn btn-primary" onClick={handleGenerate} disabled={!requirement || !!jobId}>
+            {jobId ? 'Generating...' : 'Generate Cases'}
           </button>
-          <button className="btn btn-secondary" onClick={onClear}>Clear Output</button>
         </div>
       </div>
 
       <div className="output-header">
         <h3>Output</h3>
       </div>
-      <div className="output-log">{output || 'No output yet. Generate test cases to see results.'}</div>
+      <JobProgress jobId={jobId} />
     </div>
   );
 }

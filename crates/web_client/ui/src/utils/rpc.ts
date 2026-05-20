@@ -13,6 +13,7 @@ import type {
   ReportHtmlResponse,
   ExportResponse,
   AppConfig,
+  JobStatus,
 } from '../types/rpc';
 
 const DEFAULT_TIMEOUT = 60000;
@@ -159,5 +160,14 @@ export const rpc = {
 
   async updateCaseStatus(project: string, case_id: string, status: string): Promise<{ ok: boolean }> {
     return call<{ ok: boolean }>('updateCaseStatus', { project, case_id, status });
+  },
+
+  // Job control
+  async getJobStatus(jobId: string): Promise<JobStatus> {
+    return call<JobStatus>('getJobStatus', { jobId });
+  },
+
+  async stopJob(jobId: string): Promise<{ ok: boolean }> {
+    return call<{ ok: boolean }>('stopJob', { jobId });
   },
 };

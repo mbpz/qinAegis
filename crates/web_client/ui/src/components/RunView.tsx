@@ -1,11 +1,7 @@
 import { useState, useEffect } from 'react';
 import { rpc } from '../utils/rpc';
 import type { TestPlan } from '../types/rpc';
-
-interface RunViewProps {
-  output: string;
-  onClear: () => void;
-}
+import JobProgress from './JobProgress';
 
 const testTypes = [
   { value: 'smoke', label: 'Smoke Test', desc: 'Core path validation' },
@@ -15,12 +11,11 @@ const testTypes = [
   { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
-
-export default function RunView({ output, onClear }: RunViewProps) {
+export default function RunView() {
   const [projects, setProjects] = useState<string[]>(['default']);
   const [project, setProject] = useState('default');
   const [testType, setTestType] = useState('smoke');
-  const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [testPlan, setTestPlan] = useState<TestPlan | null>(null);
@@ -45,11 +40,9 @@ export default function RunView({ output, onClear }: RunViewProps) {
 
   const handleRun = async () => {
     setShowPreview(false);
-    setLoading(true);
-    try {
-      await rpc.runTests(project, testType);
-    } finally {
-      setLoading(false);
+    const result = await rpc.runTests(project, testType);
+    if (result.ok) {
+      setJobId(result.jobId);
     }
   };
 
@@ -81,17 +74,16 @@ export default function RunView({ output, onClear }: RunViewProps) {
           <button className="btn btn-secondary" onClick={handlePreview} disabled={previewLoading}>
             {previewLoading ? 'Loading...' : 'Preview Plan'}
           </button>
-          <button className="btn btn-primary" onClick={handleRun} disabled={loading}>
-            {loading ? 'Running...' : 'Run Tests'}
+          <button className="btn btn-primary" onClick={handleRun} disabled={!!jobId}>
+            {jobId ? 'Running...' : 'Run Tests'}
           </button>
-          <button className="btn btn-secondary" onClick={onClear}>Clear Output</button>
         </div>
       </div>
 
       <div className="output-header">
         <h3>Output</h3>
       </div>
-      <div className="output-log">{output || 'No output yet. Run tests to see results.'}</div>
+      <JobProgress jobId={jobId} />
 
       {showPreview && testPlan && (
         <div className="modal-overlay" onClick={() => setShowPreview(false)}>

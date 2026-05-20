@@ -1,24 +1,25 @@
 import { useState } from 'react';
 import { rpc } from '../utils/rpc';
+import JobProgress from './JobProgress';
 
-interface ExploreViewProps {
-  output: string;
-  onClear: () => void;
-}
-
-
-export default function ExploreView({ output, onClear }: ExploreViewProps) {
+export default function ExploreView() {
   const [url, setUrl] = useState('');
-  const [depth, setDepth] = useState(3);
-  const [loading, setLoading] = useState(false);
+  const [depth, setDepth] = useState<string>('3');
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  const handleDepthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '' || /^\d+$/.test(val)) {
+      setDepth(val);
+    }
+  };
 
   const handleExplore = async () => {
     if (!url) return;
-    setLoading(true);
-    try {
-      await rpc.runExplore(url, depth);
-    } finally {
-      setLoading(false);
+    const depthNum = parseInt(depth, 10) || 3;
+    const result = await rpc.runExplore(url, depthNum);
+    if (result.ok) {
+      setJobId(result.jobId);
     }
   };
 
@@ -43,26 +44,25 @@ export default function ExploreView({ output, onClear }: ExploreViewProps) {
             <label>Exploration Depth</label>
             <input
               className="input"
-              type="number"
+              type="text"
               min="1"
               max="10"
               value={depth}
-              onChange={(e) => setDepth(parseInt(e.target.value) || 3)}
+              onChange={handleDepthChange}
             />
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn btn-primary" onClick={handleExplore} disabled={loading || !url}>
-            {loading ? 'Exploring...' : 'Start Exploration'}
+          <button className="btn btn-primary" onClick={handleExplore} disabled={!url || !!jobId}>
+            {jobId ? 'Exploring...' : 'Start Exploration'}
           </button>
-          <button className="btn btn-secondary" onClick={onClear}>Clear Output</button>
         </div>
       </div>
 
       <div className="output-header">
         <h3>Output</h3>
       </div>
-      <div className="output-log">{output || 'No output yet. Start an exploration to see results.'}</div>
+      <JobProgress jobId={jobId} />
     </div>
   );
 }

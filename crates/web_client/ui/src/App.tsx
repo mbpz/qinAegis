@@ -16,7 +16,6 @@ type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [projects, setProjects] = useState<string[]>([]);
-  const [output, setOutput] = useState<string>('');
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
@@ -71,20 +70,6 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    if (currentView !== 'explore' && currentView !== 'generate' && currentView !== 'run') {
-      return;
-    }
-    const interval = setInterval(loadOutput, 2000);
-    return () => clearInterval(interval);
-  }, [currentView]);
-
-  // Clear output when switching views so each view starts fresh
-  useEffect(() => {
-    setOutput('');
-    rpc.clearOutput().catch(() => {});
-  }, [currentView]);
-
   const loadProjects = async () => {
     try {
       const result = await rpc.getProjects();
@@ -92,20 +77,6 @@ function App() {
     } catch (e) {
       console.error('Failed to load projects:', e);
     }
-  };
-
-  const loadOutput = async () => {
-    try {
-      const result = await rpc.getOutput();
-      setOutput(result.output || '');
-    } catch (e) {
-      console.error('Failed to fetch output:', e);
-    }
-  };
-
-  const handleClearOutput = async () => {
-    await rpc.clearOutput();
-    setOutput('');
   };
 
   const handleWizardComplete = () => {
@@ -117,11 +88,11 @@ function App() {
       case 'dashboard':
         return <Dashboard projects={projects} onNavigate={setCurrentView} />;
       case 'explore':
-        return <ExploreView output={output} onClear={handleClearOutput} />;
+        return <ExploreView />;
       case 'generate':
-        return <GenerateView output={output} onClear={handleClearOutput} />;
+        return <GenerateView />;
       case 'run':
-        return <RunView output={output} onClear={handleClearOutput} />;
+        return <RunView />;
       case 'reports':
         return <ReportView />;
       case 'review':

@@ -99,6 +99,19 @@ export interface ReportHtmlResponse {
   error?: string;
 }
 
+export type JobType = 'explore' | 'generate' | 'testExec';
+
+export type JobStatusValue = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+
+export interface JobStatus {
+  jobId: string;
+  jobType: JobType;
+  status: JobStatusValue;
+  output: string;
+  result?: unknown;
+  error?: string;
+}
+
 export interface ExportResponse {
   ok: boolean;
   project: string;
