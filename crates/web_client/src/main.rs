@@ -125,40 +125,6 @@ impl AppState {
         o.push_str(msg);
     }
 
-    fn job_append_output(&self, job_id: &str, msg: &str) {
-        if let Ok(jobs) = self.jobs.lock() {
-            if let Some(entry) = jobs.get(job_id) {
-                entry.output.lock().unwrap().push_str(msg);
-            }
-        }
-        // Also append to legacy shared output for backward compat
-        self.append_output(msg);
-    }
-
-    fn update_job_status(&self, job_id: &str, status: &str) {
-        if let Ok(mut jobs) = self.jobs.lock() {
-            if let Some(entry) = jobs.get_mut(job_id) {
-                entry.status = status.to_string();
-            }
-        }
-    }
-
-    fn update_job_result(&self, job_id: &str, result: serde_json::Value) {
-        if let Ok(mut jobs) = self.jobs.lock() {
-            if let Some(entry) = jobs.get_mut(job_id) {
-                entry.result = Some(result);
-            }
-        }
-    }
-
-    fn update_job_error(&self, job_id: &str, error: &str) {
-        if let Ok(mut jobs) = self.jobs.lock() {
-            if let Some(entry) = jobs.get_mut(job_id) {
-                entry.error = Some(error.to_string());
-            }
-        }
-    }
-
     pub fn get_job_status(&self, job_id: &str) -> String {
         let jobs = self.jobs.lock().unwrap();
         match jobs.get(job_id) {
