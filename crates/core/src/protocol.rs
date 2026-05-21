@@ -117,6 +117,21 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
+    fn resolve_node() -> String {
+        let candidates = [
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/opt/local/bin/node",
+            "/usr/bin/node",
+        ];
+        for path in &candidates {
+            if std::path::Path::new(path).exists() {
+                return path.to_string();
+            }
+        }
+        "node".to_string()
+    }
+
     /// Spawn the TS executor process (browser lifecycle managed by executor).
     pub async fn with_adapter(
         llm_config: Option<LlmConfig>,
@@ -127,9 +142,10 @@ impl MidsceneProcess {
             .parent().unwrap()
             .join("sandbox");
         let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
+        let node_path = Self::resolve_node();
 
-        let mut cmd = Command::new(&tsx_path);
-        cmd.args(["src/executor.ts"])
+        let mut cmd = Command::new(&node_path);
+        cmd.args([&tsx_path.to_string_lossy().to_string(), "src/executor.ts"])
             .current_dir(&sandbox_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
