@@ -108,7 +108,7 @@ async function extractPageInfo(page: Page): Promise<PageInfo> {
   }>(
     `{title: string, primaryNav: string[], mainFeatures: string[], authRequired: boolean, techStack: string[], forms: {action: string, method: string, fields: string[]}[], keyElements: string[], links: string[]}, ` +
     `分析当前页面，提取：标题、顶部导航、主要功能、是否需要登录、检测到的技术栈、表单信息、关键元素、所有内部链接`,
-    { screenshotIncluded: false }
+    { screenshotIncluded: true }
   );
 
   const info = rawInfo as {
