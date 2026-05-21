@@ -94,7 +94,7 @@ impl Default for LlmConfigSection {
             provider: "minimax".to_string(),
             base_url: "https://api.minimax.chat/v1".to_string(),
             api_key: String::new(),
-            model: "MiniMax-VL-01".to_string(),
+            model: "MiniMax-M2.7".to_string(),
             secondary_provider: String::new(),
             secondary_base_url: String::new(),
             secondary_api_key: String::new(),
@@ -231,7 +231,15 @@ pub fn resolve_env_var(s: &str) -> String {
                 let replacement = env::var(&var_name).unwrap_or_default();
                 resolved.push_str(&replacement);
             } else {
-                let var_name: String = chars.by_ref().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                let mut var_name = String::new();
+                while let Some(&nc) = chars.peek() {
+                    if nc.is_alphanumeric() || nc == '_' {
+                        var_name.push(nc);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
                 let replacement = env::var(&var_name).unwrap_or_default();
                 resolved.push_str(&replacement);
             }

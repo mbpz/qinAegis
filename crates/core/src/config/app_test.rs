@@ -19,7 +19,7 @@ mod tests {
         let config = AppConfig::default();
         assert_eq!(config.llm.provider, "minimax");
         assert_eq!(config.llm.base_url, "https://api.minimax.chat/v1");
-        assert_eq!(config.llm.model, "MiniMax-VL-01");
+        assert_eq!(config.llm.model, "MiniMax-M2.7");
         assert_eq!(config.sandbox.cdp_port, 9222);
         assert_eq!(config.exploration.max_depth, 3);
         assert_eq!(config.exploration.max_pages_per_seed, 20);
@@ -29,7 +29,7 @@ mod tests {
     fn test_llm_config_section_default() {
         let config = LlmConfigSection::default();
         assert_eq!(config.provider, "minimax");
-        assert_eq!(config.model, "MiniMax-VL-01");
+        assert_eq!(config.model, "MiniMax-M2.7");
         assert!(config.api_key.is_empty());
     }
 
@@ -55,7 +55,7 @@ mod tests {
         let config = AppConfig::default();
         let toml_str = toml::to_string(&config).unwrap();
         assert!(toml_str.contains("minimax"));
-        assert!(toml_str.contains("MiniMax-VL-01"));
+        assert!(toml_str.contains("MiniMax-M2.7"));
     }
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         let mut temp_file = NamedTempFile::with_suffix(".toml").unwrap();
         temp_file
             .write_all(
-                r#"
+                br#"
                 [llm]
                 provider = "test-provider"
                 base_url = "https://test.com"
@@ -145,6 +145,7 @@ mod tests {
         let partial = AppConfig {
             llm: LlmConfigSection {
                 provider: "new".to_string(),
+                model: String::new(),
                 ..Default::default()
             },
             ..Default::default()
