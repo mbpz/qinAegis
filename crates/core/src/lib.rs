@@ -36,7 +36,7 @@ pub use gate::{GateService, GateResult, GateThresholds, GateStatus, E2EGateResul
 pub use automation::{
     AutomationError, AutomationCommand, AutomationResponse, BrowserAutomation,
     ExploreResult, PageInfo, FormInfo,
-    MidsceneAutomation, BfsExplorer, AuthConfig,
+    MidsceneAutomation, NativeAutomation, BfsExplorer, AuthConfig,
 };
 // Storage
 pub use storage::{CaseStatus, LocalStorage, LocalStorageInstance};
