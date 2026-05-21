@@ -370,6 +370,9 @@ impl AppState {
                                 let mut o = output_arc.lock().unwrap();
                                 o.push_str(&format!("[{}] ✓ Explored {} pages\n", job_id, result.pages.len()));
                                 o.push_str(&format!("[{}] Output length: {} chars\n", job_id, result.markdown.len()));
+                                o.push_str("\n======== EXPLORE RESULT ========\n");
+                                o.push_str(&result.markdown);
+                                o.push_str("\n================================\n");
                                 Self::set_job_status_internal(&jobs, &job_id, "completed");
                             }
                             Err(e) => {
