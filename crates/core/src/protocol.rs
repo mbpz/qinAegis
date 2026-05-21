@@ -118,15 +118,18 @@ impl Default for SandboxConfig {
 
 impl MidsceneProcess {
     fn resolve_node() -> String {
-        let candidates = [
-            "/opt/homebrew/bin/node",
-            "/usr/local/bin/node",
-            "/opt/local/bin/node",
-            "/usr/bin/node",
+        let home = std::env::var("HOME").unwrap_or_default();
+        let candidates: Vec<String> = vec![
+            "/opt/homebrew/bin/node".into(),
+            "/usr/local/bin/node".into(),
+            "/opt/local/bin/node".into(),
+            "/usr/bin/node".into(),
+            format!("{}/.n/bin/node", home),
+            format!("{}/.local/bin/node", home),
         ];
         for path in &candidates {
             if std::path::Path::new(path).exists() {
-                return path.to_string();
+                return path.clone();
             }
         }
         "node".to_string()
