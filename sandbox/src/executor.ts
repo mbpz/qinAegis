@@ -135,7 +135,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       }
       case 'goto': {
         const { url } = req.args as { url: string };
-        await page!.goto(url);
+        await page!.goto(url, { waitUntil: 'domcontentloaded' });
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'screenshot': {

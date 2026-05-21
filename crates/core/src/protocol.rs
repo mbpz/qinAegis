@@ -84,6 +84,7 @@ pub struct MidsceneProcess {
     child: Arc<Child>,
     request_tx: mpsc::Sender<JsonRpcRequest>,
     response_rx: Arc<Mutex<mpsc::Receiver<JsonRpcResponse>>>,
+    stderr_buf: Arc<Mutex<String>>,
 }
 
 impl Clone for MidsceneProcess {
@@ -92,6 +93,7 @@ impl Clone for MidsceneProcess {
             child: self.child.clone(),
             request_tx: self.request_tx.clone(),
             response_rx: self.response_rx.clone(),
+            stderr_buf: self.stderr_buf.clone(),
         }
     }
 }
@@ -115,35 +117,24 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
-    /// Spawn with a concrete SandboxAdapter.
-    /// The adapter is used to resolve the CDP URL and wait for browser readiness.
+    /// Spawn the TS executor process (browser lifecycle managed by executor).
     pub async fn with_adapter(
         llm_config: Option<LlmConfig>,
-        adapter: Arc<dyn SandboxAdapter>,
+        _adapter: Arc<dyn SandboxAdapter>,
     ) -> anyhow::Result<Self> {
-        // Navigate from crates/core to project root (../../)
         let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()  // crates
-            .parent().unwrap()  // project root
+            .parent().unwrap()
+            .parent().unwrap()
             .join("sandbox");
         let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
-
-        // Wait for browser to be ready via adapter
-        let cdp_url = adapter
-            .wait_for_browser(30)
-            .await
-            .map_err(|e| anyhow::anyhow!("browser not ready: {}", e))?;
 
         let mut cmd = Command::new(&tsx_path);
         cmd.args(["src/executor.ts"])
             .current_dir(&sandbox_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-
-        // Pass CDP WebSocket URL from adapter
-        cmd.env("CDP_WS_URL", &cdp_url);
 
         // Pass LLM environment variables from config
         if let Some(cfg) = llm_config {
@@ -160,6 +151,22 @@ impl MidsceneProcess {
 
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let stderr_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+
+        // Spawn stderr reader task
+        {
+            let stderr_buf = stderr_buf.clone();
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = reader.next_line().await {
+                    let mut buf = stderr_buf.lock().await;
+                    buf.push_str(&line);
+                    buf.push('\n');
+                }
+            });
+        }
 
         let (request_tx, request_rx) = mpsc::channel::<JsonRpcRequest>(32);
         let (resp_tx, response_rx) = mpsc::channel::<JsonRpcResponse>(32);
@@ -214,6 +221,7 @@ impl MidsceneProcess {
             child: Arc::new(child),
             request_tx,
             response_rx: Arc::new(Mutex::new(response_rx)),
+            stderr_buf,
         })
     }
 
@@ -248,9 +256,19 @@ impl MidsceneProcess {
         println!("[protocol] Response received");
         match resp {
             Some(resp) => Ok(resp),
-            None => Err(anyhow::anyhow!(
-                "protocol channel closed — executor exited or dropped the request (check stderr for child exit code)"
-            )),
+            None => {
+                let stderr = self.stderr_buf.lock().await;
+                let stderr_str = if stderr.is_empty() {
+                    "(empty)".to_string()
+                } else {
+                    let s = stderr.trim().to_string();
+                    if s.is_empty() { "(empty)".to_string() } else { s }
+                };
+                Err(anyhow::anyhow!(
+                    "executor exited or dropped the request\nstderr:\n{}",
+                    stderr_str
+                ))
+            }
         }
     }
 }

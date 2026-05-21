@@ -244,8 +244,7 @@ impl BfsExplorer {
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
         let mut clicks_count = 0;
-
-        println!("[explorer] Starting visual exploration...");
+        let mut errors: Vec<String> = Vec::new();
         println!("[explorer] Seed URLs: {:?}", seed_urls);
         println!("[explorer] Max depth: {}", max_depth);
 
@@ -258,7 +257,7 @@ impl BfsExplorer {
                     .unwrap_or_else(|| format!("在账号框输入{}，在密码框输入{}，然后点击登录按钮", auth.username, auth.password));
                 let full_action = login_prompt;
                 if let Err(e) = self.automation.goto(&seed_urls[0]).await {
-                    println!("[explorer] WARN: goto seed URL failed: {}", e);
+                    errors.push(format!("goto seed URL failed: {}", e));
                 } else {
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                     if self.automation.ai_act(&full_action).await.is_ok() {
@@ -296,7 +295,7 @@ impl BfsExplorer {
 
             println!("[explorer] [depth {}] Navigating to: {}", depth, url);
             if let Err(e) = self.automation.goto(&url).await {
-                println!("[explorer] WARN: goto failed for {}: {}", url, e);
+                errors.push(format!("goto failed for {}: {}", url, e));
                 continue;
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -358,19 +357,19 @@ impl BfsExplorer {
                                         clicks_count += 1;
                                     }
                                     Err(e) => {
-                                        println!("[explorer] WARN: ai_act failed: {}", e);
+                                        errors.push(format!("ai_act failed: {}", e));
                                         break;
                                     }
                                 }
                             }
                             Err(e) => {
-                                println!("[explorer] WARN: parse page info failed: {}", e);
+                                errors.push(format!("parse page info failed: {}", e));
                                 break;
                             }
                         }
                     }
                     Err(e) => {
-                        println!("[explorer] WARN: ai_query failed: {}", e);
+                                    errors.push(format!("ai_query failed: {}", e));
                         break;
                     }
                 }
@@ -379,6 +378,12 @@ impl BfsExplorer {
 
         println!("[explorer] Exploration complete! Crawled {} pages, total clicks: {}", pages.len(), clicks_count);
         let markdown = to_markdown(&pages);
+        if pages.is_empty() && !errors.is_empty() {
+            return Err(AutomationError::Internal(format!(
+                "探索失败：无法访问目标页面。\n原因：{}\n请检查：1) URL 是否正确 2) 网络是否可达 3) 网站是否有反爬机制",
+                errors.join("；")
+            )));
+        }
         Ok(ExploreResult { pages, markdown })
     }
 }
