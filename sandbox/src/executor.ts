@@ -142,6 +142,9 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const buf = await page!.screenshot({ encoding: 'base64' } as any);
         return { id: req.id || '0', ok: true, data: buf };
       }
+      case 'currentUrl': {
+        return { id: req.id || '0', ok: true, data: page!.url() };
+      }
       case 'explore': {
         const { url, depth } = req.args as { url: string; depth: number };
         const { exploreProject, toMarkdown } = await import('./explorer.js');

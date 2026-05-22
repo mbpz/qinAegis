@@ -28,6 +28,8 @@ pub enum JsonRpcRequest {
     Goto { url: String },
     #[serde(rename = "screenshot")]
     Screenshot,
+    #[serde(rename = "currentUrl")]
+    CurrentUrl,
     #[serde(rename = "run_yaml")]
     RunYaml {
         yaml_script: String,
@@ -268,6 +270,7 @@ impl MidsceneProcess {
             JsonRpcRequest::Explore { .. } => "explore",
             JsonRpcRequest::Goto { .. } => "goto",
             JsonRpcRequest::Screenshot => "screenshot",
+            JsonRpcRequest::CurrentUrl => "currentUrl",
             JsonRpcRequest::RunYaml { .. } => "run_yaml",
             JsonRpcRequest::Lighthouse { .. } => "lighthouse",
             JsonRpcRequest::Stress { .. } => "stress",

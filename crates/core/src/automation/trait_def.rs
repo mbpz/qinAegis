@@ -310,4 +310,7 @@ pub trait BrowserAutomation: Send + Sync {
 
     /// Shutdown the automation session.
     async fn shutdown(&self) -> Result<(), AutomationError>;
+
+    /// Get the current page URL (after any redirects).
+    fn current_url(&self) -> Option<String>;
 }

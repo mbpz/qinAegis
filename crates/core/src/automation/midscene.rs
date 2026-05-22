@@ -197,6 +197,17 @@ impl BrowserAutomation for MidsceneAutomation {
         }
     }
 
+    fn current_url(&self) -> Option<String> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+        Some(rt.block_on(async {
+            let resp = self.call(JsonRpcRequest::CurrentUrl).await.ok()?;
+            resp.data?.as_str().map(|s| s.to_string())
+        })?)
+    }
+
     async fn ai_assert(&self, assertion: &str) -> Result<(), AutomationError> {
         let req = JsonRpcRequest::AiAssert(assertion.to_string());
         let resp = self.call(req).await?;
@@ -320,10 +331,19 @@ impl BfsExplorer {
                         match serde_json::from_str::<AiPageInfo>(&json_str) {
                             Ok(ai_info) => {
                                 let mut info = PageInfo::from(ai_info);
-                                info.url = url.clone();
+                                // Use the ACTUAL final URL after goto, not the input URL
+                                info.url = self.automation.current_url().unwrap_or_else(|| url.clone());
                                 pages.push(info.clone());
 
-                                // Deduplicate by state signature
+                                // Deduplicate by ACTUAL URL (not AI description)
+                                let url_sig = info.url.clone();
+                                if visited_states.contains(&url_sig) {
+                                    println!("[explorer] Already visited URL {}, skipping", url_sig);
+                                    break;
+                                }
+                                visited_states.insert(url_sig.clone());
+
+                                // Also dedupe by state signature (title+nav) within same URL
                                 let state_sig = format!("{}|{}|{:?}", info.title, info.primary_nav.join(","), info.key_elements);
                                 if visited_states.contains(&state_sig) {
                                     println!("[explorer] Already visited this page state, skipping");

@@ -118,6 +118,12 @@ impl BrowserAutomation for NativeAutomation {
         self.screenshot_base64().await
     }
 
+    fn current_url(&self) -> Option<String> {
+        let inner = futures::executor::block_on(self.inner.lock());
+        let page = inner.page.as_ref()?;
+        futures::executor::block_on(page.url()).ok()?
+    }
+
     async fn goto(&self, url: &str) -> Result<(), AutomationError> {
         let inner = self.inner.lock().await;
         let page = inner.page.as_ref().ok_or_else(|| {
