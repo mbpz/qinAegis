@@ -123,8 +123,27 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
 
     try {
       console.error(`[explorer] Navigating to ${url}...`);
-      await page.goto(url, { timeout: 30000, waitUntil: 'networkidle' });
-      console.error(`[explorer] Navigated to ${url}`);
+      const response = await page.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
+      console.error(`[explorer] HTTP status: ${response?.status()}, URL: ${page.url()}`);
+
+      // Wait for network to settle AND page to be stable
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 15000 });
+        console.error(`[explorer] Network idle reached`);
+      } catch (e) {
+        console.error(`[explorer] Network idle timeout (continuing anyway): ${e}`);
+      }
+
+      // Additional wait for any JS to finish rendering
+      await page.waitForTimeout(2000);
+
+      const pageTitle = await page.title();
+      const pageContent = await page.content();
+      console.error(`[explorer] After-wait: title="${pageTitle}", html_len=${pageContent.length}`);
+
+      // Verify page actually loaded something meaningful
+      const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 200) || 'EMPTY');
+      console.error(`[explorer] Body text preview: "${bodyText.replace(/\n/g, ' ').slice(0, 100)}"`);
 
       console.error(`[explorer] Extracting page info with AI...`);
       let info;
@@ -152,39 +171,33 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
 }
 
 async function extractPageInfo(page: Page): Promise<PageInfo> {
-  let pageUrl = '';
-  let pageTitle = '';
+  const pageUrl = page.url();
+  const pageTitle = await page.title();
 
+  // Verify screenshot actually works and print size
+  let screenshotSize = 0;
   try {
-    pageUrl = page.url();
-    pageTitle = await page.title();
-    const html = await page.content();
-    console.error(`[explorer] pageUrl=${pageUrl}, title=${pageTitle}, html_len=${html.length}`);
+    const screenshot = await page.screenshot({ encoding: 'base64' as any, type: 'jpeg', quality: 80 });
+    screenshotSize = screenshot.length;
+    console.error(`[explorer] Verified screenshot: ${screenshotSize} chars, URL=${pageUrl}`);
   } catch (e) {
-    throw new Error(`Failed to read page metadata: ${e}`);
-  }
-
-  try {
-    const screenshot = await page.screenshot({ encoding: 'base64' as any });
-    console.error(`[explorer] screenshot size=${screenshot.length} chars`);
-  } catch (e) {
-    throw new Error(`Failed to capture screenshot: ${e}`);
+    console.error(`[explorer] Screenshot failed: ${e}`);
   }
 
   const { PlaywrightAgent } = await import('@midscene/web/playwright');
   const agent = new PlaywrightAgent(page);
 
-  const prompt = `分析当前页面的截图和DOM。只描述你实际看到的内容：
-- 标题: 页面的实际标题
+  const prompt = `分析当前页面的截图。只描述你实际看到的内容，不要编造：
+- 标题: 页面的实际标题（看截图）
 - 导航: 实际存在的顶部导航项（没有就不填）
 - 主要功能: 实际看到的功能模块
-- 是否需要登录: 看到登录框=true，没登录框=false
-- 技术栈: 实际能推断出的前端技术
+- 是否需要登录: 看到登录框/用户名密码输入框=true，没看到=false
+- 技术栈: 实际能推断出的前端技术（如Vue/React/jQuery/小程序等）
 - 表单: 实际存在的表单（如登录表单的账号/密码字段）
 - 关键元素: 实际可见的关键UI元素
-- 链接: 实际存在的内部链接（只填同类域名的）
+- 链接: 实际存在的内部链接（相对路径或同类域名）
 
-JSON格式返回，字段不能为空数组就用[]：
+JSON格式返回（不要返回空数组，字段为空就用[]）：
 {title, primaryNav, mainFeatures, authRequired, techStack, forms, keyElements, links}`;
 
   let rawInfo: RawPageInfo;
@@ -194,7 +207,7 @@ JSON格式返回，字段不能为空数组就用[]：
     throw new Error(`aiQuery failed: ${e}`);
   }
 
-  console.error(`[explorer] AI response: title=${rawInfo?.title}, authRequired=${rawInfo?.authRequired}, links_count=${Array.isArray(rawInfo?.links) ? rawInfo.links.length : '?'}`);
+  console.error(`[explorer] AI response: title="${rawInfo?.title}", authRequired=${rawInfo?.authRequired}, links_count=${Array.isArray(rawInfo?.links) ? rawInfo.links.length : '?'}`);
 
   return validatePageInfo(rawInfo, pageUrl, pageTitle);
 }
