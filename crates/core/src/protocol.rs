@@ -161,8 +161,13 @@ impl MidsceneProcess {
                 cmd.env("MIDSCENE_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
                 cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
-                cmd.env("MIDSCENE_MODEL_FAMILY", "qwen3.6");
+                cmd.env("MIDSCENE_MODEL_FAMILY", "qwen2.5-vl");
                 cmd.env("MIDSCENE_REPLANNING_CYCLE_LIMIT", "100");
+                // Also set intent-specific model overrides to same model
+                cmd.env("MIDSCENE_INSIGHT_MODEL_NAME", &cfg.model);
+                cmd.env("MIDSCENE_INSIGHT_MODEL_FAMILY", "qwen2.5-vl");
+                cmd.env("MIDSCENE_INSIGHT_MODEL_API_KEY", &cfg.api_key);
+                cmd.env("MIDSCENE_INSIGHT_MODEL_BASE_URL", &cfg.base_url);
             }
         }
 
