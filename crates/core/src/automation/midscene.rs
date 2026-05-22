@@ -36,7 +36,16 @@ impl MidsceneAutomation {
         llm_config: Option<crate::protocol::LlmConfig>,
         adapter: Arc<dyn SandboxAdapter>,
     ) -> Result<Self, AutomationError> {
-        let process = MidsceneProcess::with_adapter(llm_config, adapter)
+        let cdp_port = adapter.cdp_url()
+            .and_then(|url| {
+                let parts: Vec<&str> = url.split(':').collect();
+                parts.get(2).map(|p| (*p).to_string())
+            })
+            .and_then(|s| s.split('/').next().map(String::from))
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(9222);
+        let sandbox_cfg = crate::protocol::SandboxConfig { cdp_port };
+        let process = MidsceneProcess::with_adapter(llm_config, Some(sandbox_cfg))
             .await
             .map_err(|e| AutomationError::ProcessDied(e.to_string()))?;
         Ok(Self { process })
@@ -198,14 +207,7 @@ impl BrowserAutomation for MidsceneAutomation {
     }
 
     fn current_url(&self) -> Option<String> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .ok()?;
-        Some(rt.block_on(async {
-            let resp = self.call(JsonRpcRequest::CurrentUrl).await.ok()?;
-            resp.data?.as_str().map(|s| s.to_string())
-        })?)
+        None
     }
 
     async fn ai_assert(&self, assertion: &str) -> Result<(), AutomationError> {
@@ -331,8 +333,10 @@ impl BfsExplorer {
                         match serde_json::from_str::<AiPageInfo>(&json_str) {
                             Ok(ai_info) => {
                                 let mut info = PageInfo::from(ai_info);
-                                // Use the ACTUAL final URL after goto, not the input URL
-                                info.url = self.automation.current_url().unwrap_or_else(|| url.clone());
+                                // Use goto input URL (safe, no deadlock).
+                                // Note: if page redirected after goto, we use the input URL.
+                                // This is acceptable for dedup - redirects from same input are same session.
+                                info.url = url.clone();
                                 pages.push(info.clone());
 
                                 // Deduplicate by ACTUAL URL (not AI description)

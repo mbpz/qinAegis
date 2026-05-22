@@ -1,7 +1,6 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use crate::sandbox::{SandboxAdapter, PlaywrightBrowserAdapter};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -140,7 +139,7 @@ impl MidsceneProcess {
     /// Spawn the TS executor process (browser lifecycle managed by executor).
     pub async fn with_adapter(
         llm_config: Option<LlmConfig>,
-        _adapter: Arc<dyn SandboxAdapter>,
+        sandbox_config: Option<SandboxConfig>,
     ) -> anyhow::Result<Self> {
         let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent().unwrap()
@@ -172,6 +171,11 @@ impl MidsceneProcess {
                 cmd.env("MIDSCENE_INSIGHT_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_INSIGHT_MODEL_BASE_URL", &cfg.base_url);
             }
+        }
+
+        // Pass CDP port so TS executor uses a free port instead of hardcoded 9222
+        if let Some(cfg) = sandbox_config.as_ref() {
+            cmd.env("CDP_PORT", cfg.cdp_port.to_string());
         }
 
         let mut child = cmd.spawn()?;
@@ -257,9 +261,7 @@ impl MidsceneProcess {
         llm_config: Option<LlmConfig>,
         sandbox_config: Option<SandboxConfig>,
     ) -> anyhow::Result<Self> {
-        let cfg = sandbox_config.unwrap_or_default();
-        let adapter: Arc<dyn SandboxAdapter> = Arc::new(PlaywrightBrowserAdapter::new(cfg.cdp_port));
-        Self::with_adapter(llm_config, adapter).await
+        Self::with_adapter(llm_config, sandbox_config).await
     }
 
     pub async fn call(&self, req: JsonRpcRequest) -> anyhow::Result<JsonRpcResponse> {
