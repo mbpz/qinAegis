@@ -1,4 +1,4 @@
-import { chromium, Page, BrowserContext } from 'playwright';
+import { chromium, Page } from 'playwright';
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 
@@ -20,23 +20,8 @@ export interface FormInfo {
   fields: string[];
 }
 
-interface RawPageInfo {
-  title?: unknown;
-  primaryNav?: unknown;
-  mainFeatures?: unknown;
-  authRequired?: unknown;
-  techStack?: unknown;
-  forms?: unknown;
-  keyElements?: unknown;
-  links?: unknown;
-}
-
 function isString(v: unknown): v is string {
   return typeof v === 'string';
-}
-
-function isBool(v: unknown): v is boolean {
-  return typeof v === 'boolean';
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -57,12 +42,11 @@ function isValidLink(v: unknown, host: string): boolean {
   return v.includes(host);
 }
 
-function validatePageInfo(raw: RawPageInfo, pageUrl: string, pageTitle: string): PageInfo {
-  const host = (() => {
-    try { return new URL(pageUrl).host; } catch { return ''; }
-  })();
+function validatePageInfo(raw: unknown, pageUrl: string, pageTitle: string): PageInfo {
+  const r = raw as Record<string, unknown> | undefined;
+  const host = (() => { try { return new URL(pageUrl).host; } catch { return ''; } })();
 
-  const links = raw.links;
+  const links = r?.links;
   const validatedLinks: string[] = [];
   if (isStringArray(links)) {
     for (const l of links) {
@@ -72,15 +56,92 @@ function validatePageInfo(raw: RawPageInfo, pageUrl: string, pageTitle: string):
 
   return {
     url: pageUrl,
-    title: isString(raw.title) ? raw.title : (pageTitle || ''),
-    primaryNav: isStringArray(raw.primaryNav) ? raw.primaryNav : [],
-    mainFeatures: isStringArray(raw.mainFeatures) ? raw.mainFeatures : [],
-    authRequired: isBool(raw.authRequired) ? raw.authRequired : false,
-    techStack: isStringArray(raw.techStack) ? raw.techStack : [],
-    forms: isFormInfoArray(raw.forms) ? raw.forms : [],
-    keyElements: isStringArray(raw.keyElements) ? raw.keyElements : [],
+    title: isString(r?.title) ? r.title : (pageTitle || ''),
+    primaryNav: isStringArray(r?.primaryNav) ? r.primaryNav : [],
+    mainFeatures: isStringArray(r?.mainFeatures) ? r.mainFeatures : [],
+    authRequired: r?.authRequired === true,
+    techStack: isStringArray(r?.techStack) ? r.techStack : [],
+    forms: isFormInfoArray(r?.forms) ? r.forms : [],
+    keyElements: isStringArray(r?.keyElements) ? r.keyElements : [],
     links: validatedLinks,
   };
+}
+
+interface ExtractedData {
+  title: string;
+  primaryNav: string[];
+  authRequired: boolean;
+  techStack: string[];
+  forms: FormInfo[];
+  links: string[];
+}
+
+async function extractFromDom(page: Page): Promise<ExtractedData> {
+  return await page.evaluate(() => {
+    const title = document.title || '';
+
+    const navSelectors = [
+      'header nav a', 'header .nav a', '.header-nav a', '.top-nav a',
+      '.navbar a', '.nav-bar a', 'nav a', '.menu a',
+    ];
+    const primaryNav: string[] = [];
+    for (const sel of navSelectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of els) {
+        const text = el.innerText?.trim();
+        if (text && text.length > 0 && text.length < 50 && !primaryNav.includes(text)) {
+          primaryNav.push(text);
+        }
+      }
+      if (primaryNav.length > 0) break;
+    }
+
+    const passwordInputs = document.querySelectorAll('input[type="password"], input[name*="password" i], input[name*="pwd" i]');
+    const usernameInputs = document.querySelectorAll('input[name*="user" i], input[name*="account" i], input[name*="phone" i], input[name*="email" i]');
+    const authRequired = passwordInputs.length > 0 && usernameInputs.length > 0;
+
+    const forms: { action: string; method: string; fields: string[] }[] = [];
+    for (const form of document.querySelectorAll('form')) {
+      const action = form.action || '';
+      const method = (form.method || 'get').toUpperCase();
+      const fields: string[] = [];
+      for (const inp of form.querySelectorAll('input, textarea, select')) {
+        const name = (inp as HTMLInputElement).name || inp.id || '';
+        const type = (inp as HTMLInputElement).type || '';
+        if (name) fields.push(`${name}(${type})`);
+      }
+      if (action || fields.length > 0) {
+        forms.push({ action, method, fields });
+      }
+    }
+
+    const links: string[] = [];
+    const sameHost = window.location.hostname;
+    for (const a of document.querySelectorAll('a[href]')) {
+      const href = a.href;
+      if (!href) continue;
+      try {
+        const url = new URL(href);
+        if (url.hostname === sameHost || !href.startsWith('http')) {
+          links.push(href);
+        }
+      } catch {}
+    }
+
+    const techStack: string[] = [];
+    const html = document.documentElement.innerHTML;
+    if (html.includes('vue') || html.includes('data-v-')) techStack.push('Vue');
+    if (html.includes('react') || html.includes('data-reactid')) techStack.push('React');
+    if (html.includes('angular') || html.includes('ng-app')) techStack.push('Angular');
+    if (html.includes('jquery')) techStack.push('jQuery');
+    if (html.includes('next.js') || html.includes('__NEXT_DATA__')) techStack.push('Next.js');
+    if (html.includes('nuxt')) techStack.push('Nuxt');
+    if (html.includes('miniprogram')) techStack.push('微信小程序');
+    if (html.includes('vant') || html.includes('vant-')) techStack.push('Vant');
+    if (html.includes('element-ui') || html.includes('el-')) techStack.push('Element UI');
+
+    return { title, primaryNav, authRequired, techStack, forms, links };
+  });
 }
 
 export async function exploreProject(seedUrls: string[], maxDepth: number): Promise<PageInfo[]> {
@@ -88,7 +149,7 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
   const results: PageInfo[] = [];
   const queue: { url: string; depth: number }[] = seedUrls.map(u => ({ url: u, depth: 0 }));
 
-  console.error(`[explorer] Launching Chromium for exploration on port ${CDP_PORT}...`);
+  console.error(`[explorer] Launching Chromium on port ${CDP_PORT}...`);
 
   const browser = await chromium.launch({
     headless: true,
@@ -104,16 +165,13 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
     ],
   });
 
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: true,
-  });
-
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
   let page: Page;
   try {
     page = await context.newPage();
-    console.error(`[explorer] Created new page`);
+    console.error(`[explorer] Created page`);
   } catch (e) {
-    throw new Error(`Failed to create new page: ${e}`);
+    throw new Error(`Failed to create page: ${e}`);
   }
 
   while (queue.length > 0) {
@@ -126,30 +184,37 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
       const response = await page.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' });
       console.error(`[explorer] HTTP status: ${response?.status()}, URL: ${page.url()}`);
 
-      // Wait for network to settle AND page to be stable
       try {
         await page.waitForLoadState('networkidle', { timeout: 15000 });
-        console.error(`[explorer] Network idle reached`);
       } catch (e) {
-        console.error(`[explorer] Network idle timeout (continuing anyway): ${e}`);
+        console.error(`[explorer] networkidle timeout: ${e}`);
       }
-
-      // Additional wait for any JS to finish rendering
       await page.waitForTimeout(2000);
 
       const pageTitle = await page.title();
       const pageContent = await page.content();
-      console.error(`[explorer] After-wait: title="${pageTitle}", html_len=${pageContent.length}`);
+      console.error(`[explorer] title="${pageTitle}", html_len=${pageContent.length}`);
 
-      // Verify page actually loaded something meaningful
       const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 200) || 'EMPTY');
-      console.error(`[explorer] Body text preview: "${bodyText.replace(/\n/g, ' ').slice(0, 100)}"`);
+      console.error(`[explorer] Body text: "${bodyText.replace(/\n/g, ' ').slice(0, 100)}"`);
 
-      console.error(`[explorer] Extracting page info with AI...`);
-      let info;
+      console.error(`[explorer] Extracting page info from DOM...`);
       try {
-        info = await extractPageInfo(page);
-        console.error(`[explorer] AI extraction complete for ${url}`);
+        const extracted = await extractFromDom(page);
+        console.error(`[explorer] DOM extracted: title="${extracted.title}", authRequired=${extracted.authRequired}, nav_count=${extracted.primaryNav.length}, links_count=${extracted.links.length}`);
+
+        const rawInfo = {
+          title: extracted.title,
+          primaryNav: extracted.primaryNav,
+          mainFeatures: [] as string[],
+          authRequired: extracted.authRequired,
+          techStack: extracted.techStack,
+          forms: extracted.forms,
+          keyElements: [] as string[],
+          links: extracted.links,
+        };
+
+        const info = validatePageInfo(rawInfo, page.url(), pageTitle);
         results.push(info);
 
         for (const link of info.links.slice(0, 10)) {
@@ -159,7 +224,7 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
           }
         }
       } catch (e) {
-        console.error(`[explorer] AI extraction failed for ${url}: ${e}`);
+        console.error(`[explorer] DOM extraction failed for ${url}: ${e}`);
       }
     } catch (e) {
       console.error(`[explorer] Navigation failed for ${url}: ${e}`);
@@ -168,48 +233,6 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
 
   await browser.close();
   return results;
-}
-
-async function extractPageInfo(page: Page): Promise<PageInfo> {
-  const pageUrl = page.url();
-  const pageTitle = await page.title();
-
-  // Verify screenshot actually works and print size
-  let screenshotSize = 0;
-  try {
-    const screenshot = await page.screenshot({ encoding: 'base64' as any, type: 'jpeg', quality: 80 });
-    screenshotSize = screenshot.length;
-    console.error(`[explorer] Verified screenshot: ${screenshotSize} chars, URL=${pageUrl}`);
-  } catch (e) {
-    console.error(`[explorer] Screenshot failed: ${e}`);
-  }
-
-  const { PlaywrightAgent } = await import('@midscene/web/playwright');
-  const agent = new PlaywrightAgent(page);
-
-  const prompt = `分析当前页面的截图。只描述你实际看到的内容，不要编造：
-- 标题: 页面的实际标题（看截图）
-- 导航: 实际存在的顶部导航项（没有就不填）
-- 主要功能: 实际看到的功能模块
-- 是否需要登录: 看到登录框/用户名密码输入框=true，没看到=false
-- 技术栈: 实际能推断出的前端技术（如Vue/React/jQuery/小程序等）
-- 表单: 实际存在的表单（如登录表单的账号/密码字段）
-- 关键元素: 实际可见的关键UI元素
-- 链接: 实际存在的内部链接（相对路径或同类域名）
-
-JSON格式返回（不要返回空数组，字段为空就用[]）：
-{title, primaryNav, mainFeatures, authRequired, techStack, forms, keyElements, links}`;
-
-  let rawInfo: RawPageInfo;
-  try {
-    rawInfo = await agent.aiQuery<RawPageInfo>(prompt, { screenshotIncluded: true });
-  } catch (e) {
-    throw new Error(`aiQuery failed: ${e}`);
-  }
-
-  console.error(`[explorer] AI response: title="${rawInfo?.title}", authRequired=${rawInfo?.authRequired}, links_count=${Array.isArray(rawInfo?.links) ? rawInfo.links.length : '?'}`);
-
-  return validatePageInfo(rawInfo, pageUrl, pageTitle);
 }
 
 export function toMarkdown(pages: PageInfo[]): string {
