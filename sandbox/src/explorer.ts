@@ -20,6 +20,69 @@ export interface FormInfo {
   fields: string[];
 }
 
+interface RawPageInfo {
+  title?: unknown;
+  primaryNav?: unknown;
+  mainFeatures?: unknown;
+  authRequired?: unknown;
+  techStack?: unknown;
+  forms?: unknown;
+  keyElements?: unknown;
+  links?: unknown;
+}
+
+function isString(v: unknown): v is string {
+  return typeof v === 'string';
+}
+
+function isBool(v: unknown): v is boolean {
+  return typeof v === 'boolean';
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every(isString);
+}
+
+function isFormInfoArray(v: unknown): v is FormInfo[] {
+  return Array.isArray(v) && v.every(item => {
+    if (typeof item !== 'object' || item === null) return false;
+    const obj = item as Record<string, unknown>;
+    return isString(obj.action) && isString(obj.method) && isStringArray(obj.fields);
+  });
+}
+
+function isValidLink(v: unknown, host: string): boolean {
+  if (!isString(v)) return false;
+  if (!v.startsWith('http')) return true;
+  return v.includes(host);
+}
+
+function validatePageInfo(raw: RawPageInfo, pageUrl: string, pageTitle: string): PageInfo {
+  const host = (() => {
+    try { return new URL(pageUrl).host; } catch { return ''; }
+  })();
+
+  const links = raw.links;
+  const validatedLinks: string[] = [];
+  if (isStringArray(links)) {
+    for (const l of links) {
+      if (isValidLink(l, host)) validatedLinks.push(l);
+    }
+  }
+
+  return {
+    url: pageUrl,
+    title: isString(raw.title) ? raw.title : (pageTitle || ''),
+    primaryNav: isStringArray(raw.primaryNav) ? raw.primaryNav : [],
+    mainFeatures: isStringArray(raw.mainFeatures) ? raw.mainFeatures : [],
+    authRequired: isBool(raw.authRequired) ? raw.authRequired : false,
+    techStack: isStringArray(raw.techStack) ? raw.techStack : [],
+    forms: isFormInfoArray(raw.forms) ? raw.forms : [],
+    keyElements: isStringArray(raw.keyElements) ? raw.keyElements : [],
+    links: validatedLinks,
+  };
+}
+
 export async function exploreProject(seedUrls: string[], maxDepth: number): Promise<PageInfo[]> {
   const visited = new Set<string>();
   const results: PageInfo[] = [];
@@ -89,17 +152,27 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
 }
 
 async function extractPageInfo(page: Page): Promise<PageInfo> {
+  let pageUrl = '';
+  let pageTitle = '';
+
+  try {
+    pageUrl = page.url();
+    pageTitle = await page.title();
+    const html = await page.content();
+    console.error(`[explorer] pageUrl=${pageUrl}, title=${pageTitle}, html_len=${html.length}`);
+  } catch (e) {
+    throw new Error(`Failed to read page metadata: ${e}`);
+  }
+
+  try {
+    const screenshot = await page.screenshot({ encoding: 'base64' as any });
+    console.error(`[explorer] screenshot size=${screenshot.length} chars`);
+  } catch (e) {
+    throw new Error(`Failed to capture screenshot: ${e}`);
+  }
+
   const { PlaywrightAgent } = await import('@midscene/web/playwright');
   const agent = new PlaywrightAgent(page);
-
-  const pageUrl = page.url();
-  const pageTitle = await page.title();
-  const html = await page.content();
-  console.error(`[explorer] pageUrl=${pageUrl}, title=${pageTitle}, html_len=${html.length}`);
-
-  // Force screenshot first to verify page loaded
-  const screenshot = await page.screenshot({ encoding: 'base64' as any });
-  console.error(`[explorer] screenshot size=${screenshot.length} chars`);
 
   const prompt = `分析当前页面的截图和DOM。只描述你实际看到的内容：
 - 标题: 页面的实际标题
@@ -114,41 +187,16 @@ async function extractPageInfo(page: Page): Promise<PageInfo> {
 JSON格式返回，字段不能为空数组就用[]：
 {title, primaryNav, mainFeatures, authRequired, techStack, forms, keyElements, links}`;
 
-  const rawInfo = await agent.aiQuery<{
-    title: string;
-    primaryNav: string[];
-    mainFeatures: string[];
-    authRequired: boolean;
-    techStack: string[];
-    forms: { action: string; method: string; fields: string[] }[];
-    keyElements: string[];
-    links: string[];
-  }>(prompt, { screenshotIncluded: true });
+  let rawInfo: RawPageInfo;
+  try {
+    rawInfo = await agent.aiQuery<RawPageInfo>(prompt, { screenshotIncluded: true });
+  } catch (e) {
+    throw new Error(`aiQuery failed: ${e}`);
+  }
 
-  const info = rawInfo as {
-    title?: string;
-    primaryNav?: string[];
-    mainFeatures?: string[];
-    authRequired?: boolean;
-    techStack?: string[];
-    forms?: { action: string; method: string; fields: string[] }[];
-    keyElements?: string[];
-    links?: string[];
-  };
+  console.error(`[explorer] AI response: title=${rawInfo?.title}, authRequired=${rawInfo?.authRequired}, links_count=${Array.isArray(rawInfo?.links) ? rawInfo.links.length : '?'}`);
 
-  console.error(`[explorer] AI response: title=${info.title}, authRequired=${info.authRequired}, links_count=${info.links?.length}`);
-
-  return {
-    url: pageUrl,
-    title: info.title || pageTitle || '',
-    primaryNav: Array.isArray(info.primaryNav) ? info.primaryNav : [],
-    mainFeatures: Array.isArray(info.mainFeatures) ? info.mainFeatures : [],
-    authRequired: Boolean(info.authRequired),
-    techStack: Array.isArray(info.techStack) ? info.techStack : [],
-    forms: Array.isArray(info.forms) ? info.forms : [],
-    keyElements: Array.isArray(info.keyElements) ? info.keyElements : [],
-    links: Array.isArray(info.links) ? info.links.filter(l => !l.startsWith('http') || l.includes(new URL(pageUrl).host)) : [],
-  };
+  return validatePageInfo(rawInfo, pageUrl, pageTitle);
 }
 
 export function toMarkdown(pages: PageInfo[]): string {

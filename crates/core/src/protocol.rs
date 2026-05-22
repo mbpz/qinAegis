@@ -161,9 +161,11 @@ impl MidsceneProcess {
                 cmd.env("MIDSCENE_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
                 cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
+                // MODEL_FAMILY must match a Midscene-supported VL family (qwen2.5-vl, qwen3-vl, etc.)
+                // The model name (cfg.model) may differ; this family tells Midscene how to format vision requests.
                 cmd.env("MIDSCENE_MODEL_FAMILY", "qwen2.5-vl");
                 cmd.env("MIDSCENE_REPLANNING_CYCLE_LIMIT", "100");
-                // Also set intent-specific model overrides to same model
+                // Intent-specific overrides (insight intent uses separate model config keys)
                 cmd.env("MIDSCENE_INSIGHT_MODEL_NAME", &cfg.model);
                 cmd.env("MIDSCENE_INSIGHT_MODEL_FAMILY", "qwen2.5-vl");
                 cmd.env("MIDSCENE_INSIGHT_MODEL_API_KEY", &cfg.api_key);
