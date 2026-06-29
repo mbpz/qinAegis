@@ -134,6 +134,41 @@ fake run, 断言收到 `GateDecided{passed:true}` + flaky_history 有第二次 p
 - 持久化事件流 — bus 进程内一次, 审计走 summary.json + reporter.html.
 - AI 自动改 spec — 留给后续 spec-drift 阶段.
 
+## Implementation Status (2026-06-29)
+
+**Shipped (v0.7.2 — feature/reliability-loop):**
+- `ReliabilityEvent` enum (10 variants) — Task 1 ✓
+- `ReliabilityBus` (broadcast wrapper) — Task 2 ✓
+- `FlakyWindow` (pass/fail ring buffer) — Task 3 ✓
+- Sandbox `failed_step` propagation — Task 4 ✓
+- **Healer keystone bug fix** (was hardcoding `"aiAssert"`) — Task 5 ✓
+- `Quarantine` persistence — Task 6 ✓
+- `FlakyTracker` worker — Task 7 ✓
+- `GateLoop` worker — Task 8 ✓
+- `pipeline::run` orchestrator (4 of 6 workers) — Task 9 ✓
+- Real `TestExecutor` wired — Task 10 ✓
+- Healer wired into `heal_loop` — Task 11 ✓
+- Integration tests — Tasks 12-13 ✓
+- `HealedStore` (atomic per-run healed YAML) — Task 14 ✓
+- `FlakyHistory` (per-case pass/fail persistence) — Task 15 ✓
+
+**Deferred (not in this branch):**
+- **Generate + Critic workers** — orchestrator currently receives pre-generated cases via `CaseGenerated` events. The `TestCaseGenerator` and `Critic` modules exist and are usable, but the pipeline does not spawn their workers. Wire-up deferred until a CLI entry point exists.
+- **`retry_with_backoff` for transient LLM errors** — `heal_loop` short-circuits to `HealExhausted` on the first `h.heal(...).await` failure. A 429/network blip will mark a case exhausted prematurely. Add a `retry_with_backoff(3, 100ms..2s)` helper when LLM reliability becomes an issue.
+- **`pipeline_meta` in `summary.json`** — heal_attempts, flaky_score, critic_score are computed in memory but not written to the report. Add a final `summary.json` writer task when reporting is needed.
+- **`HealRequested` event** — variant exists for round-trip testing but no worker publishes it. The orchestrator reads `CaseExecuted` directly. If audit trail is needed, add an emit before the `healer.heal(...)` call.
+- **Deterministic test rendezvous** — orchestrator integration tests use a 200ms `sleep` to let workers subscribe before publishing. Works on this hardware, may flake on slow CI. Replace with a `Barrier` or a "ready" event when CI becomes a concern.
+- **Consolidate `scaffold_run_dir`** — 3 near-identical copies in `gate_loop.rs`, `pipeline.rs`, and `tests/pipeline_loop.rs`. Extract to a `test_support` module.
+
+## Test Results
+
+```
+cargo test -p qin_aegis_core
+# 58 passed, 0 failed (3 suites)
+```
+
+Keystone bug regression test: `executor_does_not_pass_hardcoded_aiassert` (healer.rs) — reads `executor.rs` source at test time and asserts no `healer.heal(...)` call passes a literal `"aiAssert"`.
+
 ## Rollout
 
 1. events.rs + bus.rs 落地, 编译过, 无 worker.
