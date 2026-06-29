@@ -164,10 +164,21 @@ fake run, 断言收到 `GateDecided{passed:true}` + flaky_history 有第二次 p
 
 ```
 cargo test -p qin_aegis_core
-# 58 passed, 0 failed (3 suites)
+# 66 passed, 0 failed (3 suites)
 ```
 
 Keystone bug regression test: `executor_does_not_pass_hardcoded_aiassert` (healer.rs) — reads `executor.rs` source at test time and asserts no `healer.heal(...)` call passes a literal `"aiAssert"`.
+
+## Follow-up Round (2026-06-29)
+
+After the base 15 tasks landed, 4 follow-up items shipped in the same branch:
+
+1. **retry-with-backoff** (`crates/core/src/retry.rs`) — `retry_with_backoff` (Result) + `retry_with_backoff_option` (Option) helpers. `heal_loop` wraps `Healer::heal` in `retry_with_backoff_option(3, 100..2000ms)`. 7 tests. Closes spec gap.
+2. **`HealRequested` event** — `heal_loop` publishes a `HealRequested` audit event before invoking the Healer. `original_yaml` is empty for now (TODO: plumb through `CaseExecuted`). 1 test.
+3. **Test rendezvous** — replaced 3 fixed sleeps (20-200ms) with deterministic `bus.subscriber_count()` poll at 1ms granularity. 5 consecutive full-suite runs confirmed no flakes.
+4. **Consolidate `scaffold_run_dir`** — 3 near-identical inline helpers in `gate_loop.rs`, `pipeline.rs`, `tests/pipeline_loop.rs` collapsed into `crates/core/src/test_support.rs`. -102 lines net.
+
+**Final state:** 28 commits, +1960/-202, 19 files, 66 tests passing.
 
 ## Rollout
 
