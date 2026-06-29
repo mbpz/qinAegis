@@ -7,6 +7,7 @@ pub mod critic;
 pub mod llm;
 pub mod protocol;
 pub mod events;
+pub mod flaky;
 pub mod executor;
 pub mod reporter;
 pub mod performance;
