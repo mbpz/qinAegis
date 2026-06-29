@@ -7,6 +7,8 @@
 //! strike counter. Used by `FlakyTracker` to decide between
 //! `FlakyDetected` and `CaseQuarantined` events.
 
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::bus::ReliabilityBus;
@@ -88,6 +90,81 @@ impl FlakyWindow {
 
     pub fn should_quarantine(&self, strikes: u32) -> bool {
         self.inner.lock().unwrap().flips_count >= strikes
+    }
+}
+
+/// Persistent per-case pass/fail history.
+///
+/// Each case id is mapped to a `Vec<bool>` of outcomes (oldest first). The
+/// on-disk format is a JSON object `{ "cases": { "<id>": [bool,...] } }`.
+/// Per-case histories are capped at 100 entries to keep the file bounded.
+///
+/// Writes are atomic: serialize to `<file>.tmp`, then `rename` over the
+/// target. Concurrent readers either see the old file or the new one.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct StoredHistory {
+    cases: HashMap<String, Vec<bool>>,
+}
+
+pub struct FlakyHistory {
+    path: std::path::PathBuf,
+    inner: StoredHistory,
+}
+
+impl FlakyHistory {
+    /// Construct an empty in-memory history bound to `path`. The path is
+    /// only used on `save`; nothing is read.
+    pub fn empty(path: &Path) -> Self {
+        Self { path: path.to_path_buf(), inner: StoredHistory::default() }
+    }
+
+    /// Load history from `path`. If the file is missing, returns an empty
+    /// history. If the file is corrupt, returns an empty history (logged but
+    /// not fatal — we don't want a bad JSON to wedge the pipeline).
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let inner = if path.exists() {
+            match std::fs::read_to_string(path) {
+                Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+                Err(e) => {
+                    tracing::warn!("FlakyHistory read failed for {}: {}", path.display(), e);
+                    StoredHistory::default()
+                }
+            }
+        } else {
+            StoredHistory::default()
+        };
+        Ok(Self { path: path.to_path_buf(), inner })
+    }
+
+    /// Append one outcome for `case_id`. Caps per-case history at 100
+    /// entries by evicting the oldest record.
+    pub fn record(&mut self, case_id: &str, passed: bool) {
+        let entry = self.inner.cases.entry(case_id.to_string()).or_default();
+        // ponytail: cap per-case history at 100 to keep file small
+        if entry.len() >= 100 { entry.remove(0); }
+        entry.push(passed);
+    }
+
+    /// Read-only view of one case's history. Returns an empty vec if the
+    /// case has never been recorded.
+    pub fn history_for(&self, case_id: &str) -> Vec<bool> {
+        self.inner.cases.get(case_id).cloned().unwrap_or_default()
+    }
+
+    /// Atomically write the current state to disk.
+    pub fn save(&self) -> anyhow::Result<()> {
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        std::fs::create_dir_all(parent)?;
+        let tmp_name = self
+            .path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("flaky");
+        let tmp = parent.join(format!(".{}.tmp", tmp_name));
+        let body = serde_json::to_string_pretty(&self.inner)?;
+        std::fs::write(&tmp, body)?;
+        std::fs::rename(&tmp, &self.path)?;
+        Ok(())
     }
 }
 
@@ -191,5 +268,21 @@ mod tests {
             Ok(Ok(ReliabilityEvent::FlakyDetected { case_id, .. })) => assert_eq!(case_id, "case-1"),
             other => panic!("expected FlakyDetected, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn history_save_and_load_roundtrips() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("flaky.json");
+
+        let mut hist = FlakyHistory::load(&path).unwrap();
+        hist.record("c1", true);
+        hist.record("c1", false);
+        hist.record("c1", true);
+        hist.save().unwrap();
+
+        let hist2 = FlakyHistory::load(&path).unwrap();
+        assert_eq!(hist2.history_for("c1"), vec![true, false, true]);
     }
 }

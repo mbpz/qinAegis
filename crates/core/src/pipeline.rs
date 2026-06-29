@@ -47,6 +47,10 @@ pub struct PipelineCtx {
     /// Optional LLM-backed healer; when `None`, the heal stage emits
     /// `HealExhausted` immediately.
     pub llm: Option<Arc<crate::healer::Healer>>,
+    /// Path to the persistent flaky history file. Loaded on pipeline start,
+    /// written on `RunFinished`. Default is a relative `flaky_history.json`
+    /// in the current working directory.
+    pub flaky_history_path: PathBuf,
 }
 
 impl Default for PipelineCtx {
@@ -54,6 +58,7 @@ impl Default for PipelineCtx {
         Self {
             project_root: PathBuf::from("."),
             llm: None,
+            flaky_history_path: PathBuf::from("flaky_history.json"),
         }
     }
 }
@@ -61,6 +66,23 @@ impl Default for PipelineCtx {
 pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToken) -> anyhow::Result<()> {
     let _cfg = PipelineConfig::default();
     let mut set: JoinSet<anyhow::Result<()>> = JoinSet::new();
+
+    // Load (or initialize) persistent flaky history once, share across stages.
+    // ponytail: failures here are non-fatal — log and start empty so a
+    // corrupt or unreadable file never blocks the pipeline.
+    let flaky_history = match crate::flaky::FlakyHistory::load(&ctx.flaky_history_path) {
+        Ok(h) => std::sync::Arc::new(std::sync::Mutex::new(h)),
+        Err(e) => {
+            tracing::warn!(
+                "FlakyHistory load failed for {}: {} — starting empty",
+                ctx.flaky_history_path.display(),
+                e,
+            );
+            std::sync::Arc::new(std::sync::Mutex::new(crate::flaky::FlakyHistory::empty(
+                &ctx.flaky_history_path,
+            )))
+        }
+    };
 
     // Watchdog — fires cancellation after timeout.
     {
@@ -111,7 +133,8 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
     {
         let bus = bus.clone();
         let cancel = cancel.clone();
-        set.spawn(async move { flaky_loop(bus, cancel).await });
+        let history = flaky_history.clone();
+        set.spawn(async move { flaky_loop(bus, cancel, history).await });
     }
 
     // GateLoop stage: receives RunFinished, runs GateService.
@@ -254,7 +277,11 @@ async fn heal_loop(
     }
 }
 
-async fn flaky_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Result<()> {
+async fn flaky_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    history: Arc<std::sync::Mutex<crate::flaky::FlakyHistory>>,
+) -> anyhow::Result<()> {
     use std::collections::HashMap;
     use std::sync::Arc;
     let mut rx = bus.subscribe();
@@ -264,12 +291,26 @@ async fn flaky_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::R
             _ = cancel.cancelled() => return Ok(()),
             res = rx.recv() => match res {
                 Ok(ReliabilityEvent::CaseExecuted { case_id, passed, .. }) => {
+                    // Update in-memory window (drives FlakyTracker decisions).
                     let w = windows
                         .entry(case_id.clone())
                         .or_insert_with(|| Arc::new(crate::flaky::FlakyWindow::new(10)))
                         .clone();
                     w.record(passed);
+                    // Persist outcome to disk-backed history.
+                    if let Ok(mut h) = history.lock() {
+                        h.record(&case_id, passed);
+                    }
                     crate::flaky::FlakyTracker::process(w, &case_id, &bus).await;
+                }
+                Ok(ReliabilityEvent::RunFinished { .. }) => {
+                    // Flush history to disk at the end of each run so
+                    // cross-run trend data survives a crash or restart.
+                    if let Ok(h) = history.lock() {
+                        if let Err(e) = h.save() {
+                            tracing::warn!("FlakyHistory save failed: {}", e);
+                        }
+                    }
                 }
                 Ok(_) => continue,
                 Err(RecvError::Lagged(n)) => tracing::warn!("flaky_loop lagged {}", n),
