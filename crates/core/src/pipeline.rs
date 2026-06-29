@@ -50,6 +50,24 @@ pub struct PipelineCtx {
     /// Optional LLM-backed healer; when `None`, the heal stage emits
     /// `HealExhausted` immediately.
     pub llm: Option<Arc<crate::healer::Healer>>,
+    /// Optional test-case generator — when `Some`, a Generate worker is
+    /// spawned at pipeline start that calls
+    /// `TestCaseGenerator::generate(spec_md, requirement)` once and publishes
+    /// one `CaseGenerated` per generated case. When `None`, the pipeline
+    /// expects `CaseGenerated` events from an external source.
+    pub generator: Option<Arc<crate::generator::TestCaseGenerator>>,
+    /// Optional critic — when `Some`, a Critic worker subscribes to
+    /// `CaseGenerated`, calls `Critic::review(yaml, spec_md, requirement)`,
+    /// re-publishes the event with `critic_score` set if the score meets the
+    /// pass threshold (>= 70), otherwise emits `CriticRejected`. When `None`,
+    /// the pipeline passes `CaseGenerated` straight through.
+    pub critic: Option<Arc<crate::critic::Critic>>,
+    /// Markdown spec shared with the generator and critic workers. Used as
+    /// input to `TestCaseGenerator::generate` and `Critic::review`.
+    pub spec_md: String,
+    /// Requirement text shared with the generator and critic workers. Used
+    /// as input to `TestCaseGenerator::generate` and `Critic::review`.
+    pub requirement: String,
     /// Path to the persistent flaky history file. Loaded on pipeline start,
     /// written on `RunFinished`. Default is a relative `flaky_history.json`
     /// in the current working directory.
@@ -67,6 +85,10 @@ impl Default for PipelineCtx {
         Self {
             project_root: PathBuf::from("."),
             llm: None,
+            generator: None,
+            critic: None,
+            spec_md: String::new(),
+            requirement: String::new(),
             flaky_history_path: PathBuf::from("flaky_history.json"),
             run_id: "current".into(),
         }
@@ -208,6 +230,31 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
             use crate::gate::{GateService, GateThresholds};
             let svc = GateService::new("default".into(), None, GateThresholds::default());
             crate::gate_loop::GateLoop::run(bus, svc, cancel).await
+        });
+    }
+
+    // Generate worker (once at start): calls TestCaseGenerator::generate and
+    // publishes one CaseGenerated per generated case.
+    if let Some(generator) = &ctx.generator {
+        let bus = bus.clone();
+        let cancel = cancel.clone();
+        let generator = generator.clone();
+        let spec_md = ctx.spec_md.clone();
+        let requirement = ctx.requirement.clone();
+        set.spawn(async move {
+            generate_loop(bus, cancel, generator, spec_md, requirement).await
+        });
+    }
+
+    // Critic worker (subscribes to CaseGenerated, scores + re-publishes).
+    if let Some(critic) = &ctx.critic {
+        let bus = bus.clone();
+        let cancel = cancel.clone();
+        let critic = critic.clone();
+        let spec_md = ctx.spec_md.clone();
+        let requirement = ctx.requirement.clone();
+        set.spawn(async move {
+            critic_loop(bus, cancel, critic, spec_md, requirement, GENERATE_MAX_ATTEMPTS).await
         });
     }
 
@@ -381,6 +428,109 @@ pub(crate) async fn heal_loop_for_test(
     meta: Arc<MetaCollector>,
 ) -> anyhow::Result<()> {
     heal_loop(bus, cancel, healer, std::path::PathBuf::from("."), meta).await
+}
+
+/// Generate worker: calls `TestCaseGenerator::generate(spec_md, requirement)`
+/// once at pipeline start and publishes one `CaseGenerated` per generated
+/// case. The Critic worker (if present) picks them up downstream to score
+/// them; otherwise downstream consumers see `critic_score = None`.
+async fn generate_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    generator: Arc<crate::generator::TestCaseGenerator>,
+    spec_md: String,
+    requirement: String,
+) -> anyhow::Result<()> {
+    let cases = match generator.generate(&spec_md, &requirement).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("generate_loop failed: {}", e);
+            return Ok(());
+        }
+    };
+    for case in cases {
+        if cancel.is_cancelled() {
+            return Ok(());
+        }
+        bus.publish(ReliabilityEvent::CaseGenerated {
+            case_id: case.id.clone(),
+            yaml: case.yaml_script.clone(),
+            // Critic will fill this in if a Critic worker is wired up;
+            // downstream stages treat `None` as "not yet scored".
+            critic_score: None,
+        });
+    }
+    Ok(())
+}
+
+/// Critic worker: subscribes to `CaseGenerated`, scores each case via
+/// `Critic::review`, and re-publishes with `critic_score` set when the score
+/// meets the pass threshold (>= 70). Cases that fail to clear the threshold
+/// are emitted as `CriticRejected` up to `max_attempts` times before being
+/// dropped (the orchestrator doesn't currently re-trigger generation on
+/// rejection — that loop is left to a future follow-up).
+async fn critic_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    critic: Arc<crate::critic::Critic>,
+    spec_md: String,
+    requirement: String,
+    max_attempts: u8,
+) -> anyhow::Result<()> {
+    use std::collections::HashMap;
+    let mut attempts: HashMap<String, u8> = HashMap::new();
+    let mut rx = bus.subscribe();
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return Ok(()),
+            res = rx.recv() => match res {
+                Ok(ReliabilityEvent::CaseGenerated { case_id, yaml, critic_score }) => {
+                    // Only score cases the generator emitted without a score.
+                    // A pre-scored event signals that someone else (e.g. an
+                    // upstream service) already evaluated it — pass it through
+                    // untouched.
+                    if critic_score.is_some() {
+                        continue;
+                    }
+                    let review = match critic.review(&yaml, &spec_md, &requirement).await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::warn!("critic_loop review failed for {}: {}", case_id, e);
+                            continue;
+                        }
+                    };
+                    if review.score >= 70 {
+                        bus.publish(ReliabilityEvent::CaseGenerated {
+                            case_id,
+                            yaml,
+                            critic_score: Some(review.score),
+                        });
+                    } else {
+                        let n = attempts.get(&case_id).copied().unwrap_or(0);
+                        if n >= max_attempts {
+                            bus.publish(ReliabilityEvent::CriticRejected {
+                                case_id: case_id.clone(),
+                                reason: format!("score {} < 70 after {} attempts", review.score, n),
+                                attempt: n,
+                            });
+                            attempts.remove(&case_id);
+                        } else {
+                            let next_n = n + 1;
+                            attempts.insert(case_id.clone(), next_n);
+                            bus.publish(ReliabilityEvent::CriticRejected {
+                                case_id,
+                                reason: format!("score {} < 70", review.score),
+                                attempt: next_n,
+                            });
+                        }
+                    }
+                }
+                Ok(_) => continue,
+                Err(RecvError::Lagged(n)) => tracing::warn!("critic_loop lagged {}", n),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
 }
 
 async fn flaky_loop(
@@ -705,5 +855,104 @@ mod tests {
         let body = std::fs::read_to_string(&summary_path).unwrap();
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(json["pipeline_meta"]["c1"]["critic_score"], 90);
+    }
+
+    #[tokio::test]
+    async fn generate_loop_publishes_case_generated_per_case() {
+        use crate::generator::TestCaseGenerator;
+        use crate::llm::TestLlm;
+
+        // TestLlm returns a canned JSON array with 2 test cases.
+        let canned = r#"[
+          {"id":"c1","name":"case1","requirement_id":"r1","type":"e2e","priority":"p1","yaml_script":"target:\n  url: x","expected_result":"ok","tags":[]},
+          {"id":"c2","name":"case2","requirement_id":"r1","type":"e2e","priority":"p2","yaml_script":"target:\n  url: y","expected_result":"ok","tags":[]}
+        ]"#;
+        let llm = crate::llm::ArcLlmClient::new(TestLlm::new(move |_msgs| {
+            Ok(canned.to_string())
+        }));
+        let generator = Arc::new(TestCaseGenerator::new(llm));
+
+        let bus = ReliabilityBus::new(64);
+        let mut rx = bus.subscribe();
+        let cancel = CancellationToken::new();
+
+        let bus_c = bus.clone();
+        let cancel_c = cancel.clone();
+        let gen_c = generator.clone();
+        let h = tokio::spawn(async move {
+            super::generate_loop(bus_c, cancel_c, gen_c, "spec".into(), "req".into()).await
+        });
+        // generate_loop publishes synchronously inside the closure; just
+        // await its completion before draining the receiver.
+        h.await.unwrap().unwrap();
+
+        // Collect all CaseGenerated events.
+        let mut received = Vec::new();
+        while let Ok(ReliabilityEvent::CaseGenerated { case_id, .. }) =
+            tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                rx.recv(),
+            )
+            .await
+            .unwrap_or(Err(tokio::sync::broadcast::error::RecvError::Closed))
+        {
+            received.push(case_id);
+        }
+        received.sort();
+        assert_eq!(
+            received,
+            vec!["c1".to_string(), "c2".to_string()],
+            "expected generate_loop to publish one CaseGenerated per case",
+        );
+        cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn critic_loop_scores_and_passes_through() {
+        use crate::critic::Critic;
+        use crate::llm::TestLlm;
+
+        // TestLlm returns a CriticReview JSON with score 85 (>= 70 threshold).
+        let canned = r#"{"score":85,"issues":[],"suggestions":[],"coverage":"good"}"#;
+        let llm = crate::llm::ArcLlmClient::new(TestLlm::new(move |_msgs| {
+            Ok(canned.to_string())
+        }));
+        let critic = Arc::new(Critic::new(llm));
+
+        let bus = ReliabilityBus::new(64);
+        let mut rx = bus.subscribe();
+        let cancel = CancellationToken::new();
+
+        let bus_c = bus.clone();
+        let cancel_c = cancel.clone();
+        let critic_c = critic.clone();
+        let h = tokio::spawn(async move {
+            super::critic_loop(bus_c, cancel_c, critic_c, "spec".into(), "req".into(), 3).await
+        });
+        wait_for_subscribers(&bus, 2, std::time::Duration::from_secs(2)).await;
+
+        bus.publish(ReliabilityEvent::CaseGenerated {
+            case_id: "c1".into(),
+            yaml: "target: x".into(),
+            critic_score: None,
+        });
+
+        // Critic should re-publish with score 85.
+        let got = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ReliabilityEvent::CaseGenerated {
+                        case_id,
+                        critic_score,
+                        ..
+                    }) if critic_score.is_some() => break (case_id, critic_score.unwrap()),
+                    _ => continue,
+                }
+            }
+        })
+        .await;
+        assert_eq!(got, Ok(("c1".into(), 85u8)));
+        cancel.cancel();
+        let _ = h.await;
     }
 }
