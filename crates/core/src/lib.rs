@@ -28,6 +28,13 @@ pub mod healer;
 pub mod pipeline;
 pub mod retry;
 
+/// Test-only utilities for integration tests. Exposed via `pub` so that
+/// external integration tests under `tests/` can import the helpers. The
+/// module compiles into production binaries as well, but the helpers
+/// themselves are small and only invoked from tests, so the cost is
+/// negligible. Keep all helpers pure (no panics in production paths).
+pub mod test_support;
+
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
 pub use critic::{Critic, CriticReview};

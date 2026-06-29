@@ -410,76 +410,13 @@ mod tests {
         }
     }
 
-    /// Build a minimal but valid run directory under `~/.qinAegis/projects/<proj>/reports/<run_id>`
-    /// so that `GateService::check()` succeeds without touching the network.
-    ///
-    /// Returns the canonical run directory path.
-    fn scaffold_run_dir(project: &str, run_id: &str) -> std::path::PathBuf {
-        let dir = crate::storage::LocalStorage::run_dir(project, run_id);
-        std::fs::create_dir_all(&dir).unwrap();
-
-        // summary.json with one passing case
-        std::fs::write(
-            dir.join("summary.json"),
-            r#"{"passed":1,"total":1}"#,
-        )
-        .unwrap();
-
-        // lighthouse.json with passing metrics
-        std::fs::write(
-            dir.join("lighthouse.json"),
-            r#"{
-                "url": "https://example.com",
-                "score": 1.0,
-                "metrics": {
-                    "performance": 1.0,
-                    "accessibility": 1.0,
-                    "best_practices": 1.0,
-                    "seo": 1.0,
-                    "first_contentful_paint": 500.0,
-                    "largest_contentful_paint": 1000.0,
-                    "cumulative_layout_shift": 0.05,
-                    "total_blocking_time": 50.0,
-                    "speed_index": 500.0,
-                    "ttfb": 50.0
-                },
-                "timestamp": "0",
-                "report_path": null
-            }"#,
-        )
-        .unwrap();
-
-        // locust-summary.json with passing stress numbers
-        std::fs::write(
-            dir.join("locust-summary.json"),
-            r#"{
-                "target_url": "https://example.com",
-                "stats": {
-                    "total_requests": 1000,
-                    "total_failures": 0,
-                    "median_response_time": 50.0,
-                    "avg_response_time": 60.0,
-                    "p95_response_time": 150.0,
-                    "p99_response_time": 200.0,
-                    "rps": 200.0,
-                    "duration": 30.0
-                },
-                "timestamp": "0",
-                "errors": []
-            }"#,
-        )
-        .unwrap();
-
-        dir
-    }
-
     #[tokio::test]
     async fn pipeline_runs_to_gate_decided() {
         // The orchestrator currently hardcodes project "default" for its
         // GateService, so we must scaffold the run dir under the same name.
         let project = "default";
         let run_id = "pipeline-r1";
-        let dir = scaffold_run_dir(project, run_id);
+        let dir = crate::test_support::scaffold_run_dir(project, run_id);
 
         let bus = ReliabilityBus::new(64);
         let mut rx = bus.subscribe();
@@ -528,9 +465,7 @@ mod tests {
 
         // Best-effort cleanup so repeated runs don't litter `~/.qinAegis`.
         let _ = std::fs::remove_dir_all(dir);
-        let _ = std::fs::remove_dir_all(
-            crate::storage::LocalStorage::project_dir(project),
-        );
+        crate::test_support::cleanup_project(project);
     }
 
     #[tokio::test]
