@@ -14,9 +14,11 @@ use crate::retry::retry_with_backoff_option;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
 
 const HEAL_MAX_ATTEMPTS: u8 = 2;
 const GENERATE_MAX_ATTEMPTS: u8 = 3;
@@ -71,9 +73,46 @@ impl Default for PipelineCtx {
     }
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CaseMeta {
+    #[serde(default)]
+    pub heal_attempts: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flaky_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub critic_score: Option<u8>,
+}
+
+#[derive(Debug, Default)]
+pub struct MetaCollector {
+    inner: Mutex<HashMap<String, CaseMeta>>,
+}
+
+impl MetaCollector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn record_heal_attempt(&self, case_id: &str, attempts: u8) {
+        let mut g = self.inner.lock().unwrap();
+        g.entry(case_id.to_string()).or_default().heal_attempts = attempts;
+    }
+    pub fn record_flaky_score(&self, case_id: &str, score: f64) {
+        let mut g = self.inner.lock().unwrap();
+        g.entry(case_id.to_string()).or_default().flaky_score = Some(score);
+    }
+    pub fn record_critic_score(&self, case_id: &str, score: u8) {
+        let mut g = self.inner.lock().unwrap();
+        g.entry(case_id.to_string()).or_default().critic_score = Some(score);
+    }
+    pub fn snapshot(&self) -> HashMap<String, CaseMeta> {
+        self.inner.lock().unwrap().clone()
+    }
+}
+
 pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToken) -> anyhow::Result<()> {
     let _cfg = PipelineConfig::default();
     let mut set: JoinSet<anyhow::Result<()>> = JoinSet::new();
+    let meta = Arc::new(MetaCollector::new());
 
     // Load (or initialize) persistent flaky history once, share across stages.
     // ponytail: failures here are non-fatal — log and start empty so a
@@ -126,7 +165,8 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
         let cancel = cancel.clone();
         let exec = executor.clone();
         let run_id = ctx.run_id.clone();
-        set.spawn(async move { execute_loop(bus, cancel, exec, run_id).await });
+        let meta = meta.clone();
+        set.spawn(async move { execute_loop(bus, cancel, exec, run_id, meta).await });
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
@@ -135,7 +175,8 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
         let cancel = cancel.clone();
         let h = ctx.llm.clone();
         let root = ctx.project_root.clone();
-        set.spawn(async move { heal_loop(bus, cancel, h, root).await });
+        let meta = meta.clone();
+        set.spawn(async move { heal_loop(bus, cancel, h, root, meta).await });
     }
 
     // FlakyTracker stage: receives CaseExecuted, publishes FlakyDetected/CaseQuarantined.
@@ -143,7 +184,19 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
         let bus = bus.clone();
         let cancel = cancel.clone();
         let history = flaky_history.clone();
-        set.spawn(async move { flaky_loop(bus, cancel, history).await });
+        let meta = meta.clone();
+        set.spawn(async move { flaky_loop(bus, cancel, history, meta).await });
+    }
+
+    // MetaWriter stage: on RunFinished, merges MetaCollector snapshot into
+    // <project_root>/runs/<run_id>/summary.json as a "pipeline_meta" object,
+    // preserving any pre-existing fields (passed, total, etc.).
+    {
+        let bus = bus.clone();
+        let cancel = cancel.clone();
+        let meta = meta.clone();
+        let root = ctx.project_root.clone();
+        set.spawn(async move { meta_writer_loop(bus, cancel, meta, root).await });
     }
 
     // GateLoop stage: receives RunFinished, runs GateService.
@@ -173,13 +226,15 @@ async fn execute_loop(
     cancel: CancellationToken,
     executor: std::sync::Arc<crate::executor::TestExecutor>,
     run_id: String,
+    meta: Arc<MetaCollector>,
 ) -> anyhow::Result<()> {
     let mut rx = bus.subscribe();
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
             res = rx.recv() => match res {
-                Ok(ReliabilityEvent::CaseGenerated { case_id, yaml, .. }) => {
+                Ok(ReliabilityEvent::CaseGenerated { case_id, yaml, critic_score, .. }) => {
+                    meta.record_critic_score(&case_id, critic_score.unwrap_or(0));
                     let case = crate::executor::TestCaseRef {
                         id: case_id.clone(),
                         yaml_script: yaml.clone(),
@@ -228,6 +283,7 @@ async fn heal_loop(
     cancel: CancellationToken,
     healer: Option<std::sync::Arc<crate::healer::Healer>>,
     project_root: PathBuf,
+    meta: Arc<MetaCollector>,
 ) -> anyhow::Result<()> {
     use std::collections::HashMap;
     let max_attempts = HEAL_MAX_ATTEMPTS;
@@ -258,6 +314,7 @@ async fn heal_loop(
                         bus.publish(ReliabilityEvent::HealExhausted {
                             case_id: case_id.clone(), attempts: n, last_error: err,
                         });
+                        meta.record_heal_attempt(&case_id, n);
                         continue;
                     }
                     let next_n = n + 1;
@@ -274,6 +331,7 @@ async fn heal_loop(
                         match heal_result {
                             Some(yaml) => {
                                 attempts.insert(case_id.clone(), next_n);
+                                meta.record_heal_attempt(&case_id, next_n);
                                 // Persist healed YAML before publishing so subscribers
                                 // can assume the file exists by the time they observe
                                 // the event. Best-effort: log on failure but do not
@@ -292,12 +350,14 @@ async fn heal_loop(
                             }
                             None => {
                                 attempts.insert(case_id.clone(), next_n);
+                                meta.record_heal_attempt(&case_id, next_n);
                                 bus.publish(ReliabilityEvent::HealExhausted {
                                     case_id, attempts: next_n, last_error: err,
                                 });
                             }
                         }
                     } else {
+                        meta.record_heal_attempt(&case_id, n);
                         bus.publish(ReliabilityEvent::HealExhausted {
                             case_id, attempts: n, last_error: err,
                         });
@@ -318,14 +378,16 @@ pub(crate) async fn heal_loop_for_test(
     bus: ReliabilityBus,
     cancel: CancellationToken,
     healer: Option<std::sync::Arc<crate::healer::Healer>>,
+    meta: Arc<MetaCollector>,
 ) -> anyhow::Result<()> {
-    heal_loop(bus, cancel, healer, std::path::PathBuf::from(".")).await
+    heal_loop(bus, cancel, healer, std::path::PathBuf::from("."), meta).await
 }
 
 async fn flaky_loop(
     bus: ReliabilityBus,
     cancel: CancellationToken,
     history: Arc<std::sync::Mutex<crate::flaky::FlakyHistory>>,
+    meta: Arc<MetaCollector>,
 ) -> anyhow::Result<()> {
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -345,6 +407,9 @@ async fn flaky_loop(
                     // Persist outcome to disk-backed history.
                     if let Ok(mut h) = history.lock() {
                         h.record(&case_id, passed);
+                    }
+                    if w.is_flaky() {
+                        meta.record_flaky_score(&case_id, w.flip_rate());
                     }
                     crate::flaky::FlakyTracker::process(w, &case_id, &bus).await;
                 }
@@ -382,11 +447,59 @@ async fn drain(mut set: JoinSet<anyhow::Result<()>>) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn write_summary_with_meta(path: &Path, meta: &HashMap<String, CaseMeta>) -> anyhow::Result<()> {
+    use serde_json::Value;
+    let mut summary: Value = if path.exists() {
+        let s = std::fs::read_to_string(path)?;
+        serde_json::from_str(&s).unwrap_or_else(|_| Value::Object(Default::default()))
+    } else {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        Value::Object(Default::default())
+    };
+    if let Some(obj) = summary.as_object_mut() {
+        let meta_value = serde_json::to_value(meta)?;
+        obj.insert("pipeline_meta".to_string(), meta_value);
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&summary)?)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+async fn meta_writer_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    meta: Arc<MetaCollector>,
+    project_root: PathBuf,
+) -> anyhow::Result<()> {
+    let mut rx = bus.subscribe();
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return Ok(()),
+            res = rx.recv() => match res {
+                Ok(ReliabilityEvent::RunFinished { run_id }) => {
+                    let snapshot = meta.snapshot();
+                    let summary_path = project_root.join("runs").join(&run_id).join("summary.json");
+                    if let Err(e) = write_summary_with_meta(&summary_path, &snapshot) {
+                        tracing::warn!("MetaWriter failed to write {}: {}", summary_path.display(), e);
+                    }
+                }
+                Ok(_) => continue,
+                Err(RecvError::Lagged(n)) => tracing::warn!("meta_writer lagged {}", n),
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::bus::ReliabilityBus;
     use crate::events::ReliabilityEvent;
+    use tempfile::tempdir;
 
     /// Wait until the bus has at least `n` subscribers attached.
     ///
@@ -432,10 +545,11 @@ mod tests {
         let handle = tokio::spawn(async move {
             super::run(bus_for_task, super::PipelineCtx::default(), cancel_for_task).await
         });
-        // Deterministically wait for all 4 workers (execute + heal + flaky + gate)
-        // to subscribe before publishing. The test's own rx is already counted
-        // in `subscriber_count()`, so we wait for 5 total (1 test + 4 workers).
-        wait_for_subscribers(&bus, 5, std::time::Duration::from_secs(2)).await;
+        // Deterministically wait for all 5 workers (execute + heal + flaky +
+        // gate + meta_writer) to subscribe before publishing. The test's own
+        // rx is already counted in `subscriber_count()`, so we wait for 6
+        // total (1 test + 5 workers).
+        wait_for_subscribers(&bus, 6, std::time::Duration::from_secs(2)).await;
 
         // Pre-publish events that simulate a clean single-case run.
         // Note: we DO NOT pre-publish CaseGenerated here because Task 10
@@ -484,7 +598,7 @@ mod tests {
         let bus_c = bus.clone();
         let cancel_c = cancel.clone();
         let h = tokio::spawn(async move {
-            super::heal_loop_for_test(bus_c, cancel_c, None).await
+            super::heal_loop_for_test(bus_c, cancel_c, None, std::sync::Arc::new(super::MetaCollector::new())).await
         });
         // Deterministically wait for the worker to subscribe (test rx + worker = 2)
         // instead of a fragile fixed sleep.
@@ -523,7 +637,7 @@ mod tests {
         let bus_c = bus.clone();
         let cancel_c = cancel.clone();
         let h = tokio::spawn(async move {
-            super::heal_loop_for_test(bus_c, cancel_c, None).await
+            super::heal_loop_for_test(bus_c, cancel_c, None, std::sync::Arc::new(super::MetaCollector::new())).await
         });
         wait_for_subscribers(&bus, 2, std::time::Duration::from_secs(2)).await;
 
@@ -548,5 +662,48 @@ mod tests {
         assert_eq!(got, Ok(original));
         cancel.cancel();
         let _ = h.await;
+    }
+
+    #[test]
+    fn write_summary_with_meta_preserves_existing_fields() {
+        use std::collections::HashMap;
+        let dir = tempdir().unwrap();
+        let run_dir = dir.path().join("runs/r1");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let summary_path = run_dir.join("summary.json");
+        std::fs::write(&summary_path, r#"{"passed": 5, "total": 5}"#).unwrap();
+
+        let mut meta_map = HashMap::new();
+        meta_map.insert("c1".to_string(), CaseMeta {
+            heal_attempts: 2,
+            flaky_score: Some(0.5),
+            critic_score: Some(80),
+        });
+        write_summary_with_meta(&summary_path, &meta_map).unwrap();
+
+        let body = std::fs::read_to_string(&summary_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["passed"], 5);
+        assert_eq!(json["total"], 5);
+        assert_eq!(json["pipeline_meta"]["c1"]["heal_attempts"], 2);
+        assert_eq!(json["pipeline_meta"]["c1"]["flaky_score"], 0.5);
+        assert_eq!(json["pipeline_meta"]["c1"]["critic_score"], 80);
+    }
+
+    #[test]
+    fn write_summary_with_meta_creates_file_if_missing() {
+        use std::collections::HashMap;
+        let dir = tempdir().unwrap();
+        let summary_path = dir.path().join("runs/r1/summary.json");
+
+        let mut meta_map = HashMap::new();
+        meta_map.insert("c1".to_string(), CaseMeta {
+            heal_attempts: 0, flaky_score: None, critic_score: Some(90),
+        });
+        write_summary_with_meta(&summary_path, &meta_map).unwrap();
+
+        let body = std::fs::read_to_string(&summary_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(json["pipeline_meta"]["c1"]["critic_score"], 90);
     }
 }
