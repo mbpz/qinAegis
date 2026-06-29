@@ -57,10 +57,22 @@ pub async fn run(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Resu
     }
 
     // Execute stage: receives CaseGenerated and HealProduced, runs case, emits CaseExecuted.
+    let executor = match crate::executor::TestExecutor::new(2, None, None).await {
+        Ok(e) => std::sync::Arc::new(e),
+        Err(err) => {
+            tracing::error!("TestExecutor init failed: {} — execute stage will be a no-op", err);
+            // ponytail: don't fail the whole pipeline; spawn a stub that just drops events.
+            let bus2 = bus.clone();
+            let cancel2 = cancel.clone();
+            set.spawn(async move { execute_loop_stub(bus2, cancel2).await });
+            return drain(set).await;
+        }
+    };
     {
         let bus = bus.clone();
         let cancel = cancel.clone();
-        set.spawn(async move { execute_loop(bus, cancel).await });
+        let exec = executor.clone();
+        set.spawn(async move { execute_loop(bus, cancel, exec).await });
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
@@ -99,55 +111,55 @@ pub async fn run(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Resu
     Ok(())
 }
 
-async fn execute_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Result<()> {
+async fn execute_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    executor: std::sync::Arc<crate::executor::TestExecutor>,
+) -> anyhow::Result<()> {
     let mut rx = bus.subscribe();
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
             res = rx.recv() => match res {
-                Ok(ReliabilityEvent::CaseGenerated { case_id, .. }) => {
-                    let outcome = simulate_execute(&case_id).await;
+                Ok(ReliabilityEvent::CaseGenerated { case_id, yaml, .. }) => {
+                    let case = crate::executor::TestCaseRef {
+                        id: case_id.clone(),
+                        yaml_script: yaml,
+                        name: case_id.clone(),
+                        priority: "p2".into(),
+                        target_url: None,
+                    };
+                    let r = executor.run_case(&case).await?;
                     bus.publish(ReliabilityEvent::CaseExecuted {
-                        case_id,
+                        case_id: r.case_id,
                         run_id: "r-current".into(),
-                        passed: outcome.passed,
-                        error: outcome.error,
-                        failed_step: outcome.failed_step,
+                        passed: r.passed,
+                        error: r.error_message,
+                        failed_step: r.failed_step,
                     });
                 }
-                Ok(ReliabilityEvent::HealProduced { case_id, .. }) => {
-                    let outcome = simulate_execute(&case_id).await;
+                Ok(ReliabilityEvent::HealProduced { case_id, healed_yaml, .. }) => {
+                    let case = crate::executor::TestCaseRef {
+                        id: case_id.clone(),
+                        yaml_script: healed_yaml,
+                        name: case_id.clone(),
+                        priority: "p2".into(),
+                        target_url: None,
+                    };
+                    let r = executor.run_case(&case).await?;
                     bus.publish(ReliabilityEvent::CaseExecuted {
-                        case_id,
+                        case_id: r.case_id,
                         run_id: "r-current".into(),
-                        passed: outcome.passed,
-                        error: outcome.error,
-                        failed_step: outcome.failed_step,
+                        passed: r.passed,
+                        error: r.error_message,
+                        failed_step: r.failed_step,
                     });
                 }
                 Ok(_) => continue,
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("execute_loop lagged {} events", n);
-                }
+                Err(RecvError::Lagged(n)) => tracing::warn!("execute_loop lagged {}", n),
                 Err(e) => return Err(e.into()),
             }
         }
-    }
-}
-
-struct ExecOutcome {
-    passed: bool,
-    error: Option<String>,
-    failed_step: Option<String>,
-}
-
-async fn simulate_execute(_case_id: &str) -> ExecOutcome {
-    // ponytail: real execute wiring is a follow-up task; for the orchestrator
-    // smoke test this is enough. Replace with TestExecutor::run_case in Task 10.
-    ExecOutcome {
-        passed: true,
-        error: None,
-        failed_step: None,
     }
 }
 
@@ -213,6 +225,23 @@ async fn flaky_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::R
             }
         }
     }
+}
+
+async fn execute_loop_stub(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Result<()> {
+    let mut rx = bus.subscribe();
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => return Ok(()),
+            _ = rx.recv() => continue,
+        }
+    }
+}
+
+async fn drain(mut set: JoinSet<anyhow::Result<()>>) -> anyhow::Result<()> {
+    while let Some(r) = set.join_next().await {
+        if let Err(e) = r? { tracing::error!("worker error: {}", e); }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -306,11 +335,11 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Pre-publish events that simulate a clean single-case run.
-        bus.publish(ReliabilityEvent::CaseGenerated {
-            case_id: "c1".into(),
-            yaml: "target: { url: x }".into(),
-            critic_score: Some(80),
-        });
+        // Note: we DO NOT pre-publish CaseGenerated here because Task 10
+        // wired the real TestExecutor::run_case into execute_loop, which
+        // would spawn the TS sandbox subprocess on a fake YAML and slow
+        // (or fail) the test. The orchestrator's GateLoop only needs
+        // RunFinished + a passing CaseExecuted summary to fire GateDecided.
         bus.publish(ReliabilityEvent::CaseExecuted {
             case_id: "c1".into(),
             run_id: run_id.into(),
