@@ -30,6 +30,11 @@ pub struct TestResult {
     /// Healed YAML script (original is preserved in TestCaseRef)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub healed_yaml_script: Option<String>,
+    /// Description of the last attempted YAML step (e.g. "- aiAssert: button visible")
+    /// Populated on failure by the sandbox so the Healer can target the real
+    /// failing call instead of hardcoding "aiAssert".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_step: Option<String>,
 }
 
 pub struct TestExecutor {
@@ -112,6 +117,7 @@ impl TestExecutor {
                 error_message: Some(error_msg),
                 retry_count: 0,
                 healed_yaml_script: None,
+                failed_step: None,
             })
         }
     }
@@ -140,6 +146,7 @@ impl TestExecutor {
                 error_message: resp.error,
                 retry_count: 1,
                 healed_yaml_script: Some(yaml_script.to_string()),
+                failed_step: None,
             })
         }
     }
@@ -178,6 +185,7 @@ impl TestExecutor {
                             error_message: Some("parse error".to_string()),
                             retry_count: 0,
                             healed_yaml_script: None,
+                            failed_step: None,
                         });
                         result.retry_count = 0;
                         Ok(result)
@@ -208,6 +216,7 @@ impl TestExecutor {
                                                 error_message: Some("parse error".to_string()),
                                                 retry_count: 0,
                                                 healed_yaml_script: None,
+                                                failed_step: None,
                                             });
                                             result.retry_count = 1;
                                             result.healed_yaml_script = Some(healed_yaml);
@@ -226,6 +235,7 @@ impl TestExecutor {
                             error_message: Some(error_msg),
                             retry_count: 0,
                             healed_yaml_script: None,
+                            failed_step: None,
                         })
                     }
                     Err(e) => Ok(TestResult {
@@ -236,6 +246,7 @@ impl TestExecutor {
                         error_message: Some(e.to_string()),
                         retry_count: 0,
                         healed_yaml_script: None,
+                        failed_step: None,
                     }),
                 }
             });

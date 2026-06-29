@@ -22,6 +22,12 @@ export interface RunResult {
   error_message: string | null;
   report_path: string | null;
   cache_hits?: number;
+  /**
+   * Description of the last attempted step (e.g. "- aiAssert: button visible")
+   * Populated on failure so the Healer can re-derive a fix targeted at the
+   * actual failing call, not a hardcoded "aiAssert".
+   */
+  failed_step?: string | null;
 }
 
 export async function runYaml(
@@ -35,6 +41,56 @@ export async function runYaml(
   let errorMessage: string | null = null;
   let screenshotBase64: string | null = null;
   let cacheHits = 0;
+  let lastAttemptedStep: string | null = null;
+
+  const agent = new PlaywrightAgent(page);
+
+  /**
+   * Execute a single YAML step (which may contain at most one of
+   * aiAct / aiAssert / aiQuery). Updates `lastAttemptedStep` before each
+   * call so a failure carries a meaningful description back to the Healer.
+   */
+  async function runStep(
+    step: { aiAct?: string; aiAssert?: string; aiQuery?: string },
+  ): Promise<void> {
+    if (step.aiAct) {
+      lastAttemptedStep = `- aiAct: ${step.aiAct}`;
+      const cached = await globalActionCache.get(page, 'act:' + step.aiAct);
+      if (cached !== null) {
+        cacheHits++;
+      } else {
+        await agent.aiAct(step.aiAct);
+        await globalActionCache.set(page, 'act:' + step.aiAct, true);
+      }
+    }
+    if (step.aiAssert) {
+      lastAttemptedStep = `- aiAssert: ${step.aiAssert}`;
+      const cached = await globalActionCache.get(page, 'assert:' + step.aiAssert);
+      if (cached !== null) {
+        cacheHits++;
+      } else {
+        try {
+          await agent.aiAssert(step.aiAssert);
+          await globalActionCache.set(page, 'assert:' + step.aiAssert, true);
+        } catch (e) {
+          passed = false;
+          errorMessage = String(e);
+          screenshotBase64 = (await page.screenshot({ encoding: 'base64' } as any)).toString();
+          throw e;
+        }
+      }
+    }
+    if (step.aiQuery) {
+      lastAttemptedStep = `- aiQuery: ${step.aiQuery}`;
+      const cached = await globalActionCache.get(page, 'query:' + step.aiQuery);
+      if (cached !== null) {
+        cacheHits++;
+      } else {
+        const result = await agent.aiQuery(step.aiQuery);
+        await globalActionCache.set(page, 'query:' + step.aiQuery, result);
+      }
+    }
+  }
 
   try {
     // Try parsing as full YAML spec first
@@ -44,8 +100,6 @@ export async function runYaml(
     } catch {
       // Not a valid YAML object, treat as step list
     }
-
-    const agent = new PlaywrightAgent(page);
 
     // Use target URL from spec or passed parameter
     const gotoUrl = spec?.target?.url || targetUrl;
@@ -58,82 +112,13 @@ export async function runYaml(
     if (Array.isArray(yaml.load(yamlScript))) {
       const steps = yaml.load(yamlScript) as Array<{ aiAct?: string; aiAssert?: string; aiQuery?: string }>;
       for (const step of steps) {
-        if (step.aiAct) {
-          // Check action cache
-          const cached = await globalActionCache.get(page, 'act:' + step.aiAct);
-          if (cached !== null) {
-            cacheHits++;
-          } else {
-            await agent.aiAct(step.aiAct);
-            await globalActionCache.set(page, 'act:' + step.aiAct, true);
-          }
-        }
-        if (step.aiAssert) {
-          // Check action cache
-          const cached = await globalActionCache.get(page, 'assert:' + step.aiAssert);
-          if (cached !== null) {
-            cacheHits++;
-          } else {
-            try {
-              await agent.aiAssert(step.aiAssert);
-              await globalActionCache.set(page, 'assert:' + step.aiAssert, true);
-            } catch (e) {
-              passed = false;
-              errorMessage = String(e);
-              screenshotBase64 = (await page.screenshot({ encoding: 'base64' } as any)).toString();
-              throw e;
-            }
-          }
-        }
-        if (step.aiQuery) {
-          // Check action cache
-          const cached = await globalActionCache.get(page, 'query:' + step.aiQuery);
-          if (cached !== null) {
-            cacheHits++;
-          } else {
-            const result = await agent.aiQuery(step.aiQuery);
-            await globalActionCache.set(page, 'query:' + step.aiQuery, result);
-          }
-        }
+        await runStep(step);
       }
     } else if (spec) {
       // Full spec format with tasks
       for (const task of spec.tasks) {
         for (const step of task.flow) {
-          if (step.aiAct) {
-            const cached = await globalActionCache.get(page, 'act:' + step.aiAct);
-            if (cached !== null) {
-              cacheHits++;
-            } else {
-              await agent.aiAct(step.aiAct);
-              await globalActionCache.set(page, 'act:' + step.aiAct, true);
-            }
-          }
-          if (step.aiAssert) {
-            const cached = await globalActionCache.get(page, 'assert:' + step.aiAssert);
-            if (cached !== null) {
-              cacheHits++;
-            } else {
-              try {
-                await agent.aiAssert(step.aiAssert);
-                await globalActionCache.set(page, 'assert:' + step.aiAssert, true);
-              } catch (e) {
-                passed = false;
-                errorMessage = String(e);
-                screenshotBase64 = (await page.screenshot({ encoding: 'base64' } as any)).toString();
-                throw e;
-              }
-            }
-          }
-          if (step.aiQuery) {
-            const cached = await globalActionCache.get(page, 'query:' + step.aiQuery);
-            if (cached !== null) {
-              cacheHits++;
-            } else {
-              const result = await agent.aiQuery(step.aiQuery);
-              await globalActionCache.set(page, 'query:' + step.aiQuery, result);
-            }
-          }
+          await runStep(step);
         }
       }
     }
@@ -154,5 +139,6 @@ export async function runYaml(
     error_message: errorMessage,
     report_path: null,
     cache_hits: cacheHits,
+    failed_step: passed ? null : lastAttemptedStep,
   };
 }
