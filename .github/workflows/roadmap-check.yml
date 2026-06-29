@@ -1,0 +1,34 @@
+name: Roadmap Check
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Monday 9am UTC
+  workflow_dispatch:      # manual trigger
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run roadmap check
+        run: bash scripts/roadmap-check.sh > roadmap-status.md
+      - name: Upload status
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadmap-status
+          path: roadmap-status.md
+      - name: Open issue on regression
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const status = fs.readFileSync('roadmap-status.md', 'utf8');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Roadmap Check Regression',
+              body: `Weekly roadmap check failed.\n\n\`\`\`\n${status}\n\`\`\``,
+            });
