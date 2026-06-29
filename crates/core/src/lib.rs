@@ -21,6 +21,7 @@ pub mod prompts;
 pub mod sandbox;
 pub mod config;
 pub mod gate;
+pub mod gate_loop;
 pub mod knowledge;
 pub mod healer;
 
