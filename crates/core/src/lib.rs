@@ -6,6 +6,7 @@ pub mod generator;
 pub mod critic;
 pub mod llm;
 pub mod protocol;
+pub mod quarantine;
 pub mod events;
 pub mod flaky;
 pub mod executor;
