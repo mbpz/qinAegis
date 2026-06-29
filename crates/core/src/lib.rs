@@ -47,6 +47,7 @@ pub use automation::{
 // Storage
 pub use storage::{CaseStatus, LocalStorage, LocalStorageInstance};
 pub use config::app::{AppConfig, resolve_env_var};
+pub use quarantine::Quarantine;
 
 // Sandbox adapters
 pub use sandbox::PlaywrightBrowserAdapter;
