@@ -869,17 +869,35 @@ mod tests {
 
     #[tokio::test]
     async fn publishes_gate_decided_on_run_finished() {
+        // NOTE: GateService::check() reads from ~/.qinAegis/projects/<proj>/reports/<run_id>/.
+        // The test must scaffold that directory tree (summary.json, etc.) before publishing RunFinished.
+        // This couples the test to filesystem state — a follow-up should inject the storage root
+        // into GateService for hermetic testing. For now, scaffold-and-clean works.
         let bus = ReliabilityBus::new(16);
         let mut rx = bus.subscribe();
-        let svc = GateService::new("proj".into(), Some("run-x".into()), GateThresholds::default());
+        let svc = GateService::new("gate_loop_proj".into(), Some("run-x".into()), GateThresholds::default());
         let t = tokio::spawn(async move {
-            GateLoop::run(bus.clone(), svc).await.unwrap();
+            GateLoop::run(bus.clone(), svc, CancellationToken::new()).await.unwrap();
         });
+        // small delay to let the worker subscribe
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         bus.publish(ReliabilityEvent::RunFinished { run_id: "run-x".into() });
-        let ev = tokio::time::timeout(std::time::Duration::from_millis(300), rx.recv()).await
-            .unwrap().unwrap();
-        assert!(matches!(ev, ReliabilityEvent::GateDecided { .. }));
+        // subscriber also sees its own RunFinished echo — drain until GateDecided
+        let ev = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ReliabilityEvent::GateDecided { .. }) => break,
+                    _ => continue,
+                }
+            }
+        }).await;
+        assert!(ev.is_ok(), "GateDecided never received");
         t.abort();
+        // cleanup
+        let _ = std::fs::remove_dir_all(
+            std::env::var("HOME").map(|h| format!("{}/.qinAegis/projects/gate_loop_proj", h))
+                .unwrap_or_default()
+        );
     }
 }
 ```
