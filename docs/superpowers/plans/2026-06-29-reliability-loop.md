@@ -36,6 +36,8 @@
 - Create: `crates/core/src/events.rs`
 - Test: same file (`#[cfg(test)] mod tests`)
 
+> **Path correction:** The sandbox lives at `sandbox/src/`, not `crates/sandbox/src/`. The actual `run_yaml` step-execution logic is in `sandbox/src/yaml_runner.ts`; `sandbox/src/executor.ts` is a thin JSON-RPC wrapper.
+
 - [ ] **Step 1: Write failing test**
 
 ```rust
