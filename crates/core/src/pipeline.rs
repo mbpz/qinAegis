@@ -182,7 +182,7 @@ async fn execute_loop(
                 Ok(ReliabilityEvent::CaseGenerated { case_id, yaml, .. }) => {
                     let case = crate::executor::TestCaseRef {
                         id: case_id.clone(),
-                        yaml_script: yaml,
+                        yaml_script: yaml.clone(),
                         name: case_id.clone(),
                         priority: "p2".into(),
                         target_url: None,
@@ -194,12 +194,13 @@ async fn execute_loop(
                         passed: r.passed,
                         error: r.error_message,
                         failed_step: r.failed_step,
+                        yaml,
                     });
                 }
                 Ok(ReliabilityEvent::HealProduced { case_id, healed_yaml, .. }) => {
                     let case = crate::executor::TestCaseRef {
                         id: case_id.clone(),
-                        yaml_script: healed_yaml,
+                        yaml_script: healed_yaml.clone(),
                         name: case_id.clone(),
                         priority: "p2".into(),
                         target_url: None,
@@ -211,6 +212,7 @@ async fn execute_loop(
                         passed: r.passed,
                         error: r.error_message,
                         failed_step: r.failed_step,
+                        yaml: healed_yaml,
                     });
                 }
                 Ok(_) => continue,
@@ -235,18 +237,19 @@ async fn heal_loop(
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
             res = rx.recv() => match res {
-                Ok(ReliabilityEvent::CaseExecuted { case_id, run_id, passed, error, failed_step, .. }) if !passed => {
+                Ok(ReliabilityEvent::CaseExecuted { case_id, run_id, passed, error, failed_step, yaml, .. }) if !passed => {
                     let err = error.clone().unwrap_or_else(|| "unknown".into());
                     let step = failed_step.unwrap_or_else(|| "unknown".into());
                     let n = attempts.get(&case_id).copied().unwrap_or(0);
                     // Audit-trail publish: emit HealRequested before invoking the
                     // healer (or declaring exhaustion) so subscribers observe the
                     // request as soon as it's made, regardless of outcome.
-                    // original_yaml is empty for now — CaseExecuted does not carry
-                    // the YAML. TODO: plumb the original YAML through CaseExecuted.
+                    // The original YAML is carried in CaseExecuted (forwarded from
+                    // CaseGenerated/HealProduced by execute_loop) so the audit
+                    // trail records exactly what was run.
                     bus.publish(ReliabilityEvent::HealRequested {
                         case_id: case_id.clone(),
-                        original_yaml: String::new(),
+                        original_yaml: yaml.clone(),
                         error: err.clone(),
                         failed_step: step.clone(),
                         attempt: n + 1,
@@ -446,6 +449,7 @@ mod tests {
             passed: true,
             error: None,
             failed_step: None,
+            yaml: "test-yaml".into(),
         });
         bus.publish(ReliabilityEvent::RunFinished { run_id: "pipeline-r1".into() });
 
@@ -493,6 +497,7 @@ mod tests {
             passed: false,
             error: Some("boom".into()),
             failed_step: Some("aiAct: click X".into()),
+            yaml: "test-yaml".into(),
         });
 
         // Drain for HealRequested.
@@ -505,6 +510,42 @@ mod tests {
             }
         }).await;
         assert_eq!(got, Ok("c1".into()));
+        cancel.cancel();
+        let _ = h.await;
+    }
+
+    #[tokio::test]
+    async fn heal_requested_carries_original_yaml() {
+        let bus = ReliabilityBus::new(64);
+        let mut rx = bus.subscribe();
+        let cancel = CancellationToken::new();
+
+        let bus_c = bus.clone();
+        let cancel_c = cancel.clone();
+        let h = tokio::spawn(async move {
+            super::heal_loop_for_test(bus_c, cancel_c, None).await
+        });
+        wait_for_subscribers(&bus, 2, std::time::Duration::from_secs(2)).await;
+
+        let original = "target:\n  url: https://x\ntasks: []".to_string();
+        bus.publish(ReliabilityEvent::CaseExecuted {
+            case_id: "c1".into(),
+            run_id: "r1".into(),
+            passed: false,
+            error: Some("boom".into()),
+            failed_step: Some("aiAct: click X".into()),
+            yaml: original.clone(),
+        });
+
+        let got = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ReliabilityEvent::HealRequested { original_yaml, .. }) => break original_yaml,
+                    _ => continue,
+                }
+            }
+        }).await;
+        assert_eq!(got, Ok(original));
         cancel.cancel();
         let _ = h.await;
     }

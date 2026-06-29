@@ -16,7 +16,8 @@ pub enum ReliabilityEvent {
     CriticRejected   { case_id: String, reason: String, attempt: u8 },
 
     CaseExecuted     { case_id: String, run_id: String, passed: bool,
-                       error: Option<String>, failed_step: Option<String> },
+                       error: Option<String>, failed_step: Option<String>,
+                       yaml: String },
 
     HealRequested    { case_id: String, original_yaml: String,
                        error: String, failed_step: String, attempt: u8 },
@@ -42,6 +43,7 @@ mod tests {
             passed: false,
             error: Some("boom".into()),
             failed_step: Some("aiAct: click X".into()),
+            yaml: "target:\n  url: https://x\ntasks: []".into(),
         };
         let json = serde_json::to_string(&ev).unwrap();
         let back: ReliabilityEvent = serde_json::from_str(&json).unwrap();

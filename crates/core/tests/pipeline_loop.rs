@@ -112,6 +112,7 @@ async fn orchestrator_produces_gate_decided() {
         passed: true,
         error: None,
         failed_step: None,
+        yaml: "test-yaml".into(),
     });
     bus.publish(ReliabilityEvent::RunFinished {
         run_id: run_id.into(),
