@@ -161,21 +161,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lagged_subscriber_jumps_to_latest() {
+    async fn lagged_subscriber_drains_then_sees_latest() {
         let bus = ReliabilityBus::new(2);
         let mut rx = bus.subscribe();
         for i in 0..5 {
             bus.publish(ReliabilityEvent::RunFinished { run_id: format!("r{}", i) });
         }
-        // First recv should report Lagged; subsequent recv returns latest.
+        // First recv should report Lagged (subscriber is behind the ring buffer).
         let res = rx.recv().await;
-        assert!(matches!(res, Err(bus::RecvError::Lagged(_))));
-        let ev = rx.recv().await.unwrap();
-        if let ReliabilityEvent::RunFinished { run_id } = ev {
-            assert_eq!(run_id, "r4");
-        } else {
-            panic!("wrong variant");
+        assert!(matches!(res, Err(super::RecvError::Lagged(_))));
+        // After Lagged, the receiver is positioned at the oldest still-buffered
+        // event. Drain the buffer and assert the latest published (r4) is reachable.
+        let mut last: Option<String> = None;
+        loop {
+            match rx.try_recv() {
+                Ok(ReliabilityEvent::RunFinished { run_id }) => last = Some(run_id),
+                Ok(_) => {}
+                Err(super::RecvError::Empty) => break,
+                Err(e) => panic!("unexpected: {}", e),
+            }
         }
+        assert_eq!(last.as_deref(), Some("r4"));
     }
 }
 ```
