@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lagged_subscriber_jumps_to_latest() {
+    async fn lagged_subscriber_drains_then_sees_latest() {
         let bus = ReliabilityBus::new(2);
         let mut rx = bus.subscribe();
         for i in 0..5 {
