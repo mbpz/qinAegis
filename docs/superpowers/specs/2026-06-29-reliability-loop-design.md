@@ -171,14 +171,20 @@ Keystone bug regression test: `executor_does_not_pass_hardcoded_aiassert` (heale
 
 ## Follow-up Round (2026-06-29)
 
-After the base 15 tasks landed, 4 follow-up items shipped in the same branch:
+After the base 15 tasks landed, 6 follow-up items shipped in the same branch:
 
 1. **retry-with-backoff** (`crates/core/src/retry.rs`) — `retry_with_backoff` (Result) + `retry_with_backoff_option` (Option) helpers. `heal_loop` wraps `Healer::heal` in `retry_with_backoff_option(3, 100..2000ms)`. 7 tests. Closes spec gap.
-2. **`HealRequested` event** — `heal_loop` publishes a `HealRequested` audit event before invoking the Healer. `original_yaml` is empty for now (TODO: plumb through `CaseExecuted`). 1 test.
+2. **`HealRequested` event** — `heal_loop` publishes a `HealRequested` audit event before invoking the Healer. 1 test.
 3. **Test rendezvous** — replaced 3 fixed sleeps (20-200ms) with deterministic `bus.subscriber_count()` poll at 1ms granularity. 5 consecutive full-suite runs confirmed no flakes.
-4. **Consolidate `scaffold_run_dir`** — 3 near-identical inline helpers in `gate_loop.rs`, `pipeline.rs`, `tests/pipeline_loop.rs` collapsed into `crates/core/src/test_support.rs`. -102 lines net.
+4. **Consolidate `scaffold_run_dir`** — 3 near-identical inline helpers collapsed into `crates/core/src/test_support.rs`. -102 lines net.
+5. **`original_yaml` plumbing** — added `yaml: String` to `CaseExecuted`, threaded through `execute_loop` → `CaseExecuted` → `heal_loop` → `HealRequested.original_yaml`. Audit trail complete. 1 test.
+6. **`pipeline_meta` in `summary.json`** — `MetaCollector` collects per-case `heal_attempts`, `flaky_score`, `critic_score`. New `meta_writer_loop` worker subscribes to `RunFinished`, merges snapshot into `summary.json` (preserves existing fields, atomic temp+rename). 2 tests.
 
-**Final state:** 28 commits, +1960/-202, 19 files, 66 tests passing.
+**Final state:** 31 commits, +2170/-215, 19 files, 69 tests passing.
+
+## Explicitly Deferred (2026-06-29)
+
+**Generate + Critic workers** — requires a CLI entry point (`qinAegis pipeline run <project>`) to be useful. Without one, the workers would sit idle. The existing `TestCaseGenerator` and `Critic` modules are usable as libraries; spawning them as bus workers is a 1-day task once the CLI exists.
 
 ## Rollout
 
