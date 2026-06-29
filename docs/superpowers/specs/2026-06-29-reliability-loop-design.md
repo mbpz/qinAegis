@@ -171,7 +171,7 @@ Keystone bug regression test: `executor_does_not_pass_hardcoded_aiassert` (heale
 
 ## Follow-up Round (2026-06-29)
 
-After the base 15 tasks landed, 6 follow-up items shipped in the same branch:
+After the base 15 tasks landed, 7 follow-up items shipped in the same branch:
 
 1. **retry-with-backoff** (`crates/core/src/retry.rs`) — `retry_with_backoff` (Result) + `retry_with_backoff_option` (Option) helpers. `heal_loop` wraps `Healer::heal` in `retry_with_backoff_option(3, 100..2000ms)`. 7 tests. Closes spec gap.
 2. **`HealRequested` event** — `heal_loop` publishes a `HealRequested` audit event before invoking the Healer. 1 test.
@@ -179,12 +179,9 @@ After the base 15 tasks landed, 6 follow-up items shipped in the same branch:
 4. **Consolidate `scaffold_run_dir`** — 3 near-identical inline helpers collapsed into `crates/core/src/test_support.rs`. -102 lines net.
 5. **`original_yaml` plumbing** — added `yaml: String` to `CaseExecuted`, threaded through `execute_loop` → `CaseExecuted` → `heal_loop` → `HealRequested.original_yaml`. Audit trail complete. 1 test.
 6. **`pipeline_meta` in `summary.json`** — `MetaCollector` collects per-case `heal_attempts`, `flaky_score`, `critic_score`. New `meta_writer_loop` worker subscribes to `RunFinished`, merges snapshot into `summary.json` (preserves existing fields, atomic temp+rename). 2 tests.
+7. **Generate + Critic workers** — `generate_loop` runs `TestCaseGenerator` once at start, publishes one `CaseGenerated` per generated case. `critic_loop` subscribes, scores via `Critic::review`, re-publishes with score or emits `CriticRejected` (bounded retries). Both gated on `PipelineCtx.{generator,critic} = Some(...)`. 2 tests.
 
-**Final state:** 31 commits, +2170/-215, 19 files, 69 tests passing.
-
-## Explicitly Deferred (2026-06-29)
-
-**Generate + Critic workers** — requires a CLI entry point (`qinAegis pipeline run <project>`) to be useful. Without one, the workers would sit idle. The existing `TestCaseGenerator` and `Critic` modules are usable as libraries; spawning them as bus workers is a 1-day task once the CLI exists.
+**Final state:** 33 commits, ~+2400/~-220, 19 files, 71 tests passing. All spec workers now wired. No deferred items.
 
 ## Rollout
 
