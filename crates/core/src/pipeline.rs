@@ -239,6 +239,18 @@ async fn heal_loop(
                     let err = error.clone().unwrap_or_else(|| "unknown".into());
                     let step = failed_step.unwrap_or_else(|| "unknown".into());
                     let n = attempts.get(&case_id).copied().unwrap_or(0);
+                    // Audit-trail publish: emit HealRequested before invoking the
+                    // healer (or declaring exhaustion) so subscribers observe the
+                    // request as soon as it's made, regardless of outcome.
+                    // original_yaml is empty for now — CaseExecuted does not carry
+                    // the YAML. TODO: plumb the original YAML through CaseExecuted.
+                    bus.publish(ReliabilityEvent::HealRequested {
+                        case_id: case_id.clone(),
+                        original_yaml: String::new(),
+                        error: err.clone(),
+                        failed_step: step.clone(),
+                        attempt: n + 1,
+                    });
                     if n >= max_attempts {
                         bus.publish(ReliabilityEvent::HealExhausted {
                             case_id: case_id.clone(), attempts: n, last_error: err,
@@ -294,6 +306,17 @@ async fn heal_loop(
             }
         }
     }
+}
+
+/// Test-only re-export of `heal_loop` that omits the `project_root` parameter
+/// (only used for healed-YAML persistence, which is irrelevant for tests that
+/// don't run a real healer).
+pub(crate) async fn heal_loop_for_test(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    healer: Option<std::sync::Arc<crate::healer::Healer>>,
+) -> anyhow::Result<()> {
+    heal_loop(bus, cancel, healer, std::path::PathBuf::from(".")).await
 }
 
 async fn flaky_loop(
@@ -480,5 +503,45 @@ mod tests {
         let _ = std::fs::remove_dir_all(
             crate::storage::LocalStorage::project_dir(project),
         );
+    }
+
+    #[tokio::test]
+    async fn heal_loop_publishes_heal_requested_before_healing() {
+        use crate::events::ReliabilityEvent;
+
+        let bus = ReliabilityBus::new(64);
+        let mut rx = bus.subscribe();
+        let cancel = CancellationToken::new();
+
+        // Spawn heal_loop directly (no orchestrator).
+        let bus_c = bus.clone();
+        let cancel_c = cancel.clone();
+        let h = tokio::spawn(async move {
+            super::heal_loop_for_test(bus_c, cancel_c, None).await
+        });
+        // Small delay to let the worker subscribe.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // Publish a failed CaseExecuted.
+        bus.publish(ReliabilityEvent::CaseExecuted {
+            case_id: "c1".into(),
+            run_id: "r1".into(),
+            passed: false,
+            error: Some("boom".into()),
+            failed_step: Some("aiAct: click X".into()),
+        });
+
+        // Drain for HealRequested.
+        let got = tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                match rx.recv().await {
+                    Ok(ReliabilityEvent::HealRequested { case_id, .. }) => break case_id,
+                    _ => continue,
+                }
+            }
+        }).await;
+        assert_eq!(got, Ok("c1".into()));
+        cancel.cancel();
+        let _ = h.await;
     }
 }
