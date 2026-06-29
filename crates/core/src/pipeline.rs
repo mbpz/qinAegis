@@ -10,6 +10,7 @@
 
 use crate::bus::ReliabilityBus;
 use crate::events::ReliabilityEvent;
+use crate::retry::retry_with_backoff_option;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -246,7 +247,16 @@ async fn heal_loop(
                     }
                     let next_n = n + 1;
                     if let Some(h) = &healer {
-                        match h.heal("", &step, &err).await {
+                        // Wrap the LLM call in a small backoff loop so a
+                        // transient 429 / network blip doesn't immediately
+                        // mark a case as HealExhausted. 3 attempts, 100..2000ms.
+                        let heal_result = retry_with_backoff_option(
+                            3,
+                            || 100u64..2000u64,
+                            || h.heal("", &step, &err),
+                        )
+                        .await;
+                        match heal_result {
                             Some(yaml) => {
                                 attempts.insert(case_id.clone(), next_n);
                                 // Persist healed YAML before publishing so subscribers

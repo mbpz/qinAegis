@@ -26,6 +26,7 @@ pub mod knowledge;
 pub mod healed_store;
 pub mod healer;
 pub mod pipeline;
+pub mod retry;
 
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
