@@ -106,6 +106,7 @@ export async function runYaml(
     if (!gotoUrl) {
       throw new Error('No target URL provided');
     }
+    lastAttemptedStep = `- goto: ${gotoUrl}`;
     await page.goto(gotoUrl);
 
     // Handle step list format (array of strings like "- aiAct: ...")
