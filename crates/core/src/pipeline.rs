@@ -76,10 +76,12 @@ pub async fn run(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Resu
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
+    let healer: Option<std::sync::Arc<crate::healer::Healer>> = None; // real wiring follows LLM config plumbing
     {
         let bus = bus.clone();
         let cancel = cancel.clone();
-        set.spawn(async move { heal_loop(bus, cancel).await });
+        let h = healer.clone();
+        set.spawn(async move { heal_loop(bus, cancel, h).await });
     }
 
     // FlakyTracker stage: receives CaseExecuted, publishes FlakyDetected/CaseQuarantined.
@@ -163,7 +165,11 @@ async fn execute_loop(
     }
 }
 
-async fn heal_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Result<()> {
+async fn heal_loop(
+    bus: ReliabilityBus,
+    cancel: CancellationToken,
+    healer: Option<std::sync::Arc<crate::healer::Healer>>,
+) -> anyhow::Result<()> {
     use std::collections::HashMap;
     let max_attempts = HEAL_MAX_ATTEMPTS;
     let mut rx = bus.subscribe();
@@ -174,25 +180,35 @@ async fn heal_loop(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Re
             res = rx.recv() => match res {
                 Ok(ReliabilityEvent::CaseExecuted { case_id, passed, error, failed_step, .. }) if !passed => {
                     let err = error.clone().unwrap_or_else(|| "unknown".into());
+                    let step = failed_step.unwrap_or_else(|| "unknown".into());
                     let n = attempts.get(&case_id).copied().unwrap_or(0);
                     if n >= max_attempts {
                         bus.publish(ReliabilityEvent::HealExhausted {
-                            case_id: case_id.clone(),
-                            attempts: n,
-                            last_error: err,
+                            case_id: case_id.clone(), attempts: n, last_error: err,
                         });
                         continue;
                     }
-                    // ponytail: real Healer is wired in Task 11. For now any
-                    // failure is reported as exhausted so the smoke test
-                    // (which only exercises the happy path) still passes.
-                    let _ = failed_step; // unused until Healer is wired
-                    attempts.insert(case_id.clone(), n);
-                    bus.publish(ReliabilityEvent::HealExhausted {
-                        case_id,
-                        attempts: n,
-                        last_error: err,
-                    });
+                    let next_n = n + 1;
+                    if let Some(h) = &healer {
+                        match h.heal("", &step, &err).await {
+                            Some(yaml) => {
+                                attempts.insert(case_id.clone(), next_n);
+                                bus.publish(ReliabilityEvent::HealProduced {
+                                    case_id, healed_yaml: yaml, attempt: next_n,
+                                });
+                            }
+                            None => {
+                                attempts.insert(case_id.clone(), next_n);
+                                bus.publish(ReliabilityEvent::HealExhausted {
+                                    case_id, attempts: next_n, last_error: err,
+                                });
+                            }
+                        }
+                    } else {
+                        bus.publish(ReliabilityEvent::HealExhausted {
+                            case_id, attempts: n, last_error: err,
+                        });
+                    }
                 }
                 Ok(_) => continue,
                 Err(RecvError::Lagged(n)) => tracing::warn!("heal_loop lagged {}", n),
