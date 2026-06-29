@@ -13,6 +13,7 @@ pub mod performance;
 pub mod stress;
 pub mod storage;
 pub mod automation;
+pub mod bus;
 pub mod service;
 pub mod prompts;
 pub mod sandbox;
