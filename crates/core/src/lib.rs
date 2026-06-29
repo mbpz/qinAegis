@@ -23,6 +23,7 @@ pub mod config;
 pub mod gate;
 pub mod gate_loop;
 pub mod knowledge;
+pub mod healed_store;
 pub mod healer;
 pub mod pipeline;
 

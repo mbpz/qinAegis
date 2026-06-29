@@ -13,6 +13,8 @@ use crate::events::ReliabilityEvent;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 const HEAL_MAX_ATTEMPTS: u8 = 2;
@@ -35,7 +37,28 @@ impl Default for PipelineConfig {
     }
 }
 
-pub async fn run(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Result<()> {
+/// Pipeline context — dependencies plumbed into the orchestrator and its
+/// workers. `PipelineCtx::default()` is provided so unit tests don't have to
+/// thread a real project root through.
+pub struct PipelineCtx {
+    /// Root under which the pipeline writes run artifacts. Healed YAML is
+    /// persisted under `<project_root>/runs/<run_id>/healed/<case_id>.yaml`.
+    pub project_root: PathBuf,
+    /// Optional LLM-backed healer; when `None`, the heal stage emits
+    /// `HealExhausted` immediately.
+    pub llm: Option<Arc<crate::healer::Healer>>,
+}
+
+impl Default for PipelineCtx {
+    fn default() -> Self {
+        Self {
+            project_root: PathBuf::from("."),
+            llm: None,
+        }
+    }
+}
+
+pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToken) -> anyhow::Result<()> {
     let _cfg = PipelineConfig::default();
     let mut set: JoinSet<anyhow::Result<()>> = JoinSet::new();
 
@@ -76,12 +99,12 @@ pub async fn run(bus: ReliabilityBus, cancel: CancellationToken) -> anyhow::Resu
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
-    let healer: Option<std::sync::Arc<crate::healer::Healer>> = None; // real wiring follows LLM config plumbing
     {
         let bus = bus.clone();
         let cancel = cancel.clone();
-        let h = healer.clone();
-        set.spawn(async move { heal_loop(bus, cancel, h).await });
+        let h = ctx.llm.clone();
+        let root = ctx.project_root.clone();
+        set.spawn(async move { heal_loop(bus, cancel, h, root).await });
     }
 
     // FlakyTracker stage: receives CaseExecuted, publishes FlakyDetected/CaseQuarantined.
@@ -169,6 +192,7 @@ async fn heal_loop(
     bus: ReliabilityBus,
     cancel: CancellationToken,
     healer: Option<std::sync::Arc<crate::healer::Healer>>,
+    project_root: PathBuf,
 ) -> anyhow::Result<()> {
     use std::collections::HashMap;
     let max_attempts = HEAL_MAX_ATTEMPTS;
@@ -178,7 +202,7 @@ async fn heal_loop(
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
             res = rx.recv() => match res {
-                Ok(ReliabilityEvent::CaseExecuted { case_id, passed, error, failed_step, .. }) if !passed => {
+                Ok(ReliabilityEvent::CaseExecuted { case_id, run_id, passed, error, failed_step, .. }) if !passed => {
                     let err = error.clone().unwrap_or_else(|| "unknown".into());
                     let step = failed_step.unwrap_or_else(|| "unknown".into());
                     let n = attempts.get(&case_id).copied().unwrap_or(0);
@@ -193,6 +217,18 @@ async fn heal_loop(
                         match h.heal("", &step, &err).await {
                             Some(yaml) => {
                                 attempts.insert(case_id.clone(), next_n);
+                                // Persist healed YAML before publishing so subscribers
+                                // can assume the file exists by the time they observe
+                                // the event. Best-effort: log on failure but do not
+                                // fail the loop — the YAML is recoverable by re-running
+                                // the healer.
+                                let store = crate::healed_store::HealedStore::new(project_root.clone());
+                                if let Err(e) = store.write(&run_id, &case_id, &yaml) {
+                                    tracing::warn!(
+                                        "failed to persist healed YAML for case {} in run {}: {}",
+                                        case_id, run_id, e,
+                                    );
+                                }
                                 bus.publish(ReliabilityEvent::HealProduced {
                                     case_id, healed_yaml: yaml, attempt: next_n,
                                 });
@@ -346,7 +382,7 @@ mod tests {
         let bus_for_task = bus.clone();
         let cancel_for_task = cancel.clone();
         let handle = tokio::spawn(async move {
-            super::run(bus_for_task, cancel_for_task).await
+            super::run(bus_for_task, super::PipelineCtx::default(), cancel_for_task).await
         });
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 

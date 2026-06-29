@@ -115,7 +115,9 @@ async fn orchestrator_produces_gate_decided() {
     // before the workers subscribe would silently drop our events.
     let bus_c = bus.clone();
     let cancel_c = cancel.clone();
-    let h = tokio::spawn(async move { pipeline::run(bus_c, cancel_c).await });
+    let h = tokio::spawn(async move {
+        pipeline::run(bus_c, pipeline::PipelineCtx::default(), cancel_c).await
+    });
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     // Publish a passing case (so flaky_loop records it) and a RunFinished
