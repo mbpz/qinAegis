@@ -25,9 +25,8 @@ struct Inner {
     buf: Vec<bool>,
     flips: usize,
     last: Option<bool>,
-    /// Tracks number of recorded "runs" since the last non-flip result.
-    /// For simplicity we approximate a "run" boundary whenever a flip occurs.
-    runs_with_flip: u32,
+    /// Total number of adjacent transitions counted so far.
+    flips_count: u32,
 }
 
 impl FlakyWindow {
@@ -38,7 +37,7 @@ impl FlakyWindow {
                 buf: Vec::with_capacity(capacity),
                 flips: 0,
                 last: None,
-                runs_with_flip: 0,
+                flips_count: 0,
             }),
         }
     }
@@ -53,11 +52,8 @@ impl FlakyWindow {
             // ponytail: lazy recompute — flip count kept as approximation
             // via "stale" flag.
             g.flips = usize::MAX; // signal recompute
-            g.last = Some(evicted); // best-effort; real recompute below
-            let _ = g.last; // suppress unused warning until recompute
         }
         if g.flips == usize::MAX {
-            g.buf = g.buf.clone(); // no-op, keeps borrow checker happy
             // Full recompute.
             g.flips = g.buf.windows(2).filter(|w| w[0] != w[1]).count();
             g.last = g.buf.last().copied();
@@ -68,7 +64,7 @@ impl FlakyWindow {
         if let Some(p) = prev {
             if p != passed {
                 g.flips += 1;
-                g.runs_with_flip = g.runs_with_flip.saturating_add(1);
+                g.flips_count = g.flips_count.saturating_add(1);
             }
         }
     }
@@ -88,7 +84,7 @@ impl FlakyWindow {
     }
 
     pub fn should_quarantine(&self, strikes: u32) -> bool {
-        self.inner.lock().unwrap().runs_with_flip >= strikes
+        self.inner.lock().unwrap().flips_count >= strikes
     }
 }
 
@@ -129,5 +125,15 @@ mod tests {
         w.record(false); w.record(true);  // run 2
         w.record(true); w.record(false);  // run 3
         assert!(w.should_quarantine(3));
+    }
+
+    #[test]
+    fn eviction_recomputes_flip_rate_correctly() {
+        let w = FlakyWindow::new(3);
+        w.record(true); w.record(false); w.record(true); // flips_count=2, buf=[T,F,T]
+        w.record(false); // evicts T, recompute, then push F → buf=[F,T,F], flips_count still 2
+        // After eviction + push: buf=[F,T,F], transitions: F→T, T→F = 2
+        assert_eq!(w.flip_rate(), 1.0); // 2/2
+        assert!(w.is_flaky());
     }
 }
