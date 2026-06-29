@@ -8,6 +8,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
+/// Extract `failed_step` from a JSON-RPC response data field.
+fn extract_failed_step(data: &Option<serde_json::Value>) -> Option<String> {
+    data.as_ref()
+        .and_then(|v| v.get("failed_step"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestCaseRef {
     pub id: String,
@@ -89,12 +97,7 @@ impl TestExecutor {
             // Pull the real failing step out of the partial TestResult the
             // sandbox returns on failure. Fall back to "unknown" only if
             // the TS executor didn't populate it.
-            let failed_step = resp
-                .data
-                .as_ref()
-                .and_then(|v| v.get("failed_step"))
-                .and_then(|v| v.as_str())
-                .map(String::from);
+            let failed_step = extract_failed_step(&resp.data);
             drop(process);
 
             // Attempt self-heal if healer is available
@@ -133,7 +136,7 @@ impl TestExecutor {
                 error_message: Some(error_msg),
                 retry_count: 0,
                 healed_yaml_script: None,
-                failed_step: None,
+                failed_step,
             })
         }
     }
@@ -210,12 +213,7 @@ impl TestExecutor {
                         let error_msg = resp.error.clone().unwrap_or_else(|| "unknown error".to_string());
                         // Read the real failing step from the partial
                         // TestResult the sandbox returns on failure.
-                        let failed_step = resp
-                            .data
-                            .as_ref()
-                            .and_then(|v| v.get("failed_step"))
-                            .and_then(|v| v.as_str())
-                            .map(String::from);
+                        let failed_step = extract_failed_step(&resp.data);
 
                         if let Some(ref h) = heal {
                             if max_heal_retries > 0 {
@@ -266,7 +264,7 @@ impl TestExecutor {
                             error_message: Some(error_msg),
                             retry_count: 0,
                             healed_yaml_script: None,
-                            failed_step: None,
+                            failed_step,
                         })
                     }
                     Err(e) => Ok(TestResult {

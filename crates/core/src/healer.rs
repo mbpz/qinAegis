@@ -203,4 +203,26 @@ mod tests {
             prompt
         );
     }
+
+    #[test]
+    fn executor_does_not_pass_hardcoded_aiassert() {
+        // Read the executor.rs source and assert no literal "aiAssert"
+        // appears as a healer.heal(...) second argument.
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent().unwrap()
+                .parent().unwrap()
+                .join("crates/core/src/executor.rs"),
+        ).expect("failed to read executor.rs");
+        // Look for the pattern: healer.heal(..., "aiAssert", ...)
+        // This catches the keystone bug: hardcoded "aiAssert" passed to healer.
+        for line in src.lines() {
+            if line.contains("healer.heal") {
+                assert!(
+                    !line.contains("\"aiAssert\""),
+                    "executor.rs passes hardcoded aiAssert to healer: {}", line
+                );
+            }
+        }
+    }
 }
