@@ -86,13 +86,29 @@ impl TestExecutor {
             Ok(result)
         } else {
             let error_msg = resp.error.clone().unwrap_or_else(|| "unknown error".to_string());
+            // Pull the real failing step out of the partial TestResult the
+            // sandbox returns on failure. Fall back to "unknown" only if
+            // the TS executor didn't populate it.
+            let failed_step = resp
+                .data
+                .as_ref()
+                .and_then(|v| v.get("failed_step"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
             drop(process);
 
             // Attempt self-heal if healer is available
             if let Some(ref healer) = self.healer {
                 if self.max_heal_retries > 0 {
                     tracing::info!("Self-healing attempt for case {}: {}", case.id, error_msg);
-                    if let Some(healed_yaml) = healer.heal(&case.yaml_script, "aiAssert", &error_msg).await {
+                    if let Some(healed_yaml) = healer
+                        .heal(
+                            &case.yaml_script,
+                            failed_step.as_deref().unwrap_or("unknown"),
+                            &error_msg,
+                        )
+                        .await
+                    {
                         // Retry with healed script
                         let retry_result = self.run_case_with_yaml(case, &healed_yaml).await;
                         if let Ok(mut result) = retry_result {
@@ -192,11 +208,26 @@ impl TestExecutor {
                     }
                     Ok(resp) => {
                         let error_msg = resp.error.clone().unwrap_or_else(|| "unknown error".to_string());
+                        // Read the real failing step from the partial
+                        // TestResult the sandbox returns on failure.
+                        let failed_step = resp
+                            .data
+                            .as_ref()
+                            .and_then(|v| v.get("failed_step"))
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
 
                         if let Some(ref h) = heal {
                             if max_heal_retries > 0 {
                                 tracing::info!("Self-heal attempt for case {}: {}", case.id, error_msg);
-                                if let Some(healed_yaml) = h.heal(&case.yaml_script, "aiAssert", &error_msg).await {
+                                if let Some(healed_yaml) = h
+                                    .heal(
+                                        &case.yaml_script,
+                                        failed_step.as_deref().unwrap_or("unknown"),
+                                        &error_msg,
+                                    )
+                                    .await
+                                {
                                     let heal_req = JsonRpcRequest::RunYaml {
                                         yaml_script: healed_yaml.clone(),
                                         case_id: case.id.clone(),

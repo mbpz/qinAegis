@@ -147,4 +147,60 @@ mod tests {
         let result = extract_yaml(input);
         assert!(result.contains("url: https://example.com"));
     }
+
+    fn user_text(msgs: &[crate::llm::Message]) -> String {
+        msgs.iter()
+            .find(|m| m.role == "user")
+            .map(|m| m.content.clone())
+            .unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn healer_prompt_contains_real_failed_step() {
+        // The Healer must include the actual failed step (passed in by the
+        // caller) in its prompt — not a hardcoded placeholder.
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let cap = captured.clone();
+        let llm = crate::llm::ArcLlmClient::new(crate::llm::TestLlm::new(move |msgs| {
+            *cap.lock().unwrap() = user_text(msgs);
+            Ok("target:\n  url: https://x\ntasks: []".to_string())
+        }));
+        let healer = Healer::new(llm);
+        healer
+            .heal("orig: yes", "aiAct: click X", "boom")
+            .await
+            .unwrap();
+        let prompt = captured.lock().unwrap().clone();
+        assert!(
+            prompt.contains("aiAct: click X"),
+            "expected real failed step in prompt, got: {}",
+            prompt
+        );
+    }
+
+    #[tokio::test]
+    async fn healer_does_not_inject_hardcoded_aiassert() {
+        // Regression: caller used to always pass "aiAssert" as the failed
+        // step. Make sure a different step appears verbatim and that
+        // "Failed step: aiAssert" is NOT present when the real step is
+        // something else.
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let cap = captured.clone();
+        let llm = crate::llm::ArcLlmClient::new(crate::llm::TestLlm::new(move |msgs| {
+            *cap.lock().unwrap() = user_text(msgs);
+            Ok("target:\n  url: https://x\ntasks: []".to_string())
+        }));
+        let healer = Healer::new(llm);
+        healer
+            .heal("orig", "aiQuery: extract Y", "boom")
+            .await
+            .unwrap();
+        let prompt = captured.lock().unwrap().clone();
+        assert!(prompt.contains("aiQuery: extract Y"));
+        assert!(
+            !prompt.contains("Failed step: aiAssert"),
+            "hardcoded 'Failed step: aiAssert' leaked into prompt: {}",
+            prompt
+        );
+    }
 }
