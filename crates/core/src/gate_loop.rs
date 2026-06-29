@@ -70,6 +70,31 @@ mod tests {
     use crate::events::ReliabilityEvent;
     use crate::gate::{GateService, GateThresholds};
 
+    /// Wait until the bus has at least `n` subscribers attached.
+    ///
+    /// Replaces fragile `tokio::time::sleep` rendezvous: polls
+    /// `subscriber_count()` at 1ms granularity until the expected number
+    /// of workers is listening, with a hard cap that panics loudly if
+    /// the count is never reached (typically means a worker panicked
+    /// before subscribing).
+    async fn wait_for_subscribers(bus: &ReliabilityBus, n: usize, max: std::time::Duration) {
+        let start = std::time::Instant::now();
+        loop {
+            if bus.subscriber_count() >= n {
+                return;
+            }
+            if start.elapsed() > max {
+                panic!(
+                    "bus subscribers never reached {} (got {} after {:?})",
+                    n,
+                    bus.subscriber_count(),
+                    start.elapsed(),
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    }
+
     /// Build a minimal but valid run directory under `~/.qinAegis/projects/<proj>/reports/<run_id>`
     /// so that `GateService::check()` succeeds without touching the network.
     ///
@@ -148,9 +173,9 @@ mod tests {
         let t = tokio::spawn(async move {
             GateLoop::run(bus_clone, svc, cancel).await.unwrap();
         });
-        // Give the spawned task a moment to subscribe before publishing,
-        // otherwise our RunFinished would arrive before the worker is listening.
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        // Deterministically wait for the worker to subscribe (test rx + worker = 2)
+        // instead of a fragile fixed sleep.
+        wait_for_subscribers(&bus, 2, std::time::Duration::from_secs(2)).await;
         bus.publish(ReliabilityEvent::RunFinished {
             run_id: "run-x".into(),
         });

@@ -6,8 +6,34 @@ use qin_aegis_core::events::ReliabilityEvent;
 use qin_aegis_core::quarantine::Quarantine;
 use qin_aegis_core::storage::LocalStorage;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use tempfile::tempdir;
 use tokio_util::sync::CancellationToken;
+
+/// Wait until the bus has at least `n` subscribers attached.
+///
+/// Replaces fragile `tokio::time::sleep` rendezvous: polls
+/// `subscriber_count()` at 1ms granularity until the expected number
+/// of workers is listening, with a hard cap that panics loudly if
+/// the count is never reached (typically means a worker panicked
+/// before subscribing).
+async fn wait_for_subscribers(bus: &ReliabilityBus, n: usize, max: Duration) {
+    let start = Instant::now();
+    loop {
+        if bus.subscriber_count() >= n {
+            return;
+        }
+        if start.elapsed() > max {
+            panic!(
+                "bus subscribers never reached {} (got {} after {:?})",
+                n,
+                bus.subscriber_count(),
+                start.elapsed(),
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
 
 #[tokio::test]
 async fn quarantined_case_is_skipped() {
@@ -126,7 +152,10 @@ async fn orchestrator_produces_gate_decided() {
         )
         .await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // Deterministically wait for all 4 workers (execute + heal + flaky + gate)
+    // to subscribe before publishing. The test's own rx is already counted
+    // in `subscriber_count()`, so we wait for 5 total (1 test + 4 workers).
+    wait_for_subscribers(&bus, 5, Duration::from_secs(2)).await;
 
     // Publish a passing case (so flaky_loop records it) and a RunFinished
     // (so the GateLoop fires and reads the scaffolded run dir).

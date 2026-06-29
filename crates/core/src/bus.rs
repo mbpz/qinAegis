@@ -32,6 +32,14 @@ impl ReliabilityBus {
         // `send` only returns `Err` when there are no receivers; that's fine.
         let _ = self.tx.send(ev);
     }
+
+    /// Number of active receivers attached to this bus.
+    ///
+    /// Useful in tests to deterministically wait for workers to subscribe
+    /// before publishing events, avoiding fragile fixed-sleep rendezvous.
+    pub fn subscriber_count(&self) -> usize {
+        self.tx.receiver_count()
+    }
 }
 
 #[cfg(test)]

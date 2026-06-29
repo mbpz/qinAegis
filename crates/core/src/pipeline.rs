@@ -385,6 +385,31 @@ mod tests {
     use crate::bus::ReliabilityBus;
     use crate::events::ReliabilityEvent;
 
+    /// Wait until the bus has at least `n` subscribers attached.
+    ///
+    /// Replaces fragile `tokio::time::sleep` rendezvous: polls
+    /// `subscriber_count()` at 1ms granularity until the expected number
+    /// of workers is listening, with a hard cap that panics loudly if
+    /// the count is never reached (typically means a worker panicked
+    /// before subscribing).
+    async fn wait_for_subscribers(bus: &ReliabilityBus, n: usize, max: std::time::Duration) {
+        let start = std::time::Instant::now();
+        loop {
+            if bus.subscriber_count() >= n {
+                return;
+            }
+            if start.elapsed() > max {
+                panic!(
+                    "bus subscribers never reached {} (got {} after {:?})",
+                    n,
+                    bus.subscriber_count(),
+                    start.elapsed(),
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    }
+
     /// Build a minimal but valid run directory under `~/.qinAegis/projects/<proj>/reports/<run_id>`
     /// so that `GateService::check()` succeeds without touching the network.
     ///
@@ -467,7 +492,10 @@ mod tests {
         let handle = tokio::spawn(async move {
             super::run(bus_for_task, super::PipelineCtx::default(), cancel_for_task).await
         });
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        // Deterministically wait for all 4 workers (execute + heal + flaky + gate)
+        // to subscribe before publishing. The test's own rx is already counted
+        // in `subscriber_count()`, so we wait for 5 total (1 test + 4 workers).
+        wait_for_subscribers(&bus, 5, std::time::Duration::from_secs(2)).await;
 
         // Pre-publish events that simulate a clean single-case run.
         // Note: we DO NOT pre-publish CaseGenerated here because Task 10
@@ -519,8 +547,9 @@ mod tests {
         let h = tokio::spawn(async move {
             super::heal_loop_for_test(bus_c, cancel_c, None).await
         });
-        // Small delay to let the worker subscribe.
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        // Deterministically wait for the worker to subscribe (test rx + worker = 2)
+        // instead of a fragile fixed sleep.
+        wait_for_subscribers(&bus, 2, std::time::Duration::from_secs(2)).await;
 
         // Publish a failed CaseExecuted.
         bus.publish(ReliabilityEvent::CaseExecuted {
