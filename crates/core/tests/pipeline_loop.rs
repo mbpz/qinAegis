@@ -116,7 +116,15 @@ async fn orchestrator_produces_gate_decided() {
     let bus_c = bus.clone();
     let cancel_c = cancel.clone();
     let h = tokio::spawn(async move {
-        pipeline::run(bus_c, pipeline::PipelineCtx::default(), cancel_c).await
+        pipeline::run(
+            bus_c,
+            pipeline::PipelineCtx {
+                run_id: "r1".into(),
+                ..pipeline::PipelineCtx::default()
+            },
+            cancel_c,
+        )
+        .await
     });
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 

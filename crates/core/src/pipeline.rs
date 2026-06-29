@@ -51,6 +51,12 @@ pub struct PipelineCtx {
     /// written on `RunFinished`. Default is a relative `flaky_history.json`
     /// in the current working directory.
     pub flaky_history_path: PathBuf,
+    /// Identifier for the current pipeline run. Threaded into every
+    /// `CaseExecuted` event published by `execute_loop` so downstream
+    /// consumers (flaky_loop aggregation, `RunFinished` correlation) can
+    /// group outcomes by run. Default is `"current"` for tests and ad-hoc
+    /// invocations that don't pass a real id.
+    pub run_id: String,
 }
 
 impl Default for PipelineCtx {
@@ -59,6 +65,7 @@ impl Default for PipelineCtx {
             project_root: PathBuf::from("."),
             llm: None,
             flaky_history_path: PathBuf::from("flaky_history.json"),
+            run_id: "current".into(),
         }
     }
 }
@@ -117,7 +124,8 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
         let bus = bus.clone();
         let cancel = cancel.clone();
         let exec = executor.clone();
-        set.spawn(async move { execute_loop(bus, cancel, exec).await });
+        let run_id = ctx.run_id.clone();
+        set.spawn(async move { execute_loop(bus, cancel, exec, run_id).await });
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
@@ -163,6 +171,7 @@ async fn execute_loop(
     bus: ReliabilityBus,
     cancel: CancellationToken,
     executor: std::sync::Arc<crate::executor::TestExecutor>,
+    run_id: String,
 ) -> anyhow::Result<()> {
     let mut rx = bus.subscribe();
     loop {
@@ -180,7 +189,7 @@ async fn execute_loop(
                     let r = executor.run_case(&case).await?;
                     bus.publish(ReliabilityEvent::CaseExecuted {
                         case_id: r.case_id,
-                        run_id: "r-current".into(),
+                        run_id: run_id.clone(),
                         passed: r.passed,
                         error: r.error_message,
                         failed_step: r.failed_step,
@@ -197,7 +206,7 @@ async fn execute_loop(
                     let r = executor.run_case(&case).await?;
                     bus.publish(ReliabilityEvent::CaseExecuted {
                         case_id: r.case_id,
-                        run_id: "r-current".into(),
+                        run_id: run_id.clone(),
                         passed: r.passed,
                         error: r.error_message,
                         failed_step: r.failed_step,
