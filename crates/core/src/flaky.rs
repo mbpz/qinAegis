@@ -7,7 +7,10 @@
 //! strike counter. Used by `FlakyTracker` to decide between
 //! `FlakyDetected` and `CaseQuarantined` events.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use crate::bus::ReliabilityBus;
+use crate::events::ReliabilityEvent;
 
 const FLIP_RATE_THRESHOLD: f64 = 0.3;
 const DEFAULT_WINDOW: usize = 10;
@@ -88,6 +91,31 @@ impl FlakyWindow {
     }
 }
 
+/// Worker that inspects a `FlakyWindow` and publishes events to the bus.
+///
+/// Called by the orchestrator after each `CaseExecuted` to surface flaky
+/// behavior and quarantine decisions.
+pub struct FlakyTracker;
+
+impl FlakyTracker {
+    /// Inspect the window for one case and publish events.
+    pub async fn process(window: Arc<FlakyWindow>, case_id: &str, bus: &ReliabilityBus) {
+        if window.is_flaky() {
+            bus.publish(ReliabilityEvent::FlakyDetected {
+                case_id: case_id.into(),
+                flip_rate: window.flip_rate(),
+                window: window.len(),
+            });
+        }
+        if window.should_quarantine(3) {
+            bus.publish(ReliabilityEvent::CaseQuarantined {
+                case_id: case_id.into(),
+                reason: format!("{} flips in last {} runs", window.flip_rate(), window.len()),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +163,33 @@ mod tests {
         // After eviction + push: buf=[F,T,F], transitions: F→T, T→F = 2
         assert_eq!(w.flip_rate(), 1.0); // 2/2
         assert!(w.is_flaky());
+    }
+
+    #[tokio::test]
+    async fn tracker_emits_flaky_after_threshold_transitions() {
+        use crate::bus::ReliabilityBus;
+        use crate::events::ReliabilityEvent;
+        use std::sync::Arc;
+
+        let bus = ReliabilityBus::new(16);
+        let mut rx = bus.subscribe();
+        let window = Arc::new(FlakyWindow::new(10));
+        let window_c = window.clone();
+        let window_for_task = window.clone();
+        tokio::spawn(async move {
+            FlakyTracker::process(window_for_task, "case-1", &bus).await;
+        });
+
+        // Drive alternating outcomes.
+        for v in [true, false, true, false, true, false] {
+            window_c.record(v);
+        }
+        // Process should publish FlakyDetected.
+        // (No direct way to know when done — just wait for one event.)
+        let ev = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await;
+        match ev {
+            Ok(Ok(ReliabilityEvent::FlakyDetected { case_id, .. })) => assert_eq!(case_id, "case-1"),
+            other => panic!("expected FlakyDetected, got {:?}", other),
+        }
     }
 }
