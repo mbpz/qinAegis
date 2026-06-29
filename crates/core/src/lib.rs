@@ -24,6 +24,7 @@ pub mod gate;
 pub mod gate_loop;
 pub mod knowledge;
 pub mod healer;
+pub mod pipeline;
 
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
