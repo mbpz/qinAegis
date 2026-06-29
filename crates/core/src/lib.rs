@@ -6,19 +6,34 @@ pub mod generator;
 pub mod critic;
 pub mod llm;
 pub mod protocol;
+pub mod quarantine;
+pub mod events;
+pub mod flaky;
 pub mod executor;
 pub mod reporter;
 pub mod performance;
 pub mod stress;
 pub mod storage;
 pub mod automation;
+pub mod bus;
 pub mod service;
 pub mod prompts;
 pub mod sandbox;
 pub mod config;
 pub mod gate;
+pub mod gate_loop;
 pub mod knowledge;
+pub mod healed_store;
 pub mod healer;
+pub mod pipeline;
+pub mod retry;
+
+/// Test-only utilities for integration tests. Exposed via `pub` so that
+/// external integration tests under `tests/` can import the helpers. The
+/// module compiles into production binaries as well, but the helpers
+/// themselves are small and only invoked from tests, so the cost is
+/// negligible. Keep all helpers pure (no panics in production paths).
+pub mod test_support;
 
 pub use explorer::Explorer;
 pub use generator::TestCaseGenerator;
@@ -41,6 +56,7 @@ pub use automation::{
 // Storage
 pub use storage::{CaseStatus, LocalStorage, LocalStorageInstance};
 pub use config::app::{AppConfig, resolve_env_var};
+pub use quarantine::Quarantine;
 
 // Sandbox adapters
 pub use sandbox::PlaywrightBrowserAdapter;

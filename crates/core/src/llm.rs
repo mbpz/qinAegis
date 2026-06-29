@@ -337,6 +337,47 @@ impl LlmRouter {
     }
 }
 
+// ============================================================================
+// TestLlm — in-process LLM double for unit tests
+// ============================================================================
+
+#[cfg(test)]
+pub type LlmResponder =
+    std::sync::Arc<dyn Fn(&[Message]) -> Result<String, LlmError> + Send + Sync>;
+
+#[cfg(test)]
+pub struct TestLlm {
+    pub resp: LlmResponder,
+}
+
+#[cfg(test)]
+impl TestLlm {
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(&[Message]) -> Result<String, LlmError> + Send + Sync + 'static,
+    {
+        Self {
+            resp: std::sync::Arc::new(f),
+        }
+    }
+}
+
+#[cfg(test)]
+#[async_trait]
+impl LlmClient for TestLlm {
+    async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+        (self.resp)(messages)
+    }
+
+    async fn chat_with_options(
+        &self,
+        messages: &[Message],
+        _options: ChatOptions,
+    ) -> Result<String, LlmError> {
+        (self.resp)(messages)
+    }
+}
+
 #[async_trait]
 impl LlmClient for LlmRouter {
     async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {

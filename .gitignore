@@ -24,3 +24,6 @@ crates/web_client/src/assets/assets/
 icons/icon.iconset/
 icons/icon_*.png
 icons/icon.icns
+# Reliability-loop test scaffolds (MetaWriter, FlakyHistory writes under these paths)
+**/flaky_history.json
+**/runs/
