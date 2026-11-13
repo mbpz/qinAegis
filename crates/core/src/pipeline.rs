@@ -132,6 +132,15 @@ impl MetaCollector {
 }
 
 pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToken) -> anyhow::Result<()> {
+    run_with_executor_init(bus, ctx, cancel, crate::executor::TestExecutor::new(2, None, None)).await
+}
+
+async fn run_with_executor_init(
+    bus: ReliabilityBus,
+    ctx: PipelineCtx,
+    cancel: CancellationToken,
+    executor_init: impl std::future::Future<Output = anyhow::Result<crate::executor::TestExecutor>>,
+) -> anyhow::Result<()> {
     let _cfg = PipelineConfig::default();
     let mut set: JoinSet<anyhow::Result<()>> = JoinSet::new();
     let meta = Arc::new(MetaCollector::new());
@@ -171,24 +180,24 @@ pub async fn run(bus: ReliabilityBus, ctx: PipelineCtx, cancel: CancellationToke
     }
 
     // Execute stage: receives CaseGenerated and HealProduced, runs case, emits CaseExecuted.
-    let executor = match crate::executor::TestExecutor::new(2, None, None).await {
-        Ok(e) => std::sync::Arc::new(e),
+    match executor_init.await {
+        Ok(executor) => {
+            let bus = bus.clone();
+            let cancel = cancel.clone();
+            let exec = Arc::new(executor);
+            let run_id = ctx.run_id.clone();
+            let meta = meta.clone();
+            set.spawn(async move { execute_loop(bus, cancel, exec, run_id, meta).await });
+        }
         Err(err) => {
             tracing::error!("TestExecutor init failed: {} — execute stage will be a no-op", err);
             // ponytail: don't fail the whole pipeline; spawn a stub that just drops events.
             let bus2 = bus.clone();
             let cancel2 = cancel.clone();
             set.spawn(async move { execute_loop_stub(bus2, cancel2).await });
-            return drain(set).await;
+            // Other stages must still process externally supplied results
+            // and RunFinished events when the execution engine is unavailable.
         }
-    };
-    {
-        let bus = bus.clone();
-        let cancel = cancel.clone();
-        let exec = executor.clone();
-        let run_id = ctx.run_id.clone();
-        let meta = meta.clone();
-        set.spawn(async move { execute_loop(bus, cancel, exec, run_id, meta).await });
     }
 
     // Heal stage: receives CaseExecuted(passed:false), produces HealProduced or HealExhausted.
@@ -590,13 +599,6 @@ async fn execute_loop_stub(bus: ReliabilityBus, cancel: CancellationToken) -> an
     }
 }
 
-async fn drain(mut set: JoinSet<anyhow::Result<()>>) -> anyhow::Result<()> {
-    while let Some(r) = set.join_next().await {
-        if let Err(e) = r? { tracing::error!("worker error: {}", e); }
-    }
-    Ok(())
-}
-
 pub fn write_summary_with_meta(path: &Path, meta: &HashMap<String, CaseMeta>) -> anyhow::Result<()> {
     use serde_json::Value;
     let mut summary: Value = if path.exists() {
@@ -677,12 +679,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipeline_runs_to_gate_decided() {
+    async fn pipeline_runs_to_gate_decided_when_executor_init_fails() {
         // The orchestrator currently hardcodes project "default" for its
         // GateService, so we must scaffold the run dir under the same name.
         let project = "default";
         let run_id = "pipeline-r1";
         let dir = crate::test_support::scaffold_run_dir(project, run_id);
+        let workspace = tempdir().unwrap();
+        let ctx = PipelineCtx {
+            project_root: workspace.path().to_path_buf(),
+            flaky_history_path: workspace.path().join("flaky_history.json"),
+            run_id: run_id.into(),
+            ..PipelineCtx::default()
+        };
 
         let bus = ReliabilityBus::new(64);
         let mut rx = bus.subscribe();
@@ -693,7 +702,14 @@ mod tests {
         let bus_for_task = bus.clone();
         let cancel_for_task = cancel.clone();
         let handle = tokio::spawn(async move {
-            super::run(bus_for_task, super::PipelineCtx::default(), cancel_for_task).await
+            // Keep this regression independent of installed sandbox binaries:
+            // executor failure must not prevent gate and reporting workers starting.
+            super::run_with_executor_init(
+                bus_for_task,
+                ctx,
+                cancel_for_task,
+                std::future::ready(Err(anyhow::anyhow!("executor unavailable for regression test"))),
+            ).await
         });
         // Deterministically wait for all 5 workers (execute + heal + flaky +
         // gate + meta_writer) to subscribe before publishing. The test's own
@@ -729,7 +745,7 @@ mod tests {
         .await;
         assert!(ev.is_ok(), "pipeline never produced GateDecided");
         cancel.cancel();
-        let _ = handle.await;
+        handle.await.unwrap().unwrap();
 
         // Best-effort cleanup so repeated runs don't litter `~/.qinAegis`.
         let _ = std::fs::remove_dir_all(dir);

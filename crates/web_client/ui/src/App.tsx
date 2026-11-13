@@ -7,7 +7,6 @@ import RunView from './components/RunView';
 import ReportView from './components/ReportView';
 import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
-import InitWizard from './components/InitWizard';
 import { rpc } from './utils/rpc';
 import './styles.css';
 
@@ -17,6 +16,7 @@ function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [projects, setProjects] = useState<string[]>([]);
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+  const [connectionError, setConnectionError] = useState('');
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available'>('idle');
@@ -64,9 +64,10 @@ function App() {
     try {
       const result = await rpc.checkConfig();
       setIsConfigured(result.configured);
+      setConnectionError('');
     } catch (e) {
       console.error('Failed to check config:', e);
-      setIsConfigured(false);
+      setConnectionError((e as Error).message);
     }
   };
 
@@ -77,10 +78,6 @@ function App() {
     } catch (e) {
       console.error('Failed to load projects:', e);
     }
-  };
-
-  const handleWizardComplete = () => {
-    setIsConfigured(true);
   };
 
   const renderView = () => {
@@ -98,23 +95,11 @@ function App() {
       case 'review':
         return <ReviewView />;
       case 'settings':
-        return <SettingsView />;
+        return <SettingsView onSaved={checkConfig} />;
       default:
         return <Dashboard projects={projects} onNavigate={setCurrentView} />;
     }
   };
-
-  if (isConfigured === null) {
-    return (
-      <div className="app" style={{ justifyContent: 'center', alignItems: 'center' }}>
-        <div className="spinner" />
-      </div>
-    );
-  }
-
-  if (!isConfigured) {
-    return <InitWizard onComplete={handleWizardComplete} />;
-  }
 
   return (
     <div className="app">
@@ -132,7 +117,7 @@ function App() {
           <span
             className="update-badge"
             title={`New version available: ${updateStatus.latest}`}
-            onClick={() => { const a = document.createElement('a'); a.href = 'https://github.com/your-repo/releases'; a.target = '_blank'; a.click(); }}
+            onClick={() => { const a = document.createElement('a'); a.href = 'https://github.com/mbpz/qinAegis/releases'; a.target = '_blank'; a.click(); }}
           >
             Update
           </span>
@@ -141,6 +126,14 @@ function App() {
       <div className="app-body">
         <Sidebar currentView={currentView} onNavigate={setCurrentView} />
         <main className="app-main">
+          {connectionError && <div className="card" role="alert">
+            <p>Cannot connect to the local service: {connectionError}</p>
+            <button className="btn btn-primary" onClick={() => { checkConfig(); loadProjects(); loadVersion(); }}>Retry connection</button>
+          </div>}
+          {isConfigured === false && currentView !== 'settings' && <div className="card">
+            <p>AI is not configured. You can browse projects and reports, or configure a model to run AI tasks.</p>
+            <button className="btn btn-primary" onClick={() => setCurrentView('settings')}>Configure AI model</button>
+          </div>}
           {renderView()}
         </main>
       </div>

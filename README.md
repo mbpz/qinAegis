@@ -1,120 +1,46 @@
-# QinAegis
+# QinAegis 2.0
 
-Desktop GUI AI quality engineering platform for Web applications.
+A local Web AI quality workbench based on **Playwright + Midscene.js visual testing**. Install the service, run `qinaegis`, and use your default browser for configuration and testing. The UI is embedded; there is no desktop client bundle.
 
-## Positioning
+The product's central asset is the reusable test contract: business intent, inputs, preconditions, assertions and evidence remain separate from project bindings, models and engines. Versioned correction, extensible model routing and composable scenarios are the 2.0 direction. See [project memory](CONTEXT.md) and the [implementation plan](docs/plans/local-web.md) for scope and acceptance criteria.
 
-qinAegis is not another browser automation SDK. It is a productized testing workbench that combines mature open-source automation tools with local test asset governance, sandbox execution, failure review, and quality gates.
+This branch is 2.0 development, not a claim that every planned feature is shipped. Contract/scenario domain foundations and the local HTTP migration are being delivered in phases. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
 
-## Features
-
-- **Desktop GUI Application** — Double-click to use, no terminal required
-- **AI-Powered Exploration** — Visual-driven project discovery
-- **Test Case Generation** — Natural language to executable test cases
-- **Sandbox Execution** — Playwright-managed browser isolation
-- **Quality Gates** — E2E pass rate, performance, and stress testing
-- **Local Storage** — All data stays on your machine under `~/.qinAegis/`
-
-## Installation
-
-### Homebrew (Recommended)
+## Build and run
 
 ```bash
-brew install mbpz/homebrew-qinAegis/qinaegis
-```
-
-After installation, find **QinAegis.app** in your Applications folder.
-
-### From Source
-
-```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
-
-# Build React UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# Build Rust binary
-cargo build --release --bin qinAegis-web
-```
-
-## Technology Stack
-
-| Layer | Technology | Role |
-|---|---|---|
-| **Desktop App** | Rust + tao + wry | Native WebView2/webkit GUI |
-| **Frontend** | React + TypeScript + Vite | User interface |
-| **Core Services** | Rust + tokio | Business logic |
-| **Storage** | Local filesystem | `~/.qinAegis/projects/` |
-| **Browser** | Playwright | Browser process management |
-| **Visual AI** | Midscene.js | Visual act/assert/extract |
-| **Performance** | Lighthouse CI | Web Vitals measurement |
-| **Load Testing** | k6 | Stress and load thresholds |
-
-## Architecture
-
-```mermaid
-flowchart TB
-    GUI[Desktop GUI<br/>tao + wry + React] --> Core[Rust Core Services]
-    Core --> Storage[Local FS<br/>~/.qinAegis/projects]
-    Core --> Runtime[Sandbox Runtime]
-
-    Runtime --> Playwright[Playwright]
-    Runtime --> Observer[MCP-style Observer]
-    Runtime --> Midscene[Midscene]
-    Runtime --> Lighthouse[Lighthouse CI]
-    Runtime --> Load[k6]
-
-    Midscene --> Model[LLM / Vision Model]
-    Playwright --> Runs[runs/run-id]
-    Midscene --> Runs
-    Lighthouse --> Runs
-    Load --> Runs
-```
-
-## User Workflow
-
-1. **Launch** — Double-click QinAegis.app from Applications
-2. **Configure** — Set AI model credentials in Settings
-3. **Explore** — Enter project URL for AI-powered discovery
-4. **Generate** — Create test cases from requirements
-5. **Run** — Execute smoke, functional, performance, or stress tests
-6. **Review** — View reports and quality gate status
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `Cmd+Shift+D` / `Ctrl+Shift+D` | Toggle debug console |
-
-## Development
-
-```bash
-# Setup React UI
 cd crates/web_client/ui
-npm install
-
-# Development (watch mode)
-npm run dev
-
-# Build for production
+npm ci
 npm run build
-
-# Build Rust binary
-cargo build --release --bin qinAegis-web
+cd ../../..
+cargo build --locked --release --bin qinaegis
+./target/release/qinaegis
 ```
 
-## Documentation
+The service listens only on loopback, default port `19876`, and opens a browser with a short-lived session bootstrap token. Keep this private URL out of shared logs. No AI key is needed to browse existing assets. Configure models in Settings to use AI operations.
 
-- [Roadmap](./qinAegis-platform-roadmap.md)
-- [Architecture Design](./docs/superpowers/specs/2026-04-24-qinaegis-architecture-design.md)
-- [User Guide](./docs/USER_GUIDE.md)
-- [Install Guide](./INSTALL.md)
-- [CI/CD Orchestration](./docs/orchestration.md)
+```bash
+qinaegis status
+qinaegis stop
+qinaegis serve --no-open
+qinaegis start --port 19877
+```
 
-## Integrations
+Use the executable's full path if it is not on PATH. Closing the browser does not stop the service. A reopened private session should use `qinaegis open`.
 
-- [OWASP ZAP Security Scanning](./docs/integrations/owasp-zap.md)
-- [Stagehand AI Browser Automation](./docs/integrations/stagehand.md)
-- [Playwright Test Agents Reference](./docs/integrations/playwright-test-agents.md)
-- [Testplane Visual Regression](./docs/integrations/testplane.md)
+## Installation and engines
+
+See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and frontend build tools are needed only for source builds. **Actual visual tests still require a prepared Playwright + Midscene.js engine**, including compatible Node and automation browser dependencies. Automatic engine installation and complete Web engine management are subsequent phases.
+
+- Installed runtime: `QINAEGIS_RUNTIME_DIR` points to an absolute directory containing a validated `runtime.json`, compiled executor and dependencies.
+- Development runtime: `QINAEGIS_DEV_SANDBOX` explicitly points to an absolute prepared `sandbox` source directory.
+- Runtime discovery does not rely on the compiler's source directory or current working directory.
+- Performance and stress adapters require their own verified Lighthouse/Locust environments.
+
+Projects remain under `~/.qinAegis/projects`. Global configuration follows the OS-specific configuration directory; consult service diagnostics rather than assuming a fixed macOS path. Models may receive test-page content during AI operations; credentials and private project data should not be included in shared contract packages.
+
+## Release artifacts
+
+`bash scripts/build-release.sh TARGET` builds UI plus a service archive. Targets are macOS ARM64/Intel, Linux x86_64 and Windows x86_64; platform availability remains subject to CI and clean-machine verification. No `.app`, DMG or cask is produced. Workflows produce a **draft** release for review before publication. The Homebrew Formula is rendered from verified release checksums; the repository template is not directly installable before release.
+
+[中文说明](README_zh.md) · [安装说明](INSTALL_zh.md) · [License](LICENSE)

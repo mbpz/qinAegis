@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/web_client"]
 
 [workspace.package]
-version = "0.7.2"
+version = "2.0.0"
 edition = "2021"
 authors = ["QinAegis Team"]
 
@@ -21,3 +21,17 @@ anyhow = "1"
 async-trait = "0.1"
 tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
+# Generated browser bindings make full debug information costly for local builds.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

@@ -1,6 +1,8 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
+pub mod contracts;
+pub mod scenario;
 pub mod explorer;
 pub mod generator;
 pub mod critic;
@@ -67,3 +69,5 @@ mod basic_test {
         assert_eq!(2 + 2, 4);
     }
 }
+
+pub mod runtime;

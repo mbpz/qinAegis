@@ -1,112 +1,46 @@
-# qinAegis
+# QinAegis 2.0
 
-本地优先的 AI 质量工程桌面应用。
+基于 **Playwright + Midscene.js 视觉驱动测试**的本地 AI 质量工作台。安装并运行 `qinaegis` 后自动打开默认浏览器，前端内嵌于服务，不再打包桌面客户端。
 
-qinAegis 不是又一个浏览器自动化 SDK。它是一个产品化的测试工作台，将成熟的开源自动化工具与本地测试资产治理、沙箱执行、失败复盘和质量门禁结合在一起。
+产品核心是可复用契约：业务意图、输入、前置条件、断言与证据要求独立于项目绑定、模型和执行器。契约可维护、修改、纠正与版本追溯；模型接入可扩展、可切换；能力按真实场景组合并校验执行时序。详见[项目记忆](CONTEXT.md)和 [2.0 实现计划](docs/plans/local-web.md)。
 
-## 核心特性
+当前分支正在分阶段实施 2.0，并非所有规划已交付。契约/流程领域基础与本地 HTTP 服务迁移先行。无障碍电脑控制属于后续可选能力，需要用户明确授权，不会随安装自动启用。
 
-- **桌面 GUI 应用** — 双击即可使用，无需终端
-- **AI 驱动探索** — 可视化项目发现
-- **测试用例生成** — 自然语言转可执行测试
-- **沙箱执行** — Playwright 管理的浏览器隔离
-- **质量门禁** — E2E 通过率、性能、压测
-- **本地存储** — 所有数据保存在 `~/.qinAegis/`
-
-## 技术栈
-
-| 层级 | 技术 | 用途 |
-|---|---|---|
-| **桌面应用** | Rust + tao + wry | 原生 WebView2/WebKit GUI |
-| **前端** | React + TypeScript + Vite | 用户界面 |
-| **核心服务** | Rust + tokio | 业务逻辑 |
-| **存储** | 本地文件系统 | `~/.qinAegis/projects/` |
-| **浏览器** | Playwright | 浏览器进程管理 |
-| **视觉 AI** | Midscene.js | 视觉操作/断言/抽取 |
-| **性能测试** | Lighthouse CI | Web Vitals 指标 |
-| **压测** | k6 | 负载和压测阈值 |
-
-## 安装
-
-### Homebrew（推荐）
+## 从源码运行
 
 ```bash
-brew install --cask mbpz/qinAegis/qinAegis
-```
-
-安装完成后，在应用程序文件夹中找到 **QinAegis.app**，双击即可使用。
-
-### 从源码构建
-
-```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
-
-# 构建 React UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# 构建 Rust 二进制
-cargo build --release --bin qinAegis-web
-```
-
-## 架构
-
-```mermaid
-flowchart TB
-    GUI[桌面 GUI<br/>tao + wry + React] --> Core[Rust 核心服务]
-    Core --> Storage[本地存储<br/>~/.qinAegis/projects]
-    Core --> Runtime[沙箱运行时]
-
-    Runtime --> Playwright[Playwright]
-    Runtime --> Observer[MCP 风格观测器]
-    Runtime --> Midscene[Midscene]
-    Runtime --> Lighthouse[Lighthouse CI]
-    Runtime --> Load[k6]
-
-    Midscene --> Model[LLM / 视觉模型]
-    Playwright --> Runs[runs/run-id]
-    Midscene --> Runs
-    Lighthouse --> Runs
-    Load --> Runs
-```
-
-## 用户工作流
-
-1. **启动** — 从应用程序文件夹双击 QinAegis.app
-2. **配置** — 在设置中填写 AI 模型凭证
-3. **探索** — 输入项目 URL 进行 AI 驱动的发现
-4. **生成** — 从需求描述创建测试用例
-5. **执行** — 运行冒烟、功能、性能或压测
-6. **复盘** — 查看报告和质量门禁状态
-
-## 开发
-
-```bash
-# 安装 React 依赖
 cd crates/web_client/ui
-npm install
-
-# 开发模式（热更新）
-npm run dev
-
-# 生产构建
+npm ci
 npm run build
-
-# 构建 Rust 二进制
-cargo build --release --bin qinAegis-web
+cd ../../..
+cargo build --locked --release --bin qinaegis
+./target/release/qinaegis
 ```
 
-## 文档
+默认本机端口为 `19876`，启动时通过私有短期令牌建立浏览器会话，不要分享启动链接。尚未配置 AI 也可以浏览已有资产；在 Settings 配置模型后使用 AI 功能。
 
-- [路线图](./qinAegis-platform-roadmap.md)
-- [架构设计](./docs/superpowers/specs/2026-04-24-qinaegis-architecture-design.md)
-- [用户指南](./docs/USER_GUIDE.md)
-- [安装指南](./INSTALL.md)
-- [CI/CD 编排](./docs/orchestration.md)
+```bash
+qinaegis status
+qinaegis stop
+qinaegis serve --no-open
+qinaegis start --port 19877
+```
 
-## 集成
+未加入 PATH 时使用程序完整路径。关闭网页不会停止服务，通过 `qinaegis open` 重新打开已授权会话。
 
-- [OWASP ZAP 安全扫描](./docs/integrations/owasp-zap.md)
-- [Stagehand AI 浏览器自动化](./docs/integrations/stagehand.md)
-- [Playwright Test Agents 参考](./docs/integrations/playwright-test-agents.md)
-- [Testplane 视觉回归](./docs/integrations/testplane.md)
+## 安装与测试引擎
+
+见[安装说明](INSTALL_zh.md)。基础包包含已构建 UI，最终用户不需要 Rust 或前端开发环境；源码构建需要相应工具。**实际视觉测试仍需要已准备好的 Playwright + Midscene.js 引擎**、兼容 Node 和自动化浏览器。自动引擎安装与完整 Web 环境管理按后续阶段实现。
+
+- `QINAEGIS_RUNTIME_DIR`：安装后的运行时绝对目录，包含 `runtime.json`、编译后的执行器及依赖。
+- `QINAEGIS_DEV_SANDBOX`：显式指定已安装依赖的 sandbox 源码绝对目录，仅用于开发。
+- 不依赖编译时开发者目录或当前工作目录查找执行器。
+- 性能/压测另外需要对应的 Lighthouse/Locust 环境。
+
+项目保留在 `~/.qinAegis/projects`，全局配置使用操作系统对应的配置目录，不再写死 macOS 路径。AI 操作可能向所配置模型提供方发送被测页面内容；契约共享包不应包含凭据和私有测试数据。
+
+## 发布方式
+
+`bash scripts/build-release.sh TARGET` 构建前端及服务归档，目标包括 macOS 双架构、Linux x86_64、Windows x86_64，实际支持以 CI 与干净环境验收为准。不生成 `.app`、DMG 或 cask。工作流先生成待审阅草稿发布；Homebrew Formula 由正式发布摘要渲染，仓库模板不能在发布前作为可用安装源宣传。
+
+[English](README.md) · [License](LICENSE)

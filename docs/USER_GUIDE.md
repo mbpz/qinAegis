@@ -1,257 +1,72 @@
-# QinAegis 用户手册
+# QinAegis 2.0 用户指南
 
-> AI 自动化测试 PC 客户端 — 基于 Playwright + Midscene.js 视觉驱动测试
+基于 **Playwright + Midscene.js 视觉驱动测试**的本地 Web 工作台。2.0 正在分阶段交付；本指南区分当前操作与后续产品能力，不再使用旧桌面客户端安装说明。
 
-## 目录
+## 安装与启动
 
-1. [安装](#安装)
-2. [快速开始](#快速开始)
-3. [视图参考](#视图参考)
-4. [配置说明](#配置说明)
-5. [数据目录](#数据目录)
-6. [常见问题](#常见问题)
-
----
-
-## 安装
-
-### Homebrew 安装（推荐）
+按 [INSTALL_zh.md](../INSTALL_zh.md) 安装服务，或按 [README_zh.md](../README_zh.md) 从源码构建。发布包安装仅适用于已发布并经过验证的版本。
 
 ```bash
-brew install --cask mbpz/qinAegis/qinAegis
+qinaegis
+qinaegis status
+qinaegis open
+qinaegis stop
 ```
 
-安装完成后在 Applications 文件夹找到 **QinAegis.app**，双击运行。
+默认启动后台服务并自动打开浏览器，监听本机 `127.0.0.1:19876`。需要其他端口时使用 `qinaegis start --port 19877`；前台运行使用 `qinaegis serve --no-open`。程序未加入 PATH 时使用完整路径。
 
-### 从 DMG 安装
+关闭标签页不停止任务。重新打开应通过 `qinaegis open` 建立浏览器会话，不要分享含令牌的启动链接。服务不可达时先检查状态和日志；页面连接失败不代表需要重新创建配置。
 
-从 [GitHub Releases](https://github.com/mbpz/qinAegis/releases) 下载对应架构的 DMG 文件，挂载后拖入 Applications。
+## 首次配置
 
-### 从源码构建
+无需配置 AI 即可浏览已有项目和报告。需要 AI 时进入 Settings：
 
-```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
+1. 填写 provider、Base URL、model 和 API Key。
+2. 可选填写备用模型配置；多模型注册与按步骤路由以后续阶段实现为准。
+3. 保存模型、CDP 端口和探索限制。当前 Web 页面以实际后端支持的字段为准。
 
-# Node.js UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
+密钥从服务器返回时为空，页面只显示是否已保存；留空保存保留原密钥。更换密钥输入新值，删除密钥使用明确清除选项。不要将密钥放入项目共享包或报告。
 
-# Rust 二进制
-cargo build --release -p qinAegis-web
-```
+全局配置路径由操作系统配置目录决定，不能将旧说明中的 `~/.config/qinAegis` 当作所有系统的固定位置。项目资产继续保留在 `~/.qinAegis/projects`。
 
-产物：`target/release/qinAegis-web`（直接运行，无安装流程）
+## 准备执行引擎
 
----
+基础包内嵌 UI，但实际浏览器测试仍需兼容 Node、Playwright/Midscene.js 与自动化浏览器。基础包暂不自动下载引擎。
 
-## 快速开始
+- 已安装运行时：启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为含有效 `runtime.json`、编译执行器和生产依赖的绝对目录。
+- 开发源码运行时：显式设置 `QINAEGIS_DEV_SANDBOX` 为准备好依赖的根 `sandbox` 绝对目录。
+- 不隐式使用编译机器目录或当前工作目录。完整 manifest 格式见安装指南。
+- 性能与压测分别需要对应的 Lighthouse/Locust 环境。未安装能力不代表已经运行成功。
 
-### 1. 启动应用
+## 当前业务工作流
 
-双击 QinAegis.app 或运行 `qinAegis-web`。
+1. **Dashboard**：创建项目，填写名称、目标 URL 和技术栈；已有数据直接读取。
+2. **Explore**：输入目标 URL 和深度，运行探索，查看日志与结果。运行前准备模型和引擎；测试目标需要有效访问权限。
+3. **Generate**：根据自然语言需求生成用例；生成结果先作为待审核资产。
+4. **Review**：按 draft/reviewed/approved/flaky/archived 状态查看、审核用例；执行只使用符合执行条件的用例。
+5. **Run Tests**：选择项目和 smoke/functional/performance/stress 类型，预览计划，再运行。
+6. **Reports**：查看运行摘要、门禁、HTML 报告，或导出 JSON。
 
-首次启动显示 **Settings** 视图，要求配置 LLM API。
+当前各页面依赖对应任务与存储接口；计划中的完整项目绑定、契约治理和流程编辑入口不应被当作已交付功能。没有匹配用例或没有运行结果时，不能据此判断被测系统通过。
 
-### 2. 配置 LLM
+任务停止请求会先进入 `cancelling`，页面显示正在等待 worker 清理；只有后端确认终态才显示已停止。请保留必要的失败证据，不通过反复切换模型掩盖业务断言失败。
 
-在 Settings 视图填写：
+HTML 报告在无脚本、无同源权限的 sandbox iframe 内展示；外部资源和表单受限制。交互脚本不执行属于隔离设计。报告错误按普通文本显示，不作为 HTML 插入工作台。
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| API Key | MiniMax API Key | `eyJ...` |
-| Base URL | API 端点 | `https://api.minimax.chat/v1` |
-| Model | 模型名称 | `MiniMax-VL-01` |
+## 2.0 产品核心与后续阶段
 
-配置保存后自动生效。
+[项目记忆](../CONTEXT.md)定义以下长期要求，具体进度以[实施计划](plans/local-web.md)和实际验收为准：
 
-### 3. 创建项目
-
-在 **Dashboard** 点击 `+ New Project`，填写：
-
-- **Project Name**: 项目标识名（如 `my-app`）
-- **URL**: 被测 Web 应用地址（如 `https://example.com`）
-- **Tech Stack**: 技术栈（可选）
-
-### 4. AI 探索项目
-
-切换到 **Explore** 视图，输入 URL 和探索深度，点击 `Start Explore`。
-
-AI 自动浏览页面，生成规格书（spec.md）存入项目目录。
-
-### 5. 生成测试用例
-
-切换到 **Generate** 视图，输入需求描述，点击 `Generate Cases`。
-
-AI 根据规格书生成 YAML 测试用例，存入 `cases/draft/`。
-
-### 6. 审核测试用例
-
-切换到 **Review** 视图，查看 draft 状态用例，选择状态：`draft → reviewed → approved`（或 `flaky` / `archived`）。
-
-### 7. 执行测试
-
-切换到 **Run Tests** 视图：
-
-1. 选择 **Project** 和 **Test Type**（smoke / functional / performance / stress）
-2. 点击 **Preview Plan** 查看 AI 生成的测试计划摘要
-3. 点击 **Run Tests** 执行
-
-测试结果写入 `reports/{project}/{run-id}/`。
-
-### 8. 查看报告
-
-切换到 **Reports** 视图，查看历史运行记录和质量门禁（Gate）状态。
-
----
-
-## 视图参考
-
-### Dashboard
-
-项目列表 + 新建项目入口。显示已配置项目的 URL 和测试统计。
-
-### Explore
-
-| 字段 | 说明 |
-|------|------|
-| URL | 被探索页面地址 |
-| Depth | 递归探索深度（1-5） |
-
-点击 `Start Explore` 后，AI 模拟用户浏览路径，生成 Markdown 规格书。
-
-### Generate
-
-| 字段 | 说明 |
-|------|------|
-| Requirement | 自然语言需求描述 |
-| Spec | 规格书路径（自动读取 explore 结果） |
-
-点击 `Generate Cases` 生成 YAML 测试用例，写入 draft 状态。
-
-### Run Tests
-
-| 字段 | 说明 |
-|------|------|
-| Project | 项目选择 |
-| Test Type | smoke / functional / performance / stress |
-| Preview Plan | 查看执行计划摘要后确认执行 |
-
-**Test Type 说明**：
-- `smoke` — 冒烟测试，核心路径验证
-- `functional` — 功能测试，全量用例
-- `performance` — Lighthouse 性能测试，结果写入 `lighthouse.json`
-- `stress` — Locust 压力测试，结果写入 `locust-summary.json`
-
-### Review
-
-按状态过滤（draft / reviewed / approved / flaky / archived），支持单条状态切换。
-
-### Reports
-
-| 内容 | 说明 |
-|------|------|
-| Quality Gate | E2E 通过率 + Performance 分数 + Stress RPS |
-| Recent Runs | 历史运行列表，点击查看 HTML 报告 |
-| Export | 导出所有报告为 JSON |
-
-### Settings
-
-配置 LLM API Key、Base URL、Model。配置持久化到本地配置文件。
-
----
-
-## 配置说明
-
-### 配置文件
-
-`~/.config/qinAegis/config.toml`（macOS）
-
-```toml
-[llm]
-api_key = "your-api-key"
-base_url = "https://api.minimax.chat/v1"
-model = "MiniMax-VL-01"
-
-[sandbox]
-cdp_port = 9222
-```
-
-### 环境变量（覆盖配置）
-
-| 变量 | 说明 |
-|------|------|
-| `MIDSCENE_MODEL_API_KEY` | LLM API Key |
-| `MIDSCENE_MODEL_BASE_URL` | API Base URL |
-| `MIDSCENE_MODEL_NAME` | 模型名称 |
-
-### Sandbox 配置
-
-默认使用 Playwright 内置 Chrome（CDP 模式），无需 Docker。
-
-如需使用已有 Chrome 实例：设置 `CDP_WS_URL` 环境变量指向 Chrome DevTools WebSocket。
-
----
-
-## 数据目录
-
-所有数据存储在 `~/.qinAegis/`：
-
-```
-~/.qinAegis/
-├── config.toml              # 全局配置
-├── credentials.json         # 加密凭据（不提交）
-└── projects/
-    └── {project}/
-        ├── config.yaml      # 项目配置
-        ├── spec/            # 规格书
-        ├── cases/
-        │   ├── draft/       # 待审核用例
-        │   ├── reviewed/    # 已审核用例
-        │   ├── approved/    # 可执行用例
-        │   ├── flaky/      # 不稳定用例
-        │   └── archived/    # 已归档用例
-        ├── reports/
-        │   └── {run-id}/
-        │       ├── summary.json       # 运行摘要
-        │       ├── report.html        # HTML 报告
-        │       ├── lighthouse.json   # 性能数据（仅 performance）
-        │       └── locust-summary.json # 压测数据（仅 stress）
-        └── knowledge/
-            └── baseline.json # 性能基线
-```
-
----
+- 可复用、可维护、可修改、可纠正的契约；模板、项目绑定、场景流程与运行证据分离，发布版本与历史结果可追溯。
+- 模型接入可扩展并按场景切换，能力与隐私要求不满足时不可静默降级。
+- 核心能力职责解耦，通过输入输出与依赖组合场景、调整合法执行时序。
+- 无障碍电脑控制仅为经授权的可选辅助能力，当前不自动启用，也不代表已有 OS 授权。
+- 自动引擎安装、完整 Web 引擎维护、可靠任务恢复和更新回滚按阶段交付，未实现前使用明确说明的手动方式。
 
 ## 常见问题
 
-### Q: API Key 无效报错
-
-确认 Settings 中填写的 API Key 有效，且 Base URL 与 Key 类型匹配（MiniMax key 不能用于 OpenAI 兼容端点）。
-
-### Q: Explore/Run 无法启动浏览器
-
-确保 Playwright Chromium 已安装：
-
-```bash
-cd /Users/jinguo.zeng/dmall/project/qinAegis/sandbox
-npx playwright install chromium
-```
-
-### Q: 报告为空
-
-检查 `~/.qinAegis/projects/{project}/reports/` 是否有运行目录。performance/stress 测试需要在 Run Tests 视图中选择对应 Test Type 执行。
-
-### Q: 性能/压测数据显示 `--`
-
-performance 显示 `--` 需要运行 **performance** 测试类型；stress 显示 `--` 需要运行 **stress** 测试类型。smoke/functional 类型不生成这两项数据。
-
-### Q: Self-Healing 未生效
-
-Self-Healing 需要 LLM API Key 配置正确，且 `max_heal_retries > 0`（默认=1）。检查 Settings 配置。
-
----
-
-## 版本信息
-
-- 当前版本：0.5.4
-- 构建时间：2026-05-13
+- **无法连接服务**：检查 `qinaegis status`；通过 `qinaegis open` 打开正确端口与会话。启动失败先看诊断，避免重复删除配置。
+- **引擎无法启动**：检查运行时目录、manifest、Node、执行器与浏览器；环境变量改动后重启服务。不要用编译机器的硬编码路径修补。
+- **API Key 为空**：正常配置读取不会回传密钥；检查页面“已保存”状态，留空保存不会删除。
+- **报告缺指标**：smoke/functional 不一定生成性能或压测指标；缺失数据显示不可用，不应当作零分或通过。
+- **需要卸载**：先停止服务，再移除程序；默认保留配置和项目数据，需要删除资产时先备份。

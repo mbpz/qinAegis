@@ -1,37 +1,39 @@
-cask "qinaegis" do
-  arch arm: "arm64", intel: "x64"
-
-  version "0.1.0"
-  sha256 arm:   "REPLACE_WITH_ARM_SHA256",
-         intel: "REPLACE_WITH_X86_SHA256"
-
-  url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/QinAegis-v#{version}-mac-#{arch}.dmg"
-  name "QinAegis"
-  desc "AI-powered quality engineering platform for Web applications"
+# Release template: publish-homebrew-tap substitutes all RELEASE_* values.
+# Do not install this source template directly before a verified release exists.
+class Qinaegis < Formula
+  desc "Local Web AI quality workbench using Playwright and Midscene.js"
   homepage "https://github.com/mbpz/qinAegis"
+  version "RELEASE_VERSION"
+  license "MIT"
 
-  livecheck do
-    url :url
-    strategy :github_latest
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/qinaegis-aarch64-apple-darwin.tar.gz"
+      sha256 "RELEASE_ARM_SHA256"
+    else
+      url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/qinaegis-x86_64-apple-darwin.tar.gz"
+      sha256 "RELEASE_INTEL_SHA256"
+    end
   end
 
-  auto_updates true
-  depends_on macos: ">= :catalina"
+  on_linux do
+    url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/qinaegis-x86_64-unknown-linux-gnu.tar.gz"
+    sha256 "RELEASE_LINUX_SHA256"
+  end
 
-  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
+  def install
+    bin.install "qinaegis"
+  end
 
-  uninstall quit: "com.qinaegis.app",
-            delete: "/Applications/QinAegis.app"
+  def caveats
+    <<~EOS
+      Run qinaegis to start the local service and open your browser.
+      Run qinaegis stop before upgrading. Project data is preserved.
+      Playwright and Midscene.js runtime installation is separate.
+    EOS
+  end
 
-  zap trash: [
-    "~/.qinAegis",
-    "~/Library/Application Support/com.qinaegis.app",
-    "~/Library/Preferences/com.qinaegis.app.plist",
-    "~/Library/Saved Application State/com.qinaegis.app.savedState",
-  ]
-
-  caveats <<~EOS
-    After installation, find QinAegis in your Applications folder.
-    Double-click to launch the GUI application.
-  EOS
+  test do
+    assert_match version.to_s, shell_output("#{bin}/qinaegis version")
+  end
 end

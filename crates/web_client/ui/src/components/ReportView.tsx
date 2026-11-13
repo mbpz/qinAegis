@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import type { RunReport, GateStatus } from '../types/rpc';
 
@@ -12,12 +12,18 @@ export default function ReportView() {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [reportHtml, setReportHtml] = useState<string | null>(null);
   const [loadingHtml, setLoadingHtml] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const reportRequest = useRef(0);
 
   useEffect(() => {
     rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
   }, []);
 
   useEffect(() => {
+    reportRequest.current++;
+    setSelectedRun(null);
+    setReportHtml(null);
+    setReportError('');
     loadReports();
   }, [selectedProject]);
 
@@ -38,20 +44,23 @@ export default function ReportView() {
   };
 
   const handleRunClick = async (runId: string) => {
+    const requestId = ++reportRequest.current;
     setSelectedRun(runId);
+    setReportError('');
     setLoadingHtml(true);
     setReportHtml(null);
     try {
       const result = await rpc.getReportHtml(selectedProject, runId);
+      if (requestId !== reportRequest.current) return;
       if (result.ok && result.html) {
         setReportHtml(result.html);
       } else {
-        setReportHtml(`<p style="color:#f85149">${result.error || 'Failed to load report'}</p>`);
+        setReportError(result.error || 'Failed to load report');
       }
     } catch (e) {
-      setReportHtml(`<p style="color:#f85149">Error: ${e}</p>`);
+      if (requestId === reportRequest.current) setReportError('Error: ' + (e as Error).message);
     } finally {
-      setLoadingHtml(false);
+      if (requestId === reportRequest.current) setLoadingHtml(false);
     }
   };
 
@@ -155,17 +164,22 @@ export default function ReportView() {
           <div className="card-title">Report: {selectedRun}</div>
           {loadingHtml ? (
             <p style={{ color: 'var(--text-secondary)' }}>Loading report...</p>
+          ) : reportError ? (
+            <p className="error-message" role="alert">{reportError}</p>
           ) : reportHtml ? (
-            <div
+            <iframe
+              title={`Report ${selectedRun}`}
               className="report-viewer"
-              dangerouslySetInnerHTML={{ __html: reportHtml }}
+              sandbox=""
+              referrerPolicy="no-referrer"
+              srcDoc={'<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'">' + reportHtml}
               style={{
                 background: '#0d1117',
                 border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 padding: '16px',
-                maxHeight: '500px',
-                overflow: 'auto',
+                width: '100%',
+                height: '500px',
               }}
             />
           ) : (

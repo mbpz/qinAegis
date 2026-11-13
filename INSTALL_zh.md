@@ -1,55 +1,44 @@
-# 安装
+# 安装本地 Web 服务
 
-## 通过 Homebrew（推荐）
+2.0 正在开发。下列发布包安装步骤仅适用于**对应版本经过验证并正式发布后**；发布前请按 README 从源码构建。Homebrew Formula 当前为发布模板，不应直接安装。
 
-```bash
-brew install --cask mbpz/qinAegis/qinAegis
-```
+## macOS / Linux
 
-这将：
-1. 下载适合您架构的最新 DMG（arm64 或 x86_64）
-2. 挂载 DMG 并将 QinAegis.app 复制到 `/Applications`
-3. 移除隔离属性，避免 Gatekeeper 拦截
-
-安装完成后，在应用程序文件夹中找到 **QinAegis.app**。
-
-## 从 DMG（手动安装）
-
-1. 从 GitHub Releases 下载 DMG
-2. 双击挂载
-3. 将 QinAegis.app 拖到应用程序文件夹
-4. （首次运行）在 Gatekeeper 对话框中点击"打开"
-
-## 从源码构建
+从可信 2.0 发布页下载并审阅 `install.sh`：
 
 ```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
-
-# 构建 React UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# 构建 Rust 二进制
-cargo build --release --bin qinAegis-web
+sh install.sh --version 2.0.0
 ```
 
-二进制文件位于 `target/release/qinAegis-web`。
+脚本识别 macOS ARM64/Intel 或 Linux x86_64，下载对应服务归档及 `SHA256SUMS`，校验后安装至 `~/.local/bin/qinaegis`，启动服务并打开浏览器。不使用 sudo、不修改 shell 配置、不删除系统安全标记。自行将目录加入 PATH，或使用绝对路径。SHA-256 依赖可信发布渠道，并非独立发布者签名。
 
-## 系统要求
-
-- macOS 10.15 或更高版本
-- Apple Silicon（M1/M2/M3）或 Intel Mac
-
-## 首次启动
-
-1. 在应用程序文件夹中双击 QinAegis.app
-2. 如果看到 Gatekeeper 警告，在系统偏好设置 > 安全性中点击"仍然打开"
-3. GUI 将打开，并显示 AI 模型配置的设置向导
-
-## 卸载
+支持 `--prefix /绝对路径/bin`、`--no-start`，离线安装使用 `--archive /路径/包.tar.gz --checksum 十六进制摘要`。升级前先停止旧服务。启动失败时检查 status 与服务日志，不能将文件安装完成等同于服务就绪。
 
 ```bash
-rm -rf /Applications/QinAegis.app
-# 可选：移除配置（您的测试数据将保留）
-rm -rf ~/.config/qinAegis
+~/.local/bin/qinaegis status
+~/.local/bin/qinaegis open
+~/.local/bin/qinaegis stop
+~/.local/bin/qinaegis serve --no-open
 ```
+
+## Windows
+
+下载 `qinaegis-x86_64-pc-windows-msvc.zip`，通过 `Get-FileHash` 与发布 `SHA256SUMS` 核对，解压到当前用户目录并运行 `qinaegis.exe`。本阶段尚无一键 PowerShell 安装器。签名及干净系统验收是发布前条件，不通过关闭系统安全机制解决未签名产物问题。
+
+## Playwright + Midscene.js 引擎
+
+基础包尚不自动安装引擎。浏览资产和设置不需要 Node；实际执行视觉测试需要兼容 Node、Playwright/Midscene.js 及自动化浏览器。
+
+安装式运行时目录须包含以下清单及真实配套文件：
+
+```json
+{"schema_version":1,"engine":"midscene","version":"已验证的引擎版本","entry":"dist/executor.js","node":"bin/node"}
+```
+
+`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器，在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录。修改环境变量后重启服务。
+
+开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。自动下载/修复引擎和完整 Web 引擎管理属于后续阶段。
+
+## 数据与卸载
+
+项目保留在 `~/.qinAegis/projects`，全局配置路径由操作系统决定。先停止服务，再移除安装的 `qinaegis` 程序即可卸载基础包，默认保留配置与项目。需要清理数据时先备份；替换程序不等于回滚未来的数据格式迁移。

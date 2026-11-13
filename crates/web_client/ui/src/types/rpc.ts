@@ -35,13 +35,17 @@ export interface ConfigStatusResponse {
 
 export interface StateResponse {
   ok: boolean;
-  config: AppConfig;
+  config: AppConfig | null;
   currentView: string;
 }
 
 export interface AppConfig {
   llm: {
     api_key: string;
+    api_key_configured?: boolean;
+    secondary_api_key_configured?: boolean;
+    clear_api_key?: boolean;
+    clear_secondary_api_key?: boolean;
     base_url: string;
     model: string;
     provider?: string;
@@ -50,6 +54,7 @@ export interface AppConfig {
     secondary_base_url?: string;
     secondary_model?: string;
   };
+  exploration?: { max_depth: number; max_pages_per_seed: number };
   sandbox: {
     cdp_port: number;
   };
@@ -101,7 +106,7 @@ export interface ReportHtmlResponse {
 
 export type JobType = 'explore' | 'generate' | 'testExec';
 
-export type JobStatusValue = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+export type JobStatusValue = 'idle' | 'running' | 'cancelling' | 'completed' | 'failed' | 'stopped';
 
 export interface JobStatus {
   jobId: string;

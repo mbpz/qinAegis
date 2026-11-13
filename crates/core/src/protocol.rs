@@ -8,6 +8,30 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, Mutex};
 
+const STDERR_TAIL_LIMIT: usize = 64 * 1024;
+
+/// Keep the newest complete UTF-8 characters without growing past the byte limit.
+fn append_stderr_tail(buffer: &mut String, text: &str) {
+    if text.len() >= STDERR_TAIL_LIMIT {
+        let mut start = text.len() - STDERR_TAIL_LIMIT;
+        while !text.is_char_boundary(start) {
+            start += 1;
+        }
+        buffer.clear();
+        buffer.push_str(&text[start..]);
+    } else {
+        let excess = (buffer.len() + text.len()).saturating_sub(STDERR_TAIL_LIMIT);
+        if excess > 0 {
+            let mut start = excess;
+            while !buffer.is_char_boundary(start) {
+                start += 1;
+            }
+            buffer.drain(..start);
+        }
+        buffer.push_str(text);
+    }
+}
+
 // ============================================================================
 // JSON-RPC types (shared between Rust CLI and TypeScript executor)
 // ============================================================================
@@ -38,7 +62,12 @@ pub enum JsonRpcRequest {
     #[serde(rename = "lighthouse")]
     Lighthouse { url: String },
     #[serde(rename = "stress")]
-    Stress { target_url: String, users: u32, spawn_rate: u32, duration: u32 },
+    Stress {
+        target_url: String,
+        users: u32,
+        spawn_rate: u32,
+        duration: u32,
+    },
     #[serde(rename = "zap_scan")]
     ZapScan { target_url: String },
     #[serde(rename = "shutdown")]
@@ -118,39 +147,15 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
-    fn resolve_node() -> String {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let candidates: Vec<String> = vec![
-            "/opt/homebrew/bin/node".into(),
-            "/usr/local/bin/node".into(),
-            "/opt/local/bin/node".into(),
-            "/usr/bin/node".into(),
-            format!("{}/.n/bin/node", home),
-            format!("{}/.local/bin/node", home),
-        ];
-        for path in &candidates {
-            if std::path::Path::new(path).exists() {
-                return path.clone();
-            }
-        }
-        "node".to_string()
-    }
-
-    /// Spawn the TS executor process (browser lifecycle managed by executor).
+    /// Spawn the installed engine; developer sandbox use must be explicitly selected.
     pub async fn with_adapter(
         llm_config: Option<LlmConfig>,
         sandbox_config: Option<SandboxConfig>,
     ) -> anyhow::Result<Self> {
-        let sandbox_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
-            .parent().unwrap()
-            .join("sandbox");
-        let tsx_path = sandbox_dir.join("node_modules/.bin/tsx");
-        let node_path = Self::resolve_node();
-
-        let mut cmd = Command::new(&node_path);
-        cmd.args([&tsx_path.to_string_lossy().to_string(), "src/executor.ts"])
-            .current_dir(&sandbox_dir)
+        let runtime = crate::runtime::RuntimeResolver::resolve()?;
+        let mut cmd = Command::new(&runtime.node);
+        cmd.args(&runtime.arguments)
+            .current_dir(&runtime.directory)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -193,8 +198,8 @@ impl MidsceneProcess {
                 let mut reader = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = reader.next_line().await {
                     let mut buf = stderr_buf.lock().await;
-                    buf.push_str(&line);
-                    buf.push('\n');
+                    append_stderr_tail(&mut buf, &line);
+                    append_stderr_tail(&mut buf, "\n");
                 }
             });
         }
@@ -240,8 +245,7 @@ impl MidsceneProcess {
                         let _ = resp_tx.send(resp).await;
                     }
                     Err(e) => {
-                        println!("[protocol] WARN: JsonRpcResponse parse error: {}", e);
-                        println!("[protocol] WARN: Raw line (first 300): {}", &line[..line.len().min(300)]);
+                        tracing::warn!(category = ?e.classify(), "invalid executor response");
                     }
                 }
             }
@@ -292,7 +296,11 @@ impl MidsceneProcess {
                     "(empty)".to_string()
                 } else {
                     let s = stderr.trim().to_string();
-                    if s.is_empty() { "(empty)".to_string() } else { s }
+                    if s.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        s
+                    }
                 };
                 Err(anyhow::anyhow!(
                     "executor exited or dropped the request\nstderr:\n{}",
@@ -300,5 +308,52 @@ impl MidsceneProcess {
                 ))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_stderr_tail, STDERR_TAIL_LIMIT};
+
+    #[test]
+    fn stderr_tail_keeps_latest_bytes_across_writes() {
+        let mut buffer = String::new();
+        append_stderr_tail(&mut buffer, &"a".repeat(STDERR_TAIL_LIMIT));
+        assert_eq!(buffer.len(), STDERR_TAIL_LIMIT);
+        append_stderr_tail(&mut buffer, "latest\n");
+        assert_eq!(buffer.len(), STDERR_TAIL_LIMIT);
+        assert!(buffer.ends_with("latest\n"));
+        assert_eq!(
+            buffer,
+            format!("{}latest\n", "a".repeat(STDERR_TAIL_LIMIT - 7))
+        );
+        append_stderr_tail(&mut buffer, "");
+        assert_eq!(buffer.len(), STDERR_TAIL_LIMIT);
+    }
+
+    #[test]
+    fn oversized_stderr_replaces_old_content_with_complete_characters() {
+        let text = format!("{}tail", "界".repeat(STDERR_TAIL_LIMIT));
+        let mut buffer = String::from("old content");
+        append_stderr_tail(&mut buffer, &text);
+        assert!(buffer.len() <= STDERR_TAIL_LIMIT);
+        assert!(buffer.len() >= STDERR_TAIL_LIMIT - 3);
+        assert!(text.ends_with(&buffer));
+        assert!(buffer.ends_with("tail"));
+        assert!(!buffer.contains("old content"));
+    }
+
+    #[test]
+    fn appending_stderr_trims_at_multibyte_boundary() {
+        let mut buffer = format!("界{}", "a".repeat(STDERR_TAIL_LIMIT - 3));
+        append_stderr_tail(&mut buffer, "🙂");
+        assert_eq!(buffer.len(), STDERR_TAIL_LIMIT);
+        assert_eq!(buffer, format!("{}🙂", "a".repeat(STDERR_TAIL_LIMIT - 4)));
+
+        let mut buffer = "界".repeat(STDERR_TAIL_LIMIT / 3);
+        append_stderr_tail(&mut buffer, "ab");
+        assert!(buffer.len() <= STDERR_TAIL_LIMIT);
+        assert!(buffer.starts_with('界'));
+        assert!(buffer.ends_with("ab"));
     }
 }

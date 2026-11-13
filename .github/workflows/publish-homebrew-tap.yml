@@ -1,135 +1,57 @@
-name: Publish Homebrew Tap
-
+name: Publish Homebrew Formula
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v0.7.1)'
-        required: true
-        type: string
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
   publish-tap:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
-      - name: Determine version
-        id: version
+      - uses: actions/checkout@v4
+      - name: Download and verify service archives
+        shell: bash
         run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-          elif [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            echo "error: no version found"
-            exit 1
-          fi
-          VERSION="${VERSION#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Using version: ${VERSION}"
-
-      - name: Download DMGs
-        id: download
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          MAX_RETRIES=5
-          RETRY_DELAY=10
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i: Downloading DMGs for v${VERSION}..."
-            if curl -fsSL \
-              "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-arm64.dmg" \
-              -o /tmp/arm64.dmg \
-              && curl -fsSL \
-              "https://github.com/mbpz/qinAegis/releases/download/v${VERSION}/QinAegis-v${VERSION}-mac-x64.dmg" \
-              -o /tmp/x64.dmg; then
-              echo "Download successful"
-              break
-            fi
-            if [ "$i" -lt "$MAX_RETRIES" ]; then
-              echo "Download failed, retrying in ${RETRY_DELAY}s..."
-              sleep "$RETRY_DELAY"
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            else
-              echo "All retries exhausted"
-              exit 1
-            fi
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v2\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          mkdir -p artifacts
+          cd artifacts
+          BASE="https://github.com/mbpz/qinAegis/releases/download/$RELEASE_TAG"
+          curl --proto '=https' --tlsv1.2 -fSL "$BASE/SHA256SUMS" -o SHA256SUMS
+          for TARGET in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu; do
+            NAME="qinaegis-$TARGET.tar.gz"
+            curl --proto '=https' --tlsv1.2 -fSL "$BASE/$NAME" -o "$NAME"
+            awk -v name="$NAME" '$2 == name' SHA256SUMS > check.txt
+            test "$(wc -l < check.txt)" -eq 1
+            sha256sum -c check.txt
           done
-          ARM_SHA=$(shasum -a 256 /tmp/arm64.dmg | awk '{print $1}')
-          X64_SHA=$(shasum -a 256 /tmp/x64.dmg | awk '{print $1}')
-          echo "arm_sha=${ARM_SHA}" >> "$GITHUB_OUTPUT"
-          echo "x64_sha=${X64_SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Create cask file
+      - name: Render verified Formula
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          ARM_SHA="${{ steps.download.outputs.arm_sha }}"
-          X64_SHA="${{ steps.download.outputs.x64_sha }}"
-          mkdir -p Casks
-
-          # Write cask content using base64 to avoid YAML indentation issues
-          CONTENT=$(cat <<'CASKEOF'
-cask "qinaegis" do
-  arch arm: "arm64", intel: "x64"
-
-  version "#{version}"
-  sha256 arm:   "#{arm_sha}",
-         intel: "#{x64_sha}"
-
-  url "https://github.com/mbpz/qinAegis/releases/download/v#{version}/QinAegis-v#{version}-mac-#{arch}.dmg"
-  name "QinAegis"
-  desc "AI-powered quality engineering platform for Web applications"
-  homepage "https://github.com/mbpz/qinAegis"
-
-  livecheck do
-    url :url
-    strategy :github_latest
-  end
-
-  auto_updates true
-  depends_on macos: ">= :catalina"
-
-  artifact "QinAegis.app", target: "/Applications/QinAegis.app"
-
-  uninstall quit: "com.qinaegis.app",
-            delete: "/Applications/QinAegis.app"
-
-  zap trash: [
-    "~/.qinAegis",
-    "~/Library/Application Support/com.qinaegis.app",
-    "~/Library/Preferences/com.qinaegis.app.plist",
-    "~/Library/Saved Application State/com.qinaegis.app.savedState",
-  ]
-
-  caveats <<~EOS
-    After installation, find QinAegis in your Applications folder.
-    Double-click to launch the GUI application.
-  EOS
-end
-CASKEOF
-          )
-
-          # Replace placeholders with actual values
-          CASK_CONTENT="${CONTENT//\#{version}/${VERSION}}"
-          CASK_CONTENT="${CASK_CONTENT//\#{arm_sha}/${ARM_SHA}}"
-          CASK_CONTENT="${CASK_CONTENT//\#{x64_sha}/${X64_SHA}}"
-
-          echo "$CASK_CONTENT" > Casks/qinaegis.rb
-          echo "Generated Casks/qinaegis.rb:"
-          cat Casks/qinaegis.rb
-
-      - name: Push to homebrew-tap
+          python3 - <<'PY'
+          import os, pathlib, re
+          version = os.environ['RELEASE_TAG'][1:]
+          content = pathlib.Path('Formula/qinAegis.rb').read_text()
+          checks = dict(line.split()[::-1] for line in pathlib.Path('artifacts/SHA256SUMS').read_text().splitlines())
+          content = content.replace('RELEASE_VERSION', version)
+          for token, target in [('ARM', 'aarch64-apple-darwin'), ('INTEL', 'x86_64-apple-darwin'), ('LINUX', 'x86_64-unknown-linux-gnu')]:
+              digest = checks[f'qinaegis-{target}.tar.gz']
+              assert re.fullmatch('[0-9a-f]{64}', digest)
+              content = content.replace(f'RELEASE_{token}_SHA256', digest)
+          pathlib.Path('qinaegis.rb').write_text(content)
+          PY
+      - name: Push Formula to tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone https://x-access-token:${GH_TOKEN}@github.com/mbpz/homebrew-qinAegis.git tap-repo
+          gh repo clone mbpz/homebrew-qinAegis tap-repo
+          mkdir -p tap-repo/Formula
+          cp qinaegis.rb tap-repo/Formula/qinaegis.rb
           cd tap-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          cp ../Casks/qinaegis.rb Casks/qinaegis.rb
-          git add Casks/qinaegis.rb
-          git commit -m "qinaegis ${{ steps.version.outputs.version }}"
+          git config user.name ttbb
+          git config user.email apples398@163.com
+          git add Formula/qinaegis.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "Keep Homebrew aligned with the verified local Web release" -m "Related: $RELEASE_TAG"
           git push

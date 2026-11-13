@@ -1,55 +1,44 @@
-# Installation
+# Install the local Web service
 
-## Via Homebrew (Recommended)
+2.0 is in development. Release installation below applies **after the corresponding verified release is published**. Until then, build from source using README.md. Do not install the Formula template directly.
 
-```bash
-brew install --cask mbpz/qinAegis/qinAegis
-```
+## macOS / Linux
 
-This will:
-1. Download the latest DMG for your architecture (arm64 or x86_64)
-2. Mount the DMG and copy QinAegis.app to `/Applications`
-3. Remove the quarantine attribute so Gatekeeper doesn't block it
-
-Find **QinAegis.app** in your Applications folder after installation.
-
-## From DMG (Manual)
-
-1. Download the DMG from GitHub Releases
-2. Double-click to mount
-3. Drag QinAegis.app to Applications folder
-4. (First run only) Click "Open" in the Gatekeeper dialog
-
-## From Source
+Download `install.sh` from a trusted 2.0 release, review it, then run:
 
 ```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
-
-# Build React UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# Build Rust binary
-cargo build --release --bin qinAegis-web
+sh install.sh --version 2.0.0
 ```
 
-The binary will be at `target/release/qinAegis-web`.
+The installer detects macOS ARM64/Intel or Linux x86_64, downloads the matching service archive and `SHA256SUMS`, checks the archive, installs to `~/.local/bin/qinaegis`, then starts it and opens the browser. It does not use sudo, modify shell profiles, or remove OS security protections. Add that directory to PATH yourself or run the absolute path. SHA-256 validates integrity against the release channel; it is not an independent publisher signature.
 
-## Requirements
-
-- macOS 10.15 or later
-- Apple Silicon (M1/M2/M3) or Intel Mac
-
-## First Launch
-
-1. Double-click QinAegis.app in Applications
-2. If you see a Gatekeeper warning, click "Open Anyway" in System Preferences > Security
-3. The GUI will open with a setup wizard for AI model configuration
-
-## Uninstall
+Options: `--prefix /absolute/bin/directory`, `--no-start`, and offline `--archive /path/package.tar.gz --checksum HEX_SHA256`. Stop an existing service before upgrading. A failed startup does not imply the installed executable was removed; use `status` and service logs for diagnosis.
 
 ```bash
-rm -rf /Applications/QinAegis.app
-# Optionally remove config (your test data will remain)
-rm -rf ~/.config/qinAegis
+~/.local/bin/qinaegis status
+~/.local/bin/qinaegis open
+~/.local/bin/qinaegis stop
+~/.local/bin/qinaegis serve --no-open
 ```
+
+## Windows
+
+Download the matching `qinaegis-x86_64-pc-windows-msvc.zip`, compare its hash with `SHA256SUMS` using `Get-FileHash`, extract to a user-owned directory, and run `qinaegis.exe`. A one-command PowerShell installer is not provided in this phase. Do not disable system security mechanisms to work around unsigned artifacts; platform signing and clean-machine acceptance remain release gates.
+
+## Playwright + Midscene.js runtime
+
+The base package does not include the engine or automatically install it yet. Browsing assets and configuring the workbench require no Node runtime; executing engine-backed operations does.
+
+An installed runtime directory must contain:
+
+```json
+{"schema_version":1,"engine":"midscene","version":"your-verified-engine-version","entry":"dist/executor.js","node":"bin/node"}
+```
+
+`entry` and optional `node` reference files inside that directory. Supply compiled executor resources, matching production dependencies and a compatible automation browser; a manifest alone is insufficient. Set `QINAEGIS_RUNTIME_DIR` to its absolute path **before starting the service**. Environment changes require restarting the service.
+
+For development only, prepare the repository's root `sandbox` dependencies/browser, then set `QINAEGIS_DEV_SANDBOX` to that absolute source directory. The development adapter uses `src/executor.ts` and `node_modules/tsx/dist/cli.mjs`. No implicit source-path fallback is used. Automated runtime downloads/repair and Web engine management are planned, not part of this installer.
+
+## Data and uninstall
+
+Project data stays in `~/.qinAegis/projects`; configuration uses the OS configuration directory. Stop the service first, then remove only the installed `qinaegis` executable to uninstall the base package. Keep project/config directories for future use, or back them up before deliberately deleting data. Do not assume replacing a binary reverses any future data migration.

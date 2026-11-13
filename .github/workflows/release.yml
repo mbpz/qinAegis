@@ -1,165 +1,73 @@
-name: Release
-
+name: Release local Web service
 on:
   push:
-    tags:
-      - "v*"
+    tags: ['v2.*']
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v1.2.3)'
-        required: true
-        type: string
-
 permissions:
   contents: write
-
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build-arm64:
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-14, target: aarch64-apple-darwin}
+          - {os: macos-15-intel, target: x86_64-apple-darwin}
+          - {os: ubuntu-22.04, target: x86_64-unknown-linux-gnu}
+          - {os: windows-latest, target: x86_64-pc-windows-msvc}
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+          node-version: '22'
+      - uses: actions/setup-python@v5
         with:
-          targets: aarch64-apple-darwin
-
-      - name: Build Release
-        run: |
-          cd crates/web_client/ui && npm install && npm run build
-          cd ../..
-          cargo build --release --bin qinAegis-web --target aarch64-apple-darwin
-
-      - name: Create tarball
-        run: |
-          tar -czf qinAegis-aarch64-apple-darwin.tar.gz \
-            -C target/aarch64-apple-darwin/release qinAegis-web
-
-      - name: Create DMG
-        run: |
-          BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
-          mkdir -p "$BUNDLE/Contents/MacOS"
-          cp target/aarch64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
-          echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
-          codesign --force --deep --sign - "$BUNDLE"
-          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-arm64.dmg -srcfolder "$BUNDLE"
-          xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-arm64.dmg 2>/dev/null || true
-
-      - name: Generate SHA256
-        run: |
-          echo "aarch64-apple-darwin" > sha256_aarch64.txt
-          shasum -a 256 QinAegis-${VERSION}-mac-arm64.dmg | awk '{print $1}' >> sha256_aarch64.txt
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: qinAegis-aarch64-apple-darwin
-          path: |
-            qinAegis-aarch64-apple-darwin.tar.gz
-            QinAegis-${{ env.VERSION }}-mac-arm64.dmg
-            sha256_aarch64.txt
-
-  build-x86:
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+          targets: ${{ matrix.target }}
+      - name: Build embedded UI and executable archive
+        shell: bash
+        run: bash scripts/build-release.sh '${{ matrix.target }}'
+      - name: UI regressions
+        working-directory: crates/web_client/ui
+        run: npm test
+      - name: Rust workspace regressions
+        run: cargo test --workspace --locked
+      - name: Local Web release smoke
+        shell: bash
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          SUFFIX=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
+          python scripts/test-local-web.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
+      - name: Offline user-local installer regressions
+        if: runner.os != 'Windows'
+        run: python scripts/test-install.py
+      - uses: actions/upload-artifact@v4
         with:
-          node-version: '20'
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Build Release
-        run: |
-          cd crates/web_client/ui && npm install && npm run build
-          cd ../..
-          cargo build --release --bin qinAegis-web --target x86_64-apple-darwin
-
-      - name: Create tarball
-        run: |
-          tar -czf qinAegis-x86_64-apple-darwin.tar.gz \
-            -C target/x86_64-apple-darwin/release qinAegis-web
-
-      - name: Create DMG
-        run: |
-          BUNDLE="QinAegis.app"
-          rm -rf "$BUNDLE"
-          mkdir -p "$BUNDLE/Contents/MacOS"
-          cp target/x86_64-apple-darwin/release/qinAegis-web "$BUNDLE/Contents/MacOS/QinAegis"
-          PLIST='<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>QinAegis</string><key>CFBundleIdentifier</key><string>com.qinaegis.app</string><key>CFBundleName</key><string>QinAegis</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>__VERSION__</string><key>CFBundleVersion</key><string>1</string><key>LSMinimumSystemVersion</key><string>10.15</string><key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string></dict></plist>'
-          echo "${PLIST//__VERSION__/$VERSION}" > "$BUNDLE/Contents/Info.plist"
-          codesign --force --deep --sign - "$BUNDLE"
-          hdiutil create -volname "QinAegis-${VERSION}" -fs APFS -format UDZO QinAegis-${VERSION}-mac-x64.dmg -srcfolder "$BUNDLE"
-          xattr -r -d com.apple.quarantine QinAegis-${VERSION}-mac-x64.dmg 2>/dev/null || true
-
-      - name: Generate SHA256
-        run: |
-          echo "x86_64-apple-darwin" > sha256_x86_64.txt
-          shasum -a 256 QinAegis-${VERSION}-mac-x64.dmg | awk '{print $1}' >> sha256_x86_64.txt
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: qinAegis-x86_64-apple-darwin
-          path: |
-            qinAegis-x86_64-apple-darwin.tar.gz
-            QinAegis-${{ env.VERSION }}-mac-x64.dmg
-            sha256_x86_64.txt
-
-  create-release:
-    needs: [build-arm64, build-x86]
+          name: qinaegis-${{ matrix.target }}
+          path: build/qinaegis-*
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v2.')
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
     steps:
-      - name: Download ARM64 artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: qinAegis-aarch64-apple-darwin
-          path: artifacts/arm64
-
-      - name: Download x86 artifact
-        uses: actions/download-artifact@v4
+          pattern: qinaegis-*
+          merge-multiple: true
+          path: release
+      - name: Generate checksums
+        working-directory: release
+        run: sha256sum qinaegis-* > SHA256SUMS
+      - name: Include installer
+        run: cp scripts/install.sh release/install.sh
+      - uses: softprops/action-gh-release@v2
         with:
-          name: qinAegis-x86_64-apple-darwin
-          path: artifacts/x86
-
-      - name: Combine SHA256 files
-        run: |
-          cat artifacts/arm64/sha256_aarch64.txt artifacts/x86/sha256_x86_64.txt > sha256.txt
-
-      - name: Upload Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.VERSION }}
-          files: |
-            artifacts/arm64/qinAegis-aarch64-apple-darwin.tar.gz
-            artifacts/arm64/QinAegis-${{ env.VERSION }}-mac-arm64.dmg
-            artifacts/x86/qinAegis-x86_64-apple-darwin.tar.gz
-            artifacts/x86/QinAegis-${{ env.VERSION }}-mac-x64.dmg
-            sha256.txt
-          draft: false
+          draft: true
           generate_release_notes: true
-          overwrite_files: true
+          files: release/*

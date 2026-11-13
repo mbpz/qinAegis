@@ -29,49 +29,75 @@ export class RpcError extends Error {
   }
 }
 
-function parseResponse<T>(text: string, method: string): T {
+let sessionPromise: Promise<string> | undefined;
+let nextRequestId = 0;
+let pendingToken: string | undefined;
+
+async function request(url: string, init: RequestInit, timeout: number): Promise<unknown> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
-    const parsed = JSON.parse(text);
-    if (!parsed) {
-      throw new RpcError('Empty response', 'EMPTY_RESPONSE', method);
+    const response = await fetch(url, { ...init, credentials: 'same-origin', signal: controller.signal });
+    if (response.status === 401) {
+      sessionPromise = undefined;
+      if (url === '/api/v2/session' && init.method === 'POST') pendingToken = undefined;
+      throw new RpcError('Local session expired; retry, or reopen using qinaegis open.', 'HTTP_ERROR');
     }
-    return parsed as T;
-  } catch (e) {
-    if (e instanceof RpcError) throw e;
-    throw new RpcError(`Invalid JSON: ${(e as Error).message}`, 'PARSE_ERROR', method);
+    const body = await response.json();
+    if (!response.ok) {
+      throw new RpcError(body?.error?.message || body?.error || `HTTP ${response.status}`, 'HTTP_ERROR');
+    }
+    return body;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-async function call<T>(method: string, params: object = {}, timeout: number = DEFAULT_TIMEOUT): Promise<T> {
-  const paramsStr = encodeURIComponent(JSON.stringify(params));
-  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+function session(): Promise<string> {
+  if (!sessionPromise) {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get('token') || pendingToken;
+    pendingToken = token || undefined;
+    if (token) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    sessionPromise = request('/api/v2/session', token ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    } : { method: 'GET' }, DEFAULT_TIMEOUT).then(body => {
+      const csrf = (body as { csrf?: string }).csrf;
+      if (!csrf) throw new RpcError('Local session unavailable; reopen QinAegis using its launch command.', 'SESSION_ERROR');
+      pendingToken = undefined;
+      return csrf;
+    }).catch(error => {
+      sessionPromise = undefined;
+      throw error;
+    });
+  }
+  return sessionPromise;
+}
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
+async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TIMEOUT): Promise<T> {
   try {
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      throw new RpcError(`HTTP ${resp.status}: ${resp.statusText}`, 'HTTP_ERROR', method);
+    const csrf = await session();
+    const id = String(++nextRequestId);
+    const body = await request('/api/v2/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Qinaegis-CSRF': csrf },
+      body: JSON.stringify({ id, method, params }),
+    }, timeout) as { id: string; ok: boolean; data?: T; error?: { code?: string; message?: string } };
+    if (body.id !== id) throw new RpcError('Response ID mismatch', 'PROTOCOL_ERROR', method);
+    if (!body.ok) {
+      throw new RpcError(body.error?.message || 'Request failed', body.error?.code || 'RPC_ERROR', method);
     }
-
-    const text = await resp.text();
-    const result = parseResponse<T>(text, method);
-
-    // Check for RPC-level error
-    if (typeof result === 'object' && result !== null && 'ok' in result && result.ok === false) {
-      throw new RpcError((result as { error?: string }).error || 'Unknown error', 'RPC_ERROR', method);
+    const result = body.data;
+    if (result && typeof result === 'object' && 'error' in result && result.error) {
+      throw new RpcError(String(result.error), 'RPC_ERROR', method);
     }
-
-    return result;
-  } catch (e) {
-    if (e instanceof RpcError) throw e;
-    if (e instanceof Error && e.name === 'AbortError') {
+    return result as T;
+  } catch (error) {
+    if (error instanceof RpcError) throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new RpcError(`Request timeout after ${timeout}ms`, 'TIMEOUT', method);
     }
-    throw new RpcError((e as Error).message, 'UNKNOWN', method);
+    throw new RpcError((error as Error).message, 'CONNECTION_ERROR', method);
   }
 }
 
