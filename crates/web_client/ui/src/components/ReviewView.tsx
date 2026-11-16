@@ -1,3 +1,4 @@
+import { Button, Select } from './ui';
 import { useState, useEffect } from 'react';
 import { rpc } from '../utils/rpc';
 import type { TestCase } from '../types/rpc';
@@ -20,15 +21,15 @@ const statusColors: Record<string, string> = {
 
 
 export default function ReviewView() {
-  const [projects, setProjects] = useState<string[]>(['default']);
-  const [selectedProject, setSelectedProject] = useState('default');
+  const [projects, setProjects] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState('');
   const [cases, setCases] = useState<TestCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
+    rpc.getProjects().then(ps => { setProjects(ps); setSelectedProject(current => ps.includes(current) ? current : ps[0] ?? ''); }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export default function ReviewView() {
   }, [selectedProject]);
 
   const loadCases = async () => {
+    if (!selectedProject) { setCases([]); setLoading(false); return; }
     setLoading(true);
     try {
       const result = await rpc.getReviewCases(selectedProject);
@@ -78,29 +80,29 @@ export default function ReviewView() {
 
       <div className="card">
         <div className="card-title">Project</div>
-        <select
+        <Select aria-label="Review project"
           className="input"
           value={selectedProject}
-          onChange={(e) => setSelectedProject(e.target.value)}
+          onValueChange={setSelectedProject}
           style={{ maxWidth: '300px' }}
         >
           {projects.map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div className="card">
         <div className="card-title">Filter by Status</div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {['all', 'draft', 'reviewed', 'approved', 'flaky', 'archived'].map((status) => (
-            <button
+            <Button
               key={status}
               className={`btn ${filterStatus === status ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setFilterStatus(status)}
             >
               {status === 'all' ? 'All' : statusLabels[status]}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -137,10 +139,10 @@ export default function ReviewView() {
                   <td>{tc.priority}</td>
                   <td>{tc.type}</td>
                   <td>
-                    <select
+                    <Select aria-label={`Status for ${tc.id}`}
                       className="input"
                       value={tc.status}
-                      onChange={(e) => handleStatusChange(tc.id, e.target.value)}
+                      onValueChange={(value) => handleStatusChange(tc.id, value)}
                       disabled={updating === tc.id}
                       style={{ width: 'auto', padding: '4px 8px' }}
                     >
@@ -149,7 +151,7 @@ export default function ReviewView() {
                       <option value="approved">Approved</option>
                       <option value="flaky">Flaky</option>
                       <option value="archived">Archived</option>
-                    </select>
+                    </Select>
                   </td>
                 </tr>
               ))}

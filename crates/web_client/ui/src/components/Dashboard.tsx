@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { Button, Input } from './ui';
+import { useState, useEffect, useRef } from 'react';
 import { View } from '../App';
 import { rpc } from '../utils/rpc';
 
 interface DashboardProps {
   projects: string[];
   onNavigate: (view: View) => void;
+  onProjectsChanged: () => Promise<void>;
 }
 
 interface GateStatus {
@@ -19,12 +21,21 @@ interface GateStatus {
 
 // Shared via ../utils/rpc
 
-export default function Dashboard({ projects, onNavigate }: DashboardProps) {
+export default function Dashboard({ projects, onNavigate, onProjectsChanged }: DashboardProps) {
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectUrl, setNewProjectUrl] = useState('');
+  const [newProjectStack, setNewProjectStack] = useState('');
+  const [projectMessage, setProjectMessage] = useState('');
   const [addingProject, setAddingProject] = useState(false);
   const [gateStatus, setGateStatus] = useState<GateStatus | null>(null);
+  const mounted = useRef(false);
+  const adding = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     loadGateStatus();
@@ -41,19 +52,30 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
   };
 
   const handleAddProject = async () => {
-    if (!newProjectName.trim()) { alert('Project name is required'); return; }
-    if (!newProjectUrl.trim()) { alert('Project URL is required'); return; }
-    setAddingProject(true);
+    if (adding.current) return;
+    if (!newProjectName.trim()) { setProjectMessage('Project name is required.'); return; }
     try {
-      await rpc.createProject(newProjectName.trim(), newProjectUrl.trim(), ['react']);
+      const url = new URL(newProjectUrl.trim());
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsupported protocol');
+    } catch { setProjectMessage('Enter a valid http:// or https:// project URL.'); return; }
+    adding.current = true;
+    setAddingProject(true);
+    setProjectMessage('');
+    try {
+      const result = await rpc.createProject(newProjectName.trim(), newProjectUrl.trim(), newProjectStack.split(',').map(item => item.trim()).filter(Boolean));
+      if (result.name !== newProjectName.trim()) throw new Error('Local service did not confirm project creation.');
+      await onProjectsChanged();
+      if (!mounted.current) return;
       setShowAddProject(false);
       setNewProjectName('');
       setNewProjectUrl('');
-      window.location.reload();
+      setNewProjectStack('');
+      setProjectMessage('Project created.');
     } catch (e) {
-      alert('Failed to create project: ' + e);
+      if (mounted.current) setProjectMessage('Failed to create project: ' + String(e));
     } finally {
-      setAddingProject(false);
+      adding.current = false;
+      if (mounted.current) setAddingProject(false);
     }
   };
 
@@ -85,31 +107,32 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
       <div className="card">
         <div className="card-title">Quick Actions</div>
         <div className="action-grid">
-          <div className="action-card" onClick={() => onNavigate('explore')}>
-            <div className="action-icon">🔍</div>
-            <div className="action-title">Explore Project</div>
-            <div className="action-desc">AI-powered project discovery</div>
-          </div>
-          <div className="action-card" onClick={() => onNavigate('generate')}>
-            <div className="action-icon">✨</div>
-            <div className="action-title">Generate Tests</div>
-            <div className="action-desc">Create test cases from requirements</div>
-          </div>
-          <div className="action-card" onClick={() => onNavigate('run')}>
-            <div className="action-icon">▶️</div>
-            <div className="action-title">Run Tests</div>
-            <div className="action-desc">Execute smoke or full test suite</div>
-          </div>
-          <div className="action-card" onClick={() => onNavigate('reports')}>
-            <div className="action-icon">📊</div>
-            <div className="action-title">View Reports</div>
-            <div className="action-desc">Test reports and quality gates</div>
-          </div>
+          <Button type="button" variant="secondary" className="action-card dashboard-action-card h-auto w-full flex-col whitespace-normal rounded-lg p-5 text-center" onClick={() => onNavigate('explore')}>
+            <span className="action-icon" aria-hidden="true">🔍</span>
+            <span className="action-title">Explore Project</span>
+            <span className="action-desc">AI-powered project discovery</span>
+          </Button>
+          <Button type="button" variant="secondary" className="action-card dashboard-action-card h-auto w-full flex-col whitespace-normal rounded-lg p-5 text-center" onClick={() => onNavigate('generate')}>
+            <span className="action-icon" aria-hidden="true">✨</span>
+            <span className="action-title">Generate Tests</span>
+            <span className="action-desc">Create test cases from requirements</span>
+          </Button>
+          <Button type="button" variant="secondary" className="action-card dashboard-action-card h-auto w-full flex-col whitespace-normal rounded-lg p-5 text-center" onClick={() => onNavigate('run')}>
+            <span className="action-icon" aria-hidden="true">▶️</span>
+            <span className="action-title">Run Tests</span>
+            <span className="action-desc">Execute smoke or full test suite</span>
+          </Button>
+          <Button type="button" variant="secondary" className="action-card dashboard-action-card h-auto w-full flex-col whitespace-normal rounded-lg p-5 text-center" onClick={() => onNavigate('reports')}>
+            <span className="action-icon" aria-hidden="true">📊</span>
+            <span className="action-title">View Reports</span>
+            <span className="action-desc">Test reports and quality gates</span>
+          </Button>
         </div>
       </div>
 
       <div className="card">
         <div className="card-title">Projects</div>
+        {projectMessage && <p role="status">{projectMessage}</p>}
         {projects.length === 0 ? (
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '12px' }}>
             No projects yet. Add your first project to get started.
@@ -125,33 +148,41 @@ export default function Dashboard({ projects, onNavigate }: DashboardProps) {
           </div>
         )}
         {!showAddProject ? (
-          <button className="btn btn-primary" onClick={() => setShowAddProject(true)}>
+          <Button type="button" className="btn btn-primary" onClick={() => setShowAddProject(true)}>
             + Add Project
-          </button>
+          </Button>
         ) : (
           <div className="add-project-form">
-            <input
+            <label htmlFor="project-name">Project name</label>
+            <Input
+              id="project-name"
               type="text"
               placeholder="Project name (e.g. my-app)"
               value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
+              onValueChange={(value) => setNewProjectName(value)}
               className="input"
+              disabled={addingProject}
             />
-            <input
+            <label htmlFor="project-url">Project URL</label>
+            <Input
+              id="project-url"
               type="text"
               placeholder="Project URL (e.g. https://my-app.com)"
               value={newProjectUrl}
-              onChange={(e) => setNewProjectUrl(e.target.value)}
+              onValueChange={(value) => setNewProjectUrl(value)}
               className="input"
               style={{ marginTop: '8px' }}
+              disabled={addingProject}
             />
+            <label htmlFor="project-stack">Technology stack (optional, comma separated)</label>
+            <Input id="project-stack" className="input" placeholder="react, typescript" value={newProjectStack} onValueChange={value => setNewProjectStack(value)} disabled={addingProject} />
             <div className="form-actions" style={{ marginTop: '8px' }}>
-              <button className="btn btn-primary" onClick={handleAddProject} disabled={addingProject}>
+              <Button type="button" className="btn btn-primary" onClick={handleAddProject} disabled={addingProject}>
                 {addingProject ? 'Creating...' : 'Create Project'}
-              </button>
-              <button className="btn btn-secondary" onClick={() => setShowAddProject(false)}>
+              </Button>
+              <Button type="button" className="btn btn-secondary" disabled={addingProject} onClick={() => setShowAddProject(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         )}

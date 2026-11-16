@@ -128,3 +128,74 @@ test('lost bootstrap response retries its token once then recovers via cookie af
   assert.deepEqual(methods, ['POST', 'POST', 'GET']);
   assert.equal(history.length, 2);
 });
+
+test('contract governance methods preserve revision, explicit approval, and structured parameters', async () => {
+  const { rpc } = await fresh();
+  const requests = [];
+  const snapshot = { schema_version: 1, revision: 8, drafts: [], publications: [], proposals: [], bindings: [] };
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({ csrf: 'csrf' });
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    return response({ id: body.id, ok: true, data: snapshot });
+  };
+  const draft = { id: 'submit', version: 2, intent: 'Receipt', inputs: { count: 'number' }, outputs: {}, preconditions: [], assertions: ['Receipt exists'], required_capabilities: [] };
+  const bundle = { schema_version: 1, contracts: [] };
+  const operations = [
+    ['getContracts', undefined],
+    ['saveContractDraft', { draft, expected_revision: 7 }],
+    ['publishContract', { id: 'submit', expected_revision: 7, approved: true }],
+    ['proposeContractCorrection', { contract_id: 'submit', version: 1, replacement: draft, reason: 'Correct assertion', evidence: ['run/observation'], expected_revision: 7 }],
+    ['reviewContractCorrection', { proposal_id: 'proposal-1', decision: 'approve', expected_revision: 7, approved: true }],
+    ['bindContract', { project: 'project-a', contract_id: 'submit', version: 2, parameters: { count: 3 }, expected_revision: 7 }],
+    ['exportContracts', undefined],
+    ['importContracts', { bundle, expected_revision: 7, approved: true }],
+  ];
+  for (const [method, params] of operations) {
+    assert.deepEqual(await rpc[method](params), snapshot);
+  }
+  assert.deepEqual(requests.map(({ method, params }) => [method, params]), operations.map(([method, params]) => [method, params ?? {}]));
+});
+
+test('generation pins its project and explicit contract choice; preview uses the same project', async () => {
+  const { rpc } = await fresh();
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({ csrf: 'csrf' });
+    const body = JSON.parse(init.body);
+    requests.push([body.method, body.params]);
+    return response({ id: body.id, ok: true, data: {} });
+  };
+  await rpc.getContractExecution('project-a');
+  await rpc.runGenerate('Receipt is visible', 'project-a', true);
+  await rpc.runGenerate('Receipt is visible', 'project-a', false);
+  assert.deepEqual(requests, [
+    ['getContractExecution', { project: 'project-a' }],
+    ['runGenerate', { requirement: 'Receipt is visible', project: 'project-a', use_contracts: true }],
+    ['runGenerate', { requirement: 'Receipt is visible', project: 'project-a', use_contracts: false }],
+  ]);
+});
+
+
+test('terminal job failures are pollable status data rather than transport failures', async () => {
+  const { rpc } = await fresh();
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({ csrf: 'csrf' });
+    return response({ id: JSON.parse(init.body).id, ok: true, data: {jobId: 'job-1', status: 'failed', output: '', error: 'model unavailable'} });
+  };
+  const status = await rpc.getJobStatus('job-1');
+  assert.equal(status.status, 'failed');
+  assert.equal(status.error, 'model unavailable');
+});
+
+test('project wire responses contain names for listing and metadata for creation', async () => {
+  const { rpc } = await fresh();
+  const project = { name: 'alpha', url: 'https://alpha.invalid', tech_stack: [], created_at: '2026-11-16T00:00:00Z' };
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({ csrf: 'csrf' });
+    const body = JSON.parse(init.body);
+    return response({ id: body.id, ok: true, data: body.method === 'getProjects' ? ['alpha'] : project });
+  };
+  assert.deepEqual(await rpc.getProjects(), ['alpha']);
+  assert.deepEqual(await rpc.createProject(project.name, project.url, []), project);
+});

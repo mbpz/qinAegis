@@ -1,3 +1,4 @@
+import { Button, Loader } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import type { JobStatusValue } from '../types/rpc';
@@ -67,9 +68,9 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
     <div className="job-progress">
       {status === 'running' && (
         <div className="job-running">
-          <div className="spinner" />
+          <Loader />
           <span>Running...</span>
-          <button className="btn btn-danger" onClick={async () => {
+          <Button className="btn btn-danger" onClick={async () => {
             try {
               await rpc.stopJob(jobId);
               setStatus(current => current === 'running' ? 'cancelling' : current);
@@ -77,12 +78,12 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
             } catch (e) {
               setError('Failed to stop task: ' + (e as Error).message);
             }
-          }}>Stop</button>
+          }}>Stop</Button>
         </div>
       )}
       {status === 'cancelling' && (
         <div className="job-running" role="status">
-          <div className="spinner" />
+          <Loader />
           <span>Stopping… waiting for the worker to finish cleanup.</span>
         </div>
       )}

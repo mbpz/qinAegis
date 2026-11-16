@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { Button } from './components/ui';
+import { AnimatedToastStack, useAnimatedToastStack } from './components/motion/animated-toast-stack';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ExploreView from './components/ExploreView';
@@ -7,20 +9,23 @@ import RunView from './components/RunView';
 import ReportView from './components/ReportView';
 import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
+import ContractsView from './components/ContractsView';
+import ModelsView from './components/ModelsView';
 import { rpc } from './utils/rpc';
 import './styles.css';
 
-type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings';
+type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings' | 'contracts' | 'models';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [projects, setProjects] = useState<string[]>([]);
+  const projectsRequest = useRef(0);
   const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
   const [connectionError, setConnectionError] = useState('');
   const [appVersion, setAppVersion] = useState<string>('');
   const [updateStatus, setUpdateStatus] = useState<{hasUpdate: boolean; latest: string} | null>(null);
   const [updateCheckStatus, setUpdateCheckStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available'>('idle');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const { toasts, showToast, dismissToast } = useAnimatedToastStack({ limit: 3, defaultDuration: 4200 });
 
   useEffect(() => {
     checkConfig();
@@ -37,26 +42,23 @@ function App() {
     }
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2500);
-  };
-
   const checkForUpdate = async () => {
     setUpdateCheckStatus('checking');
     try {
       const status = await rpc.checkUpdate();
       if (status.upToDate) {
         setUpdateCheckStatus('upToDate');
-        showToast('✓ Already latest');
+        setUpdateStatus(null);
+        showToast({ title: 'Already latest', status: 'success' });
       } else {
         setUpdateCheckStatus('available');
         setUpdateStatus({ hasUpdate: true, latest: status.latest });
-        showToast(`↑ New version: ${status.latest}`);
+        showToast({ title: 'New version available', description: status.latest, status: 'info' });
       }
     } catch (e) {
       console.error('Failed to check update:', e);
       setUpdateCheckStatus('idle');
+      showToast({ title: 'Could not check for updates', description: 'Please try again later.', status: 'error' });
     }
   };
 
@@ -72,22 +74,24 @@ function App() {
   };
 
   const loadProjects = async () => {
+    const request = ++projectsRequest.current;
     try {
       const result = await rpc.getProjects();
-      setProjects(result.map(p => p.name) || []);
+      if (projectsRequest.current === request) setProjects(result);
     } catch (e) {
       console.error('Failed to load projects:', e);
+      if (projectsRequest.current === request) setConnectionError('Could not refresh projects: ' + String(e));
     }
   };
 
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <Dashboard projects={projects} onNavigate={setCurrentView} />;
+        return <Dashboard projects={projects} onNavigate={setCurrentView} onProjectsChanged={loadProjects} />;
       case 'explore':
         return <ExploreView />;
       case 'generate':
-        return <GenerateView />;
+        return <GenerateView projects={projects} />;
       case 'run':
         return <RunView />;
       case 'reports':
@@ -96,8 +100,12 @@ function App() {
         return <ReviewView />;
       case 'settings':
         return <SettingsView onSaved={checkConfig} />;
+      case 'contracts':
+        return <ContractsView projects={projects} />;
+      case 'models':
+        return <ModelsView onSaved={checkConfig} />;
       default:
-        return <Dashboard projects={projects} onNavigate={setCurrentView} />;
+        return <Dashboard projects={projects} onNavigate={setCurrentView} onProjectsChanged={loadProjects} />;
     }
   };
 
@@ -105,22 +113,24 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>QinAegis</h1>
-        <span
+        <Button
+          variant="ghost"
           className="version"
           onClick={checkForUpdate}
+          disabled={updateCheckStatus === 'checking'}
           title="Click to check for updates"
         >
           {updateCheckStatus === 'checking' ? 'Checking...' : appVersion}
-        </span>
-        {toastMessage && <span className="toast">{toastMessage}</span>}
+        </Button>
         {updateStatus?.hasUpdate && (
-          <span
+          <Button
+            variant="ghost"
             className="update-badge"
             title={`New version available: ${updateStatus.latest}`}
-            onClick={() => { const a = document.createElement('a'); a.href = 'https://github.com/mbpz/qinAegis/releases'; a.target = '_blank'; a.click(); }}
+            onClick={() => { window.open('https://github.com/mbpz/qinAegis/releases', '_blank', 'noopener,noreferrer'); }}
           >
             Update
-          </span>
+          </Button>
         )}
       </header>
       <div className="app-body">
@@ -128,15 +138,16 @@ function App() {
         <main className="app-main">
           {connectionError && <div className="card" role="alert">
             <p>Cannot connect to the local service: {connectionError}</p>
-            <button className="btn btn-primary" onClick={() => { checkConfig(); loadProjects(); loadVersion(); }}>Retry connection</button>
+            <Button className="btn btn-primary" onClick={() => { checkConfig(); loadProjects(); loadVersion(); }}>Retry connection</Button>
           </div>}
           {isConfigured === false && currentView !== 'settings' && <div className="card">
             <p>AI is not configured. You can browse projects and reports, or configure a model to run AI tasks.</p>
-            <button className="btn btn-primary" onClick={() => setCurrentView('settings')}>Configure AI model</button>
+            <Button className="btn btn-primary" onClick={() => setCurrentView('settings')}>Configure AI model</Button>
           </div>}
           {renderView()}
         </main>
       </div>
+      <AnimatedToastStack toasts={toasts} onDismiss={dismissToast} maxVisible={3} placement="fixed" position="bottom-right" />
     </div>
   );
 }

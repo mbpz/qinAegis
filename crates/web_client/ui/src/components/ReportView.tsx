@@ -1,11 +1,12 @@
+import { Button, Select } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import type { RunReport, GateStatus } from '../types/rpc';
 
 
 export default function ReportView() {
-  const [projects, setProjects] = useState<string[]>(['default']);
-  const [selectedProject, setSelectedProject] = useState('default');
+  const [projects, setProjects] = useState<string[]>([]);
+  const [selectedProject, setSelectedProject] = useState('');
   const [reports, setReports] = useState<RunReport[]>([]);
   const [gate, setGate] = useState<GateStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,7 +17,7 @@ export default function ReportView() {
   const reportRequest = useRef(0);
 
   useEffect(() => {
-    rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
+    rpc.getProjects().then(ps => { setProjects(ps); setSelectedProject(current => ps.includes(current) ? current : ps[0] ?? ''); }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function ReportView() {
   }, [selectedProject]);
 
   const loadReports = async () => {
+    if (!selectedProject) { setReports([]); setGate(null); setLoading(false); return; }
     setLoading(true);
     try {
       const [reportsData, gateData] = await Promise.all([
@@ -94,16 +96,16 @@ export default function ReportView() {
 
       <div className="card">
         <div className="card-title">Project</div>
-        <select
+        <Select aria-label="Report project"
           className="input"
           value={selectedProject}
-          onChange={(e) => setSelectedProject(e.target.value)}
+          onValueChange={setSelectedProject}
           style={{ maxWidth: '300px' }}
         >
           {projects.map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <div className="card">
@@ -141,19 +143,21 @@ export default function ReportView() {
         ) : (
           <div className="run-list">
             {reports.slice(0, 10).map((report) => (
-              <div
+              <Button
                 key={report.run_id}
+                variant="ghost"
+                aria-pressed={selectedRun === report.run_id}
                 className={`run-item ${selectedRun === report.run_id ? 'selected' : ''}`}
                 onClick={() => handleRunClick(report.run_id)}
-                style={{ cursor: 'pointer' }}
+                style={{ width: '100%', height: 'auto', textAlign: 'left', flexWrap: 'wrap' }}
               >
-                <div className="run-id">{report.run_id}</div>
-                <div className="run-stats">
+                <span className="run-id">{report.run_id}</span>
+                <span className="run-stats">
                   <span className="stat passed">{report.passed} passed</span>
                   <span className="stat failed">{report.failed} failed</span>
                   <span className="stat total">{report.total} total</span>
-                </div>
-              </div>
+                </span>
+              </Button>
             ))}
           </div>
         )}
@@ -193,9 +197,9 @@ export default function ReportView() {
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '12px' }}>
           Export all test reports and results as JSON for sharing or archival.
         </p>
-        <button className="btn btn-primary" onClick={handleExport}>
+        <Button className="btn btn-primary" onClick={handleExport}>
           Export All Reports (JSON)
-        </button>
+        </Button>
       </div>
     </div>
   );

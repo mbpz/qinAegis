@@ -1,3 +1,4 @@
+import { Button, Checkbox, Input } from './ui';
 import { useState, useEffect } from 'react';
 import { rpc } from '../utils/rpc';
 import type { AppConfig } from '../types/rpc';
@@ -74,24 +75,30 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
         </div>
       )}
 
-      {!config && <button className="btn btn-primary" onClick={() => { setLoading(true); loadConfig(); }}>Retry loading settings</button>}
+      {!config && <Button type="button" className="btn btn-primary" onClick={() => { setLoading(true); loadConfig(); }}>Retry loading settings</Button>}
       {config && <>
       <div className="card">
         <div className="card-title">AI Model Configuration</div>
-        <div className="input-group"><label>Provider name (Chat Completions API compatible)</label><input className="input" value={config.llm.provider || ''} onChange={e => setConfig({ ...config, llm: { ...config.llm, provider: e.target.value } })} /></div>
+        <div className="input-group"><label htmlFor="settings-primary-provider">Provider name (Chat Completions API compatible)</label><Input id="settings-primary-provider" className="input" value={config.llm.provider || ''} onValueChange={value => setConfig({ ...config, llm: { ...config.llm, provider: value } })} /></div>
         <div className="input-group">
-          <label>API Key</label>
+          <label htmlFor="settings-primary-api-key">API Key</label>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <input
+            <Input
+              id="settings-primary-api-key"
               type={showApiKey ? 'text' : 'password'}
               className="input"
               placeholder={config.llm.api_key_configured ? 'Key stored — leave empty to keep' : 'sk-...'}
               value={config?.llm?.api_key || ''}
-              onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, api_key: e.target.value } })}
+              onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, api_key: value } })}
               style={{ paddingRight: '40px' }}
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={showApiKey ? 'Hide primary API key' : 'Show primary API key'}
+              aria-pressed={showApiKey}
+              aria-controls="settings-primary-api-key"
               onClick={() => setShowApiKey(!showApiKey)}
               style={{
                 position: 'absolute',
@@ -104,117 +111,127 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
               }}
               title={showApiKey ? 'Hide API Key' : 'Show API Key'}
             >
-              {showApiKey ? '👁' : '👁‍🗨'}
-            </button>
+              <span aria-hidden="true">{showApiKey ? '👁' : '👁‍🗨'}</span>
+            </Button>
           </div>
         </div>
-        {config.llm.api_key_configured && <label><input type="checkbox" checked={!!config.llm.clear_api_key} onChange={e => setConfig({ ...config, llm: { ...config.llm, clear_api_key: e.target.checked } })} /> Clear stored primary key</label>}
+        {config.llm.api_key_configured && <Checkbox label={"Clear stored primary key"} checked={!!config.llm.clear_api_key} onCheckedChange={checked => setConfig({ ...config, llm: { ...config.llm, clear_api_key: checked } })} />}
         <div className="form-row">
           <div className="input-group">
-            <label>Base URL</label>
-            <input
+            <label htmlFor="settings-primary-base-url">Base URL</label>
+            <Input
+              id="settings-primary-base-url"
               className="input"
               type="text"
               placeholder="https://api.minimax.chat/v1"
               value={config?.llm?.base_url || ''}
-              onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, base_url: e.target.value } })}
+              onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, base_url: value } })}
             />
           </div>
           <div className="input-group">
-            <label>Model</label>
-            <input
+            <label htmlFor="settings-primary-model">Model</label>
+            <Input
+              id="settings-primary-model"
               className="input"
               type="text"
               placeholder="MiniMax-VL-01"
               value={config?.llm?.model || ''}
-              onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, model: e.target.value } })}
+              onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, model: value } })}
             />
           </div>
         </div>
       </div>
 
       <div className="card">
-        <div
-          className="card-title"
-          style={{ cursor: 'pointer', userSelect: 'none' }}
+        <Button
+          type="button"
+          variant="ghost"
+          className="card-title h-auto w-full justify-start whitespace-normal p-0 text-left"
+          aria-expanded={showSecondary}
+          aria-controls="secondary-llm-config"
           onClick={() => setShowSecondary(!showSecondary)}
         >
           {showSecondary ? '▼' : '▶'} Secondary LLM (Optional — for fallback & complex tasks)
-        </div>
+        </Button>
         {showSecondary && (
-          <>
+          <div id="secondary-llm-config">
             <div className="input-group">
-              <label>Provider</label>
-              <input
+              <label htmlFor="settings-secondary-provider">Provider</label>
+              <Input
+                id="settings-secondary-provider"
                 className="input"
                 type="text"
                 placeholder="minimax"
                 value={config?.llm?.secondary_provider || ''}
-                onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_provider: e.target.value } })}
+                onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, secondary_provider: value } })}
               />
             </div>
             <div className="input-group">
-              <label>API Key</label>
+              <label htmlFor="settings-secondary-api-key">API Key</label>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                <input
+                <Input
+                  id="settings-secondary-api-key"
                   type="password"
                   className="input"
                   placeholder={config.llm.secondary_api_key_configured ? 'Key stored — leave empty to keep' : 'sk-...'}
                   value={config?.llm?.secondary_api_key || ''}
-                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_api_key: e.target.value } })}
+                  onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, secondary_api_key: value } })}
                   style={{ paddingRight: '40px' }}
                 />
               </div>
             </div>
             <div className="form-row">
               <div className="input-group">
-                <label>Base URL</label>
-                <input
+                <label htmlFor="settings-secondary-base-url">Base URL</label>
+                <Input
+                  id="settings-secondary-base-url"
                   className="input"
                   type="text"
                   placeholder="https://api.minimax.chat/v1"
                   value={config?.llm?.secondary_base_url || ''}
-                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_base_url: e.target.value } })}
+                  onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, secondary_base_url: value } })}
                 />
               </div>
               <div className="input-group">
-                <label>Model</label>
-                <input
+                <label htmlFor="settings-secondary-model">Model</label>
+                <Input
+                  id="settings-secondary-model"
                   className="input"
                   type="text"
                   placeholder="Qwen3-VL-7B"
                   value={config?.llm?.secondary_model || ''}
-                  onChange={(e) => setConfig({ ...config!, llm: { ...config!.llm, secondary_model: e.target.value } })}
+                  onValueChange={(value) => setConfig({ ...config!, llm: { ...config!.llm, secondary_model: value } })}
                 />
               </div>
             </div>
-            {config.llm.secondary_api_key_configured && <label><input type="checkbox" checked={!!config.llm.clear_secondary_api_key} onChange={e => setConfig({ ...config, llm: { ...config.llm, clear_secondary_api_key: e.target.checked } })} /> Clear stored secondary key</label>}
+            {config.llm.secondary_api_key_configured && <Checkbox label={"Clear stored secondary key"} checked={!!config.llm.clear_secondary_api_key} onCheckedChange={checked => setConfig({ ...config, llm: { ...config.llm, clear_secondary_api_key: checked } })} />}
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '8px 0 0' }}>
               The secondary LLM is used as a fallback when the primary fails, or for complex vision tasks.
               Leave empty to use only the primary provider.
             </p>
-          </>
+          </div>
         )}
       </div>
 
       <div className="card">
         <div className="card-title">Sandbox Configuration</div>
         <div className="input-group">
-          <label>CDP Port</label>
-          <input
+          <label htmlFor="settings-cdp-port">CDP Port</label>
+          <Input
+            id="settings-cdp-port"
             className="input"
             type="number"
             placeholder="9222"
             value={config?.sandbox?.cdp_port || 9222}
-            onChange={(e) => setConfig({ ...config!, sandbox: { ...config!.sandbox, cdp_port: parseInt(e.target.value) || 9222 } })}
+            onValueChange={(value) => setConfig({ ...config!, sandbox: { ...config!.sandbox, cdp_port: parseInt(value) || 9222 } })}
           />
         </div>
       </div>
 
       <div className="form-actions">
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+        <Button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Saving...' : 'Save Settings'}
-        </button>
+        </Button>
       </div>
       </>}
     </div>

@@ -16,6 +16,9 @@ playwright-*.html
 .claude/
 node_modules/
 # Test artifacts
+.playwright-cli/
+output/playwright/
+__pycache__/
 tests/snapshots/
 build
 crates/web_client/src/assets/assets/

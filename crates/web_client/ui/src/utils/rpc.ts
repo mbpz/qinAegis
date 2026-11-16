@@ -1,4 +1,6 @@
 // Shared RPC client — single source of truth
+import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapshot } from '../types/contracts';
+import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
 
 import type {
   ConfigStatusResponse,
@@ -88,7 +90,7 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
       throw new RpcError(body.error?.message || 'Request failed', body.error?.code || 'RPC_ERROR', method);
     }
     const result = body.data;
-    if (result && typeof result === 'object' && 'error' in result && result.error) {
+    if (method !== 'getJobStatus' && result && typeof result === 'object' && 'error' in result && result.error) {
       throw new RpcError(String(result.error), 'RPC_ERROR', method);
     }
     return result as T;
@@ -103,6 +105,34 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  getModels(): Promise<ModelRegistry> { return call('getModels'); },
+  saveModel(params: { profile: ModelProfile; expected_revision: number; clear_api_key: boolean }): Promise<ModelRegistry> { return call('saveModel', params); },
+  setModelRoute(params: { task: string; route: TaskModelRoute; expected_revision: number }): Promise<ModelRegistry> { return call('setModelRoute', params); },
+  resolveModelRoute(task: string): Promise<{revision: number; task: string; candidates: {id: string; model: string}[]}> { return call('resolveModelRoute', {task}); },
+  getContracts(): Promise<ContractsSnapshot> {
+    return call('getContracts');
+  },
+  saveContractDraft(params: { draft: ContractDraft; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('saveContractDraft', params);
+  },
+  publishContract(params: { id: string; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('publishContract', params);
+  },
+  proposeContractCorrection(params: { contract_id: string; version: number; replacement: ContractDraft; reason: string; evidence: string[]; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('proposeContractCorrection', params);
+  },
+  reviewContractCorrection(params: { proposal_id: string; decision: 'approve' | 'reject'; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('reviewContractCorrection', params);
+  },
+  bindContract(params: { project: string; contract_id: string; version: number; parameters: Record<string, unknown>; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('bindContract', params);
+  },
+  exportContracts(): Promise<ContractsBundle> {
+    return call('exportContracts');
+  },
+  importContracts(params: { bundle: ContractsBundle; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('importContracts', params);
+  },
   // Config
   async checkConfig(): Promise<ConfigStatusResponse> {
     return call<ConfigStatusResponse>('checkConfig');
@@ -126,12 +156,12 @@ export const rpc = {
   },
 
   // Projects
-  async getProjects(): Promise<Project[]> {
-    return call<Project[]>('getProjects');
+  async getProjects(): Promise<string[]> {
+    return call<string[]>('getProjects');
   },
 
-  async createProject(name: string, url: string, tech_stack: string[]): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('createProject', { name, url, tech_stack });
+  async createProject(name: string, url: string, tech_stack: string[]): Promise<Project> {
+    return call<Project>('createProject', { name, url, tech_stack });
   },
 
   // Output
@@ -149,8 +179,12 @@ export const rpc = {
   },
 
   // Generate
-  async runGenerate(requirement: string, spec?: string): Promise<{ ok: boolean; jobId: string }> {
-    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, spec });
+  async getContractExecution(project: string): Promise<ExecutionSnapshot> {
+    return call<ExecutionSnapshot>('getContractExecution', { project });
+  },
+
+  async runGenerate(requirement: string, project: string, use_contracts: boolean): Promise<{ ok: boolean; jobId: string }> {
+    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, project, use_contracts });
   },
 
   // Run Tests
