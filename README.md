@@ -56,7 +56,7 @@ See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and 
 - Runtime discovery does not rely on the compiler's source directory or current working directory.
 - Performance and stress adapters require their own verified Lighthouse/Locust environments.
 
-Projects remain under `~/.qinAegis/projects`. Global configuration follows the OS-specific configuration directory; consult service diagnostics rather than assuming a fixed macOS path. Models may receive test-page content during AI operations; credentials and private project data should not be included in shared contract packages.
+By default, projects remain under `~/.qinAegis/projects`. Global configuration follows the OS-specific configuration directory; consult service diagnostics rather than assuming a fixed macOS path. For an isolated workspace, set `QINAEGIS_DATA_DIR` to an absolute directory before starting; it covers private data and configuration without migrating existing assets. See the installation guide for restart and path rules. Models may receive test-page content during AI operations; credentials and private project data should not be included in shared contract packages.
 
 ## Release artifacts
 

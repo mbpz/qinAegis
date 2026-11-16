@@ -23,6 +23,7 @@ Development branch, not a published stable release. Current scope and remaining 
 - Replaced the tao/wry desktop shell with an embedded Web UI and a loopback-only HTTP service: background start, browser opening, status and safe stop, private sessions and CSRF checks.
 - Adopted official free beUI interactions throughout the workbench and public site.
 - Made engine discovery explicit through installed runtime manifests or an opted-in development sandbox.
+- Added an absolute `QINAEGIS_DATA_DIR` for isolated private workspaces across platforms while preserving default paths, and detached Windows service output handles from their launcher.
 - Replaced roadmap file/name counts with executable repository checks and explicit acceptance gaps.
 
 ### Removed

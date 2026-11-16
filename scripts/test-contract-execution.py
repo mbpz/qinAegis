@@ -86,15 +86,17 @@ def main():
     threading.Thread(target=model.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix='qinaegis-execution-') as directory:
         root = Path(directory)
-        runtime = root / 'runtime'
-        runtime.mkdir()
+        smoke = module.Smoke(binary, directory)
+        # Cover default runtime lookup beneath the selected data root, without
+        # falling back to a real user's engine or relying on a runtime override.
+        runtime = smoke.data / 'runtimes/midscene/current'
+        runtime.mkdir(parents=True)
         (runtime / 'engine.mjs').write_text(ENGINE)
         manifest = runtime / 'runtime.json'
         manifest.write_text(json.dumps({'schema_version': 1, 'engine': 'midscene',
             'version': 'protocol-fixture-1', 'entry': 'engine.mjs'}))
-        smoke = module.Smoke(binary, directory)
-        smoke.env.update({'QINAEGIS_RUNTIME_DIR': str(runtime), 'QINAEGIS_FIXTURE_DIR': str(root)})
-        projects = smoke.home / '.qinAegis' / 'projects'
+        smoke.env['QINAEGIS_FIXTURE_DIR'] = str(root)
+        projects = smoke.data / 'projects'
         def start():
             smoke.cli('start', '--no-open', '--port', str(smoke.port))
             smoke.instance = smoke.read_instance()

@@ -74,9 +74,7 @@ fn state_dir() -> Result<PathBuf> {
         ensure!(path.is_absolute(), "QINAEGIS_STATE_DIR must be absolute");
         return Ok(path);
     }
-    Ok(dirs::home_dir()
-        .context("Cannot locate home directory")?
-        .join(".qinAegis/state"))
+    Ok(qin_aegis_core::LocalStorage::base_path().join("state"))
 }
 fn private_dir(path: &Path) -> Result<()> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
@@ -418,6 +416,9 @@ pub async fn run(args: Vec<String>) -> Result<()> {
         "version"=>println!("QinAegis {} (API v2)",crate::app::APP_VERSION),
         "help"=>println!("qinaegis [start|serve|open|status|stop|version] [--port PORT] [--no-open]\nDefault: start a local background service and open your browser.\nserve: foreground; Ctrl+C stops service. close tabs without stopping background jobs.\nopen: authorize a fresh browser session. stop: refuses while tasks are running."),
         _=>{
+            if let Some(path) = std::env::var_os("QINAEGIS_DATA_DIR") {
+                ensure!(Path::new(&path).is_absolute(), "QINAEGIS_DATA_DIR must be absolute");
+            }
             let dir=state_dir()?;
             match options.command.as_str() {
                 "start"=>start(&options,&dir).await?,

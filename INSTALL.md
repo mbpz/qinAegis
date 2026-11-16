@@ -57,6 +57,6 @@ Linux may also need Playwright's documented OS browser dependencies. Configure a
 
 ## Data and uninstall
 
-Project data stays in `~/.qinAegis/projects`; configuration uses the OS configuration directory. Stop the service first, then remove only the installed `qinaegis` executable to uninstall the base package. Keep project/config directories for future use, or back them up before deliberately deleting data. Do not assume replacing a binary reverses any future data migration.
+By default, project data stays in `~/.qinAegis/projects`; configuration uses the OS configuration directory. Set `QINAEGIS_DATA_DIR` to an absolute directory before starting to isolate projects, contracts, model registry, service state, default runtimes and `config.toml` under one root. Empty/relative values are rejected. Stop the old service before changing the variable and use the same setting for subsequent commands; existing assets are not automatically migrated. Explicit runtime/state overrides still take precedence. Stop the service first, then remove only the installed `qinaegis` executable to uninstall the base package. Keep project/config directories for future use, or back them up before deliberately deleting data. Do not assume replacing a binary reverses any future data migration.
 
 See the [user guide](docs/USER_GUIDE.md), [documentation index](docs/README.md) and [CI distribution details](docs/CI_INTEGRATION.md) for current operations and acceptance limits.

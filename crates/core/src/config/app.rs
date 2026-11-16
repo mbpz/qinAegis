@@ -104,8 +104,11 @@ impl Default for LlmConfigSection {
 }
 
 impl AppConfig {
-    /// Path to the global config file: ~/.config/qinAegis/config.toml
+    /// OS config directory by default; explicit data roots contain their own config.
     pub fn global_path() -> PathBuf {
+        if std::env::var_os("QINAEGIS_DATA_DIR").is_some() {
+            return crate::LocalStorage::base_path().join("config.toml");
+        }
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("qinAegis")

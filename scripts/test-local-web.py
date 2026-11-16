@@ -34,6 +34,7 @@ class Smoke:
         self.binary = binary
         root = Path(directory)
         self.home = root / "home"
+        self.data = root / "data"
         self.state = root / "state"
         self.home.mkdir()
         self.env = os.environ.copy()
@@ -43,7 +44,10 @@ class Smoke:
             "APPDATA": str(self.home / "appdata"),
             "LOCALAPPDATA": str(self.home / "localappdata"),
             "QINAEGIS_STATE_DIR": str(self.state),
+            "QINAEGIS_DATA_DIR": str(self.data),
         })
+        self.env.pop("QINAEGIS_RUNTIME_DIR", None)
+        self.env.pop("QINAEGIS_DEV_SANDBOX", None)
         self.instance = None
         self.authorized = None
         self.rpc_sequence = 0
@@ -154,9 +158,12 @@ class Smoke:
         }
 
     def exercise_contracts(self):
+        require(self.rpc("getProjects") == [], "fresh isolated project library is not empty")
         for project in ("smoke-alpha", "smoke-beta"):
             self.rpc("createProject", {"name": project, "url": f"https://{project}.invalid",
                                        "tech_stack": []})
+            require((self.data / "projects" / project / "config.yaml").is_file(),
+                    "project was not written inside explicit isolated data root")
         empty = self.rpc("getContracts")
         require(empty.get("revision") == 0 and empty.get("publications") == [],
                 "fresh contract library is not empty")
@@ -195,6 +202,8 @@ class Smoke:
         self.rpc("reviewContractCorrection", review, success=False)
         require(self.rpc("getContracts") == proposed, "unconfirmed correction changed library")
         corrected = self.rpc("reviewContractCorrection", {**review, "approved": True})
+        require((self.data / "contracts" / "library.json").is_file(),
+                "contract library escaped explicit isolated data root")
         require(corrected.get("revision") == 6 and corrected["publications"][0] == original
                 and corrected["publications"][1]["definition"]["version"] == 2,
                 "correction did not retain immutable publication history")
@@ -221,6 +230,8 @@ class Smoke:
                    "api_key": key, "capabilities": ["text"], "enabled": True,
                    "allow_remote": True, "midscene_family": None}
         saved = self.rpc("saveModel", {"profile": profile, "expected_revision": 0})
+        require((self.data / "models" / "registry.json").is_file(),
+                "model registry escaped explicit isolated data root")
         require(saved.get("revision") == 1 and len(saved.get("profiles", [])) == 1,
                 "model registration failed")
         redacted = saved["profiles"][0]
@@ -243,6 +254,12 @@ class Smoke:
         return routed, resolved
 
     def run(self):
+        for invalid in ("", "relative-data"):
+            self.env["QINAEGIS_DATA_DIR"] = invalid
+            self.cli("start", "--no-open", "--port", str(self.port), success=False)
+        self.env["QINAEGIS_DATA_DIR"] = str(self.data)
+        require(not self.state.exists() and not self.data.exists(),
+                "invalid data override wrote service state or assets")
         self.cli("status", success=False)
         with ThreadPoolExecutor(max_workers=2) as launchers:
             starts = [launchers.submit(self.cli, "start", "--no-open", "--port", str(self.port))
@@ -309,6 +326,9 @@ class Smoke:
         self.request("POST", "/api/v2/rpc", body=rpc_body,
             headers={**authorized, "x-qinaegis-csrf": "incorrect"}, expected=401)
         print("PASS one-use bootstrap, cookie refresh, config RPC and Origin/CSRF boundaries")
+        self.rpc("setConfig", {"llm": {"model": "isolated-config-fixture"}})
+        require((self.data / "config.toml").is_file(),
+                "configuration escaped explicit isolated data root")
 
         contracts = self.exercise_contracts()
         models, route = self.exercise_models()
@@ -326,6 +346,10 @@ class Smoke:
         require(self.rpc("getModels") == models, "redacted model registry did not survive restart")
         require(self.rpc("resolveModelRoute", {"task": "generate"}) == route,
                 "model route or configured credential did not survive restart")
+        require(self.rpc("getState")["config"]["llm"]["model"] == "isolated-config-fixture",
+                "configuration did not reload from explicit isolated data root")
+        require(not (self.home / ".qinAegis").exists(),
+                "explicit data root silently fell back to home directory")
         print("PASS restart persistence, fresh session boundary and model route reload")
 
         self.cli("stop")

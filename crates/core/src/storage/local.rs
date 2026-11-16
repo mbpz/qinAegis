@@ -16,7 +16,12 @@ use tokio::fs;
 pub struct LocalStorage;
 
 impl LocalStorage {
+    /// Product data root. The service validates explicit overrides as absolute
+    /// paths before use; unlike OS known folders this also isolates Windows.
     pub fn base_path() -> PathBuf {
+        if let Some(path) = std::env::var_os("QINAEGIS_DATA_DIR") {
+            return PathBuf::from(path);
+        }
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".qinAegis")

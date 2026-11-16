@@ -48,7 +48,7 @@ def main():
         smoke = module.Smoke(binary, directory)
         smoke.env.pop('QINAEGIS_RUNTIME_DIR', None)
         smoke.env['QINAEGIS_DEV_SANDBOX'] = str(sandbox)
-        reports = smoke.home / '.qinAegis/projects/allure-demo/reports'
+        reports = smoke.data / 'projects/allure-demo/reports'
         started = False
         originals = {}
         def start():

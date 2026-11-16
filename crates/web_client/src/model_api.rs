@@ -1,14 +1,12 @@
 //! Registry APIs return redacted profiles; credentials are write-only.
 use crate::contract_api::field;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use qin_aegis_core::models::ModelRegistry;
 use serde_json::Value;
 
 pub fn registry() -> Result<ModelRegistry> {
     Ok(ModelRegistry::new(
-        dirs::home_dir()
-            .context("home directory is unavailable")?
-            .join(".qinAegis/models/registry.json"),
+        qin_aegis_core::LocalStorage::base_path().join("models/registry.json"),
     ))
 }
 

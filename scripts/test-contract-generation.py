@@ -95,7 +95,7 @@ def main():
             require(second["snapshot"]["model"]["candidates"][0]["id"] == "two"
                     and all(r["model"] == "model-two" for r in requests[2:]), "next job did not use switched model")
             require("beta-project-input.invalid" in json.dumps(requests[2]["messages"]), "second project reused first project inputs")
-            projects = smoke.home / ".qinAegis" / "projects"
+            projects = smoke.data / "projects"
             for project in ("smoke-alpha", "smoke-beta"):
                 saved = list((projects / project / "cases" / "draft").glob("*.json"))
                 require(len(saved) == 1, "generated draft was not saved to selected project")

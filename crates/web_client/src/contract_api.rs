@@ -23,9 +23,7 @@ pub fn handles(method: &str) -> bool {
 }
 
 pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
-    let path = dirs::home_dir()
-        .context("home directory is unavailable")?
-        .join(".qinAegis/contracts/library.json");
+    let path = qin_aegis_core::LocalStorage::base_path().join("contracts/library.json");
     if matches!(method, "bindContract" | "getContractExecution") {
         let project: String = field(params, "project")?;
         anyhow::ensure!(
@@ -37,9 +35,7 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
 }
 
 pub fn execution(project: &str) -> Result<qin_aegis_core::contract_execution::ExecutionSnapshot> {
-    let path = dirs::home_dir()
-        .context("home directory is unavailable")?
-        .join(".qinAegis/contracts/library.json");
+    let path = qin_aegis_core::LocalStorage::base_path().join("contracts/library.json");
     prepare_execution(&ContractStore::new(path), project)
 }
 
