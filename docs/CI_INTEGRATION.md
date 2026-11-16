@@ -20,7 +20,7 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 | Runner | 目标 | 归档 |
 |---|---|---|
-| macos-15 | aarch64-apple-darwin | qinaegis-aarch64-apple-darwin.tar.gz |
+| macos-26 | aarch64-apple-darwin | qinaegis-aarch64-apple-darwin.tar.gz |
 | macos-15-intel | x86_64-apple-darwin | qinaegis-x86_64-apple-darwin.tar.gz |
 | ubuntu-22.04 | x86_64-unknown-linux-gnu | qinaegis-x86_64-unknown-linux-gnu.tar.gz |
 | windows-2022 | x86_64-pc-windows-msvc | qinaegis-x86_64-pc-windows-msvc.zip |
