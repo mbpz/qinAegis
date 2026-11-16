@@ -23,6 +23,7 @@ pub struct JobEntry {
     pub cancel_flag: Arc<AtomicBool>,
     pub result: Option<serde_json::Value>,
     pub error: Option<String>,
+    pub snapshot: Option<serde_json::Value>,
     // done_tx intentionally omitted - not needed after thread spawn
 }
 
@@ -35,6 +36,7 @@ impl JobEntry {
             cancel_flag: Arc::new(AtomicBool::new(false)),
             result: None,
             error: None,
+            snapshot: None,
         }
     }
 }
@@ -171,6 +173,7 @@ impl AppState {
                     "output": output,
                     "result": entry.result,
                     "error": entry.error,
+                    "snapshot": entry.snapshot,
                 }))
                 .unwrap_or_default()
             }
@@ -206,7 +209,70 @@ impl AppState {
         }
     }
 
+    fn select_model(
+        &self,
+        task: &str,
+    ) -> anyhow::Result<(
+        AppConfig,
+        LlmConfig,
+        Option<qin_aegis_core::models::ResolvedModelRoute>,
+    )> {
+        let mut cfg = self.config.clone().unwrap_or_default();
+        let registry = crate::model_api::registry()?;
+        let snapshot = registry.snapshot()?;
+        if !snapshot.profiles.is_empty() || !snapshot.routes.is_empty() {
+            let route = registry.resolve(task, &[])?;
+            let selected = route
+                .candidates()
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("empty model route"))?;
+            cfg.llm.api_key = selected.api_key.clone();
+            cfg.llm.base_url = selected.base_url.clone();
+            cfg.llm.model = selected.model.clone();
+            cfg.llm.provider = selected.adapter.clone();
+            let visual = LlmConfig {
+                api_key: selected.api_key.clone(),
+                base_url: selected.base_url.clone(),
+                model: selected.model.clone(),
+                midscene_family: selected.midscene_family.clone(),
+            };
+            return Ok((cfg, visual, Some(route)));
+        }
+        anyhow::ensure!(
+            !resolve_env_var(&cfg.llm.api_key).trim().is_empty(),
+            "configure a model and task route first"
+        );
+        let visual = LlmConfig {
+            api_key: resolve_env_var(&cfg.llm.api_key),
+            base_url: resolve_env_var(&cfg.llm.base_url),
+            model: cfg.llm.model.clone(),
+            midscene_family: None,
+        };
+        Ok((cfg, visual, None))
+    }
+
+    fn model_snapshot(
+        route: &Option<qin_aegis_core::models::ResolvedModelRoute>,
+        cfg: &AppConfig,
+    ) -> serde_json::Value {
+        match route {
+            Some(route) => {
+                serde_json::json!({"revision":route.revision(), "task":route.task(), "candidates":route.candidates().iter().map(|p| serde_json::json!({"id":p.id,"adapter":p.adapter,"model":p.model,"capabilities":p.capabilities,"midscene_family":p.midscene_family})).collect::<Vec<_>>() })
+            }
+            None => serde_json::json!({"source":"legacy_config", "model":cfg.llm.model}),
+        }
+    }
+
     pub fn is_configured(&self) -> bool {
+        if let Ok(registry) = crate::model_api::registry() {
+            if let Ok(snapshot) = registry.snapshot() {
+                if !snapshot.profiles.is_empty() {
+                    return ["generate", "explore", "execute"]
+                        .iter()
+                        .any(|task| registry.resolve(task, &[]).is_ok());
+                }
+            }
+        }
         self.config
             .as_ref()
             .map(|c| !resolve_env_var(&c.llm.api_key).trim().is_empty())
@@ -313,18 +379,19 @@ impl AppState {
     // ── Explore ──────────────────────────────────────────────────────────────
 
     pub fn run_explore(&mut self, url: &str, depth: u32) -> String {
-        if !self.is_configured() {
-            return r#"{"error":"config not set. Set LLM API key in Config panel."}"#.to_string();
-        }
-
+        let (cfg, frozen_visual, model_route) = match self.select_model("explore") {
+            Ok(selection) => selection,
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
+        let model_snapshot = Self::model_snapshot(&model_route, &cfg);
         let job_id = self.job_id();
-        let cfg = self.config.as_ref().unwrap().clone();
         let url = url.to_string();
         let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
 
         // Create JobEntry BEFORE spawning thread
-        let entry = JobEntry::new("explore");
+        let mut entry = JobEntry::new("explore");
+        entry.snapshot = Some(serde_json::json!({"model":model_snapshot}));
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
@@ -352,11 +419,7 @@ impl AppState {
                     return;
                 }
 
-                let llm_cfg = LlmConfig {
-                    api_key: resolve_env_var(&cfg.llm.api_key),
-                    base_url: resolve_env_var(&cfg.llm.base_url),
-                    model: cfg.llm.model.clone(),
-                };
+                let llm_cfg = frozen_visual.clone();
                 let sandbox_cfg = SandboxConfig {
                     cdp_port: cfg.sandbox.cdp_port,
                 };
@@ -457,20 +520,30 @@ impl AppState {
 
     // ── Generate ─────────────────────────────────────────────────────────────
 
-    pub fn run_generate(&mut self, requirement: &str, spec_path: Option<&str>) -> String {
-        if !self.is_configured() {
-            return r#"{"error":"config not set. Set LLM API key in Config panel."}"#.to_string();
-        }
-
+    pub fn run_generate(
+        &mut self,
+        requirement: &str,
+        project: &str,
+        contracts: Option<qin_aegis_core::contract_execution::ExecutionSnapshot>,
+    ) -> String {
+        let (cfg, _, route) = match self.select_model("generate") {
+            Ok(selection) => selection,
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
+        let spec_markdown = match contracts.as_ref().map(|s| s.specification()).transpose() {
+            Ok(value) => value.unwrap_or_default(),
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
+        let model_snapshot = Self::model_snapshot(&route, &cfg);
         let job_id = self.job_id();
-        let cfg = self.config.as_ref().unwrap().clone();
         let requirement = requirement.to_string();
-        let spec_path = spec_path.map(|s| s.to_string());
+        let project = project.to_string();
         let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
 
         // Create JobEntry BEFORE spawning thread
-        let entry = JobEntry::new("generate");
+        let mut entry = JobEntry::new("generate");
+        entry.snapshot = Some(serde_json::json!({"model":model_snapshot,"contracts":contracts}));
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
@@ -501,25 +574,17 @@ impl AppState {
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
 
-                let spec_markdown = match spec_path.as_ref().and_then(|sp| {
-                    // Reject absolute paths and path traversal attempts
-                    if sp.starts_with('/') || sp.contains("..") {
-                        return None;
-                    }
-                    std::fs::read_to_string(sp).ok()
-                }) {
-                    Some(content) => content,
-                    None => {
-                        let mut o = output_arc.lock().unwrap();
-                        o.push_str(&format!(
-                            "[{}] ⚠ spec file not readable, proceeding without it\n",
-                            job_id
-                        ));
-                        String::new()
-                    }
+                let llm = match route.as_ref() {
+                    Some(route) => match qin_aegis_core::models::build_client(route) {
+                        Ok(client) => client,
+                        Err(e) => {
+                            Self::set_job_status_internal(&jobs, &job_id, "failed");
+                            Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
+                            return;
+                        }
+                    },
+                    None => create_llm_client(&cfg),
                 };
-
-                let llm = create_llm_client(&cfg);
 
                 let service = TestCaseService::new(llm, LocalStorageInstance);
 
@@ -530,7 +595,7 @@ impl AppState {
                 }
 
                 match service
-                    .generate_and_save("default", &spec_markdown, &requirement)
+                    .generate_and_save(&project, &spec_markdown, &requirement)
                     .await
                 {
                     Ok(cases) => {
@@ -560,19 +625,20 @@ impl AppState {
     // ── Run Tests ────────────────────────────────────────────────────────────
 
     pub fn run_tests(&mut self, project: &str, test_type: &str) -> String {
-        if !self.is_configured() {
-            return r#"{"error":"config not set. Set LLM API key in Config panel."}"#.to_string();
-        }
-
+        let (cfg, frozen_visual, model_route) = match self.select_model("execute") {
+            Ok(selection) => selection,
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
+        let model_snapshot = Self::model_snapshot(&model_route, &cfg);
         let job_id = self.job_id();
-        let cfg = self.config.as_ref().unwrap().clone();
         let project = project.to_string();
         let test_type = test_type.to_string();
         let jobs = self.jobs.clone();
         let job_id_for_return = job_id.clone();
 
         // Create JobEntry BEFORE spawning thread
-        let entry = JobEntry::new("testExec");
+        let mut entry = JobEntry::new("testExec");
+        entry.snapshot = Some(serde_json::json!({"model":model_snapshot}));
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
@@ -605,11 +671,7 @@ impl AppState {
                     o.push_str(&format!("[{}] Running tests: project={} type={}\n", job_id, project, test_type));
                 }
 
-                let llm_cfg = LlmConfig {
-                    api_key: resolve_env_var(&cfg.llm.api_key),
-                    base_url: resolve_env_var(&cfg.llm.base_url),
-                    model: cfg.llm.model.clone(),
-                };
+                let llm_cfg = frozen_visual.clone();
                 let sandbox_cfg = SandboxConfig {
                     cdp_port: cfg.sandbox.cdp_port,
                 };
@@ -692,11 +754,7 @@ impl AppState {
                                         let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
                                         if let Some(target_url) = project_url {
                                             let lh_path = run_dir.join("lighthouse.json");
-                                            let llm_cfg = LlmConfig {
-                                                api_key: resolve_env_var(&cfg.llm.api_key),
-                                                base_url: resolve_env_var(&cfg.llm.base_url),
-                                                model: cfg.llm.model.clone(),
-                                            };
+                                            let llm_cfg = frozen_visual.clone();
                                             let sandbox_cfg = SandboxConfig {
                                                 cdp_port: cfg.sandbox.cdp_port,
                                             };
@@ -731,11 +789,7 @@ impl AppState {
                                         let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
                                         if let Some(target_url) = project_url {
                                             let lc_path = run_dir.join("locust-summary.json");
-                                            let llm_cfg = LlmConfig {
-                                                api_key: resolve_env_var(&cfg.llm.api_key),
-                                                base_url: resolve_env_var(&cfg.llm.base_url),
-                                                model: cfg.llm.model.clone(),
-                                            };
+                                            let llm_cfg = frozen_visual.clone();
                                             let sandbox_cfg = SandboxConfig {
                                                 cdp_port: cfg.sandbox.cdp_port,
                                             };
@@ -770,11 +824,7 @@ impl AppState {
                                         let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
                                         if let Some(target_url) = project_url {
                                             let zap_path = run_dir.join("zap-report.json");
-                                            let llm_cfg = LlmConfig {
-                                                api_key: resolve_env_var(&cfg.llm.api_key),
-                                                base_url: resolve_env_var(&cfg.llm.base_url),
-                                                model: cfg.llm.model.clone(),
-                                            };
+                                            let llm_cfg = frozen_visual.clone();
                                             let sandbox_cfg = SandboxConfig {
                                                 cdp_port: cfg.sandbox.cdp_port,
                                             };
@@ -1048,8 +1098,16 @@ impl AppState {
             .map(|c| format!("[{}] {} ({})", c.id, c.name, c.test_type))
             .collect();
 
-        let plan_text = if let Some(ref cfg) = self.config {
-            let llm = create_llm_client(cfg);
+        let plan_text = if let Ok((cfg, _, route)) = self.select_model("generate") {
+            let llm = match route
+                .as_ref()
+                .map(qin_aegis_core::models::build_client)
+                .transpose()
+            {
+                Ok(Some(client)) => client,
+                Ok(None) => create_llm_client(&cfg),
+                Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+            };
 
             let summary = case_summaries.join("\n");
             let prompt = format!(

@@ -128,11 +128,13 @@ impl Clone for MidsceneProcess {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize)]
 pub struct LlmConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    #[serde(default)]
+    pub midscene_family: Option<String>,
 }
 
 #[derive(Clone)]
@@ -164,15 +166,16 @@ impl MidsceneProcess {
         // Pass LLM environment variables from config
         if let Some(cfg) = llm_config {
             if !cfg.api_key.is_empty() {
+                let family = cfg.midscene_family.as_deref().unwrap_or("qwen2.5-vl");
                 cmd.env("MIDSCENE_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_MODEL_BASE_URL", &cfg.base_url);
                 cmd.env("MIDSCENE_MODEL_NAME", &cfg.model);
-                cmd.env("MIDSCENE_MODEL_FAMILY", "qwen2.5-vl");
+                cmd.env("MIDSCENE_MODEL_FAMILY", family);
                 cmd.env("MIDSCENE_REPLANNING_CYCLE_LIMIT", "100");
                 cmd.env("MIDSCENE_ACTION_CACHE", "off");
                 // Intent-specific overrides
                 cmd.env("MIDSCENE_INSIGHT_MODEL_NAME", &cfg.model);
-                cmd.env("MIDSCENE_INSIGHT_MODEL_FAMILY", "qwen2.5-vl");
+                cmd.env("MIDSCENE_INSIGHT_MODEL_FAMILY", family);
                 cmd.env("MIDSCENE_INSIGHT_MODEL_API_KEY", &cfg.api_key);
                 cmd.env("MIDSCENE_INSIGHT_MODEL_BASE_URL", &cfg.base_url);
             }

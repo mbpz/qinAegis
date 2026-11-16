@@ -45,6 +45,9 @@ class Smoke:
             "QINAEGIS_STATE_DIR": str(self.state),
         })
         self.instance = None
+        self.authorized = None
+        self.rpc_sequence = 0
+        self.secrets = []
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind(("127.0.0.1", 0))
             self.port = sock.getsockname()[1]
@@ -87,6 +90,8 @@ class Smoke:
             response = conn.getresponse()
             response_headers = dict(response.getheaders())
             payload = response.read()
+            require(all(secret.encode() not in payload for secret in self.secrets),
+                    "service response exposed a model credential")
             require(response.status == expected,
                     f"HTTP {method} {path} expected {expected}, received {response.status}")
             return payload, response_headers
@@ -101,6 +106,123 @@ class Smoke:
             return json.loads(payload), headers
         except ValueError:
             raise SmokeFailure("service returned invalid JSON") from None
+
+    def rpc(self, method, params=None, success=True):
+        self.rpc_sequence += 1
+        request_id = f"smoke-{self.rpc_sequence}"
+        response, _ = self.json_request("POST", "/api/v2/rpc",
+            body={"id": request_id, "method": method, "params": params or {}},
+            headers=self.authorized)
+        require(response.get("id") == request_id and response.get("ok") is success,
+                f"RPC {method} returned unexpected result")
+        if not success:
+            require(isinstance(response.get("error"), dict), f"RPC {method} omitted error envelope")
+            return response["error"]
+        require("data" in response, f"RPC {method} omitted data")
+        return response["data"]
+
+    def authenticate(self):
+        launched, _ = self.json_request("POST", "/api/v2/launch", body={},
+            headers={"x-qinaegis-owner": self.instance["owner_secret"]})
+        session, headers = self.json_request("POST", "/api/v2/session",
+            body={"token": launched.get("token")}, headers={"Origin": self.origin})
+        cookie = SimpleCookie()
+        cookie.load(headers.get("set-cookie", headers.get("Set-Cookie", "")))
+        require("qinaegis_session" in cookie and bool(session.get("csrf")),
+                "restarted service authentication failed")
+        self.authorized = {
+            "Cookie": f"qinaegis_session={cookie['qinaegis_session'].value}",
+            "Origin": self.origin, "x-qinaegis-csrf": session["csrf"],
+        }
+
+    def exercise_contracts(self):
+        for project in ("smoke-alpha", "smoke-beta"):
+            self.rpc("createProject", {"name": project, "url": f"https://{project}.invalid",
+                                       "tech_stack": []})
+        empty = self.rpc("getContracts")
+        require(empty.get("revision") == 0 and empty.get("publications") == [],
+                "fresh contract library is not empty")
+        draft = {"id": "receipt", "version": 1, "intent": "submission returns a receipt",
+                 "inputs": {"target": "string", "quantity": "number"}, "outputs": {},
+                 "preconditions": [], "assertions": ["receipt matches submitted input"],
+                 "required_capabilities": ["browser.interact"]}
+        saved = self.rpc("saveContractDraft", {"draft": draft, "expected_revision": 0})
+        require(saved.get("revision") == 1, "draft save did not advance revision")
+        self.rpc("publishContract", {"id": "receipt", "expected_revision": 1}, success=False)
+        require(self.rpc("getContracts") == saved, "unconfirmed publication changed library")
+        published = self.rpc("publishContract", {"id": "receipt", "expected_revision": 1, "approved": True})
+        original = published["publications"][0]
+        require(original.get("reviewer") == "local-owner", "publication review identity missing")
+        alpha_inputs = {"target": "https://alpha-project-input.invalid", "quantity": 2}
+        beta_inputs = {"target": "https://beta-project-input.invalid", "quantity": 7}
+        alpha = self.rpc("bindContract", {"project": "smoke-alpha", "contract_id": "receipt",
+            "version": 1, "parameters": alpha_inputs, "expected_revision": 2})
+        self.rpc("bindContract", {"project": "smoke-beta", "contract_id": "receipt", "version": 1,
+            "parameters": {"target": 42, "quantity": "wrong"}, "expected_revision": 3}, success=False)
+        require(self.rpc("getContracts") == alpha, "invalid typed inputs changed library")
+        bound = self.rpc("bindContract", {"project": "smoke-beta", "contract_id": "receipt",
+            "version": 1, "parameters": beta_inputs, "expected_revision": 3})
+        parameters = {b["project"]: b["parameters"] for b in bound["bindings"]}
+        require(parameters == {"smoke-alpha": alpha_inputs, "smoke-beta": beta_inputs},
+                "project bindings did not retain independent typed parameters")
+        replacement = {**draft, "version": 2,
+                       "assertions": draft["assertions"] + ["receipt has a timestamp"]}
+        self.rpc("saveContractDraft", {"draft": replacement, "expected_revision": 3}, success=False)
+        require(self.rpc("getContracts") == bound, "stale CAS update changed contract library")
+        proposed = self.rpc("proposeContractCorrection", {"contract_id": "receipt", "version": 1,
+            "replacement": replacement, "reason": "clarify receipt evidence",
+            "evidence": ["smoke-observation/1"], "expected_revision": 4})
+        proposal_id = proposed["proposals"][0]["id"]
+        review = {"proposal_id": proposal_id, "decision": "approve", "expected_revision": 5}
+        self.rpc("reviewContractCorrection", review, success=False)
+        require(self.rpc("getContracts") == proposed, "unconfirmed correction changed library")
+        corrected = self.rpc("reviewContractCorrection", {**review, "approved": True})
+        require(corrected.get("revision") == 6 and corrected["publications"][0] == original
+                and corrected["publications"][1]["definition"]["version"] == 2,
+                "correction did not retain immutable publication history")
+        require(corrected["proposals"][0]["status"] == "approved"
+                and all(b["contract_version"] == 1 for b in corrected["bindings"])
+                and corrected["bindings"] == bound["bindings"],
+                "correction silently upgraded project bindings")
+        exported = self.rpc("exportContracts")
+        require(set(exported) == {"schema_version", "contracts"}
+                and exported["contracts"] == corrected["publications"], "contract export schema unexpected")
+        export_text = json.dumps(exported)
+        require(all(value["target"] not in export_text for value in (alpha_inputs, beta_inputs))
+                and "parameters" not in export_text, "contract export leaked project parameters")
+        print("PASS contract draft, explicit review, typed project reuse, CAS, immutable correction and safe export")
+        return corrected
+
+    def exercise_models(self):
+        empty = self.rpc("getModels")
+        require(empty.get("revision") == 0 and empty.get("profiles") == [], "fresh model registry is not empty")
+        key = "smoke-only-" + os.urandom(24).hex()
+        self.secrets.append(key)
+        profile = {"id": "smoke-model", "label": "Isolated test model", "adapter": "openai_compatible",
+                   "base_url": "https://model-smoke.invalid/v1", "model": "smoke-text",
+                   "api_key": key, "capabilities": ["text"], "enabled": True,
+                   "allow_remote": True, "midscene_family": None}
+        saved = self.rpc("saveModel", {"profile": profile, "expected_revision": 0})
+        require(saved.get("revision") == 1 and len(saved.get("profiles", [])) == 1,
+                "model registration failed")
+        redacted = saved["profiles"][0]
+        require(redacted.get("api_key") == "" and redacted.get("api_key_configured") is True,
+                "model credential was not redacted with configured state")
+        require(self.rpc("getModels") == saved, "model read changed redacted profile")
+        self.rpc("saveModel", {"profile": profile, "expected_revision": 0}, success=False)
+        self.rpc("saveModel", {"profile": {**profile, "base_url": f"https://user:{key}@model-smoke.invalid"},
+                               "expected_revision": 1}, success=False)
+        require(self.rpc("getModels") == saved, "invalid model save changed registry")
+        routed = self.rpc("setModelRoute", {"task": "generate", "route": {"primary": "smoke-model", "fallbacks": []},
+                                           "expected_revision": 1})
+        require(routed.get("revision") == 2, "model route save did not advance revision")
+        resolved = self.rpc("resolveModelRoute", {"task": "generate"})
+        require(resolved.get("revision") == 2 and resolved.get("task") == "generate"
+                and [p.get("id") for p in resolved.get("candidates", [])] == ["smoke-model"],
+                "model route did not resolve pinned configured profile")
+        self.rpc("resolveModelRoute", {"task": "execute"}, success=False)
+        print("PASS model registration, route resolution, CAS and response/error credential redaction without model calls")
+        return routed, resolved
 
     def run(self):
         self.cli("status", success=False)
@@ -156,6 +278,7 @@ class Smoke:
         require(refreshed.get("csrf") == session.get("csrf") and bool(refreshed.get("csrf")),
                 "session refresh did not restore CSRF token")
         authorized = {**cookie_header, "Origin": self.origin, "x-qinaegis-csrf": refreshed["csrf"]}
+        self.authorized = authorized
         rpc_body = {"id": "smoke-config", "method": "checkConfig", "params": {}}
         rpc, _ = self.json_request("POST", "/api/v2/rpc", body=rpc_body, headers=authorized)
         require(rpc.get("ok") is True and rpc.get("id") == "smoke-config"
@@ -168,6 +291,24 @@ class Smoke:
         self.request("POST", "/api/v2/rpc", body=rpc_body,
             headers={**authorized, "x-qinaegis-csrf": "incorrect"}, expected=401)
         print("PASS one-use bootstrap, cookie refresh, config RPC and Origin/CSRF boundaries")
+
+        contracts = self.exercise_contracts()
+        models, route = self.exercise_models()
+
+        old_instance_id = self.instance["instance_id"]
+        self.cli("stop")
+        self.cli("status", success=False)
+        self.instance = None
+        self.cli("start", "--no-open", "--port", str(self.port))
+        self.instance = self.read_instance()
+        require(self.instance["instance_id"] != old_instance_id, "restart reused old service identity")
+        self.request("POST", "/api/v2/rpc", body=rpc_body, headers=authorized, expected=401)
+        self.authenticate()
+        require(self.rpc("getContracts") == contracts, "contract library did not survive restart")
+        require(self.rpc("getModels") == models, "redacted model registry did not survive restart")
+        require(self.rpc("resolveModelRoute", {"task": "generate"}) == route,
+                "model route or configured credential did not survive restart")
+        print("PASS restart persistence, fresh session boundary and model route reload")
 
         self.cli("stop")
         self.cli("status", success=False)

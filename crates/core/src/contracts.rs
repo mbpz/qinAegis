@@ -47,6 +47,7 @@ pub enum ContractError {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContractDraft {
     pub id: String,
     pub version: u32,
@@ -111,6 +112,7 @@ pub struct PublishedContract {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CorrectionRecord {
     original_version: u32,
     reason: String,
@@ -130,6 +132,7 @@ impl CorrectionRecord {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PublishedRecord {
     definition: ContractDraft,
     reviewer: String,

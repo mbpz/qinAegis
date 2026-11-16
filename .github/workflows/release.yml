@@ -43,6 +43,7 @@ jobs:
           SUFFIX=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
           python scripts/test-local-web.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
+          python scripts/test-contract-generation.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py

@@ -116,6 +116,12 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if p.get("project").is_some() {
         project_paths(p)?;
     }
+    if crate::contract_api::handles(method) {
+        return crate::contract_api::dispatch(method, p).map_err(|e| e.to_string());
+    }
+    if crate::model_api::handles(method) {
+        return crate::model_api::dispatch(method, p).map_err(|e| e.to_string());
+    }
     // Browser tasks share ports and resources. Keep one worker until the
     // persistent per-resource scheduler replaces this conservative admission rule.
     if matches!(method, "runExplore" | "runGenerate" | "runTests")
@@ -182,7 +188,21 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
             if p.get("spec").is_some_and(|v| !v.is_null()) {
                 return Err("spec paths are not accepted; use project assets".into());
             }
-            app.run_generate(text(p, "requirement")?, None)
+            let project = id(p, "project")?;
+            if !qin_aegis_core::LocalStorage::project_config_path(project).is_file() {
+                return Err("project does not exist".into());
+            }
+            let use_contracts = p
+                .get("use_contracts")
+                .map(|v| v.as_bool().ok_or("use_contracts must be a boolean"))
+                .transpose()?
+                .unwrap_or(true);
+            let snapshot = if use_contracts {
+                Some(crate::contract_api::execution(project).map_err(|e| e.to_string())?)
+            } else {
+                None
+            };
+            app.run_generate(text(p, "requirement")?, project, snapshot)
         }
         "runTests" | "previewTestPlan" => {
             let project = id(p, "project")?;
@@ -217,7 +237,10 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     };
     let mut value: Value =
         serde_json::from_str(&raw).map_err(|_| "invalid application response")?;
-    if value.get("error").is_some_and(|v| !v.is_null()) {
+    // A terminal job's error is status data, allowing the browser to render its
+    // failure. Errors without a job status are failed RPC operations.
+    if !(method == "getJobStatus" && value.get("status").is_some())
+        && value.get("error").is_some_and(|v| !v.is_null()) {
         value["ok"] = json!(false);
     }
     Ok(value)
@@ -266,5 +289,20 @@ mod tests {
         assert!(text(&json!({}), "project").is_err());
         assert!(text(&json!({"project":22}), "project").is_err());
         assert!(text(&json!({"project":"   "}), "project").is_err());
+    }
+    #[test]
+    fn job_polling_returns_failure_details_as_status_data() {
+        let mut app = AppState::default();
+        let mut job = crate::app::JobEntry::new("generate");
+        app.jobs.lock().unwrap().insert("job-1".into(), job.clone());
+        let running = dispatch(&mut app, "getJobStatus", json!({"jobId":"job-1"}));
+        assert_eq!(running["status"], "running");
+        assert!(running["error"].is_null());
+        job.status = "failed".into(); job.error = Some("model unavailable".into());
+        app.jobs.lock().unwrap().insert("job-1".into(), job);
+        let failed = dispatch(&mut app, "getJobStatus", json!({"jobId":"job-1"}));
+        assert_eq!(failed["error"], "model unavailable");
+        assert_ne!(failed["ok"], false);
+        assert_eq!(dispatch(&mut app, "getJobStatus", json!({"jobId":"missing"}))["ok"], false);
     }
 }

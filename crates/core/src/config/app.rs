@@ -258,6 +258,7 @@ impl From<&AppConfig> for crate::protocol::LlmConfig {
             api_key: resolve_env_var(&app.llm.api_key),
             base_url: resolve_env_var(&app.llm.base_url),
             model: app.llm.model.clone(),
+            midscene_family: None,
         }
     }
 }

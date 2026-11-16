@@ -1,8 +1,8 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use crate::generator::TestCaseGenerator;
 use crate::critic::Critic;
+use crate::generator::TestCaseGenerator;
 use crate::llm::ArcLlmClient;
 use crate::storage::{CaseStatus, LocalStorageInstance, Storage, TestCase as StorageTestCase};
 
@@ -26,6 +26,13 @@ impl TestCaseService {
         let critic = Critic::new(self.llm.clone());
 
         let cases = generator.generate(spec_markdown, requirement_text).await?;
+        validate_generated_cases(&cases)?;
+        for case in &cases {
+            anyhow::ensure!(
+                crate::storage::LocalStorage::find_case_path(project_name, &case.id).is_none(),
+                "generated case identity already exists; review or regenerate with a new identity"
+            );
+        }
         let mut results = Vec::with_capacity(cases.len());
 
         for tc in &cases {
@@ -75,11 +82,21 @@ impl TestCaseService {
     ) -> anyhow::Result<()> {
         // Draft -> Reviewed always first, then optionally Reviewed -> Approved
         self.storage
-            .move_case(project_name, case_id, CaseStatus::Draft, CaseStatus::Reviewed)
+            .move_case(
+                project_name,
+                case_id,
+                CaseStatus::Draft,
+                CaseStatus::Reviewed,
+            )
             .await?;
         if approved {
             self.storage
-                .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Approved)
+                .move_case(
+                    project_name,
+                    case_id,
+                    CaseStatus::Reviewed,
+                    CaseStatus::Approved,
+                )
                 .await?;
         }
         Ok(())
@@ -88,7 +105,12 @@ impl TestCaseService {
     /// Approve a reviewed case (moves to approved, ready to run).
     pub async fn approve_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
         self.storage
-            .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Approved)
+            .move_case(
+                project_name,
+                case_id,
+                CaseStatus::Reviewed,
+                CaseStatus::Approved,
+            )
             .await?;
         Ok(())
     }
@@ -96,7 +118,12 @@ impl TestCaseService {
     /// Reject a reviewed case back to draft for rewrite.
     pub async fn reject_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
         self.storage
-            .move_case(project_name, case_id, CaseStatus::Reviewed, CaseStatus::Draft)
+            .move_case(
+                project_name,
+                case_id,
+                CaseStatus::Reviewed,
+                CaseStatus::Draft,
+            )
             .await?;
         Ok(())
     }
@@ -104,13 +131,23 @@ impl TestCaseService {
     /// Mark a flaky case as stabilized (back to approved).
     pub async fn stabilize_case(&self, project_name: &str, case_id: &str) -> anyhow::Result<()> {
         self.storage
-            .move_case(project_name, case_id, CaseStatus::Flaky, CaseStatus::Approved)
+            .move_case(
+                project_name,
+                case_id,
+                CaseStatus::Flaky,
+                CaseStatus::Approved,
+            )
             .await?;
         Ok(())
     }
 
     /// Archive a case (from approved or flaky).
-    pub async fn archive_case(&self, project_name: &str, case_id: &str, current_status: CaseStatus) -> anyhow::Result<()> {
+    pub async fn archive_case(
+        &self,
+        project_name: &str,
+        case_id: &str,
+        current_status: CaseStatus,
+    ) -> anyhow::Result<()> {
         self.storage
             .move_case(project_name, case_id, current_status, CaseStatus::Archived)
             .await?;
@@ -123,7 +160,65 @@ impl TestCaseService {
         project_name: &str,
         status: CaseStatus,
     ) -> anyhow::Result<Vec<StorageTestCase>> {
-        Ok(self.storage.load_cases_by_status(project_name, status).await?)
+        Ok(self
+            .storage
+            .load_cases_by_status(project_name, status)
+            .await?)
+    }
+}
+
+// Generated data is untrusted. Validate the complete batch before any storage
+// writes, rather than allowing a model to choose filesystem paths or overwrite
+// an existing case that may already have been reviewed.
+fn validate_generated_cases(cases: &[crate::generator::TestCase]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !cases.is_empty() && cases.len() <= 200,
+        "generated batch must contain 1..200 cases"
+    );
+    let mut ids = std::collections::BTreeSet::new();
+    for case in cases {
+        anyhow::ensure!(
+            !case.id.is_empty()
+                && case.id.len() <= 128
+                && !case.id.starts_with('.')
+                && case
+                    .id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')),
+            "invalid generated case identity"
+        );
+        anyhow::ensure!(ids.insert(&case.id), "duplicate generated case identity");
+        anyhow::ensure!(
+            !case.name.trim().is_empty() && !case.yaml_script.trim().is_empty(),
+            "generated case name and script are required"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod generation_boundary_tests {
+    use super::*;
+    fn case(id: &str) -> crate::generator::TestCase {
+        crate::generator::TestCase {
+            id: id.into(),
+            name: "Receipt".into(),
+            requirement_id: "r".into(),
+            case_type: "smoke".into(),
+            priority: "P1".into(),
+            yaml_script: "tasks: []".into(),
+            expected_result: "receipt".into(),
+            tags: vec![],
+        }
+    }
+    #[test]
+    fn generated_batch_rejects_paths_and_duplicate_ids_before_storage() {
+        for id in ["", ".hidden", "../escape", "/tmp/out", "a/b", "a\\b"] {
+            assert!(validate_generated_cases(&[case("valid"), case(id)]).is_err());
+        }
+        assert!(validate_generated_cases(&[case("same"), case("same")]).is_err());
+        assert!(validate_generated_cases(&[]).is_err());
+        assert!(validate_generated_cases(&[case("receipt-v1")]).is_ok());
     }
 }
 

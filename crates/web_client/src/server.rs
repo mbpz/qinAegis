@@ -368,7 +368,7 @@ async fn rpc(
     })
     .await;
     match result {
-        Ok(Ok(data)) if data.get("error").is_none() && data.get("ok") != Some(&Value::Bool(false)) => Json(json!({"id":id,"ok":true,"data":data})).into_response(),
+        Ok(Ok(data)) if data.get("ok") != Some(&Value::Bool(false)) => Json(json!({"id":id,"ok":true,"data":data})).into_response(),
         Ok(Ok(data)) => Json(json!({"id":id,"ok":false,"error":{"code":"RPC_ERROR","message":data.get("error").and_then(Value::as_str).unwrap_or("Operation failed")}})).into_response(),
         Ok(Err(message)) => failure(StatusCode::SERVICE_UNAVAILABLE,"UNAVAILABLE",message),
         _ => failure(StatusCode::INTERNAL_SERVER_ERROR,"INTERNAL","Application operation failed"),

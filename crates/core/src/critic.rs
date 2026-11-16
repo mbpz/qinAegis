@@ -43,21 +43,19 @@ impl Critic {
         spec_markdown: &str,
         requirement_text: &str,
     ) -> anyhow::Result<CriticReview> {
-        let prompts = CriticPrompts::new(self.locale, spec_markdown, test_case_yaml, requirement_text);
+        let prompts =
+            CriticPrompts::new(self.locale, spec_markdown, test_case_yaml, requirement_text);
 
         let messages = if let Some(system) = self.options.system_prompt.clone() {
-            vec![
-                Message::system(system),
-                Message::user(prompts.user),
-            ]
+            vec![Message::system(system), Message::user(prompts.user)]
         } else {
-            vec![
-                Message::system(prompts.system),
-                Message::user(prompts.user),
-            ]
+            vec![Message::system(prompts.system), Message::user(prompts.user)]
         };
 
-        let response = self.llm.chat_with_options(&messages, self.options.clone()).await?;
+        let response = self
+            .llm
+            .chat_with_options(&messages, self.options.clone())
+            .await?;
 
         let json_str = response
             .trim()
@@ -67,7 +65,7 @@ impl Critic {
             .trim();
 
         let review: CriticReview = serde_json::from_str(json_str)
-            .map_err(|e| anyhow::anyhow!("failed to parse critic review: {} | response: {}", e, json_str))?;
+            .map_err(|_| anyhow::anyhow!("model returned an invalid review document"))?;
 
         Ok(review)
     }

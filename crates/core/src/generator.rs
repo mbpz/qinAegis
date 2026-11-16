@@ -50,18 +50,15 @@ impl TestCaseGenerator {
         let prompts = GeneratorPrompts::new(self.locale, spec_markdown, requirement_text);
 
         let messages = if let Some(system) = self.options.system_prompt.clone() {
-            vec![
-                Message::system(system),
-                Message::user(prompts.user),
-            ]
+            vec![Message::system(system), Message::user(prompts.user)]
         } else {
-            vec![
-                Message::system(prompts.system),
-                Message::user(prompts.user),
-            ]
+            vec![Message::system(prompts.system), Message::user(prompts.user)]
         };
 
-        let response = self.llm.chat_with_options(&messages, self.options.clone()).await?;
+        let response = self
+            .llm
+            .chat_with_options(&messages, self.options.clone())
+            .await?;
 
         let json_str = response
             .trim()
@@ -71,7 +68,7 @@ impl TestCaseGenerator {
             .trim();
 
         let cases: Vec<TestCase> = serde_json::from_str(json_str)
-            .map_err(|e| anyhow::anyhow!("failed to parse generated cases: {} | response: {}", e, json_str))?;
+            .map_err(|_| anyhow::anyhow!("model returned an invalid generated case document"))?;
 
         Ok(cases)
     }
