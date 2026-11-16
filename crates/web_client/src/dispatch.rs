@@ -94,6 +94,13 @@ fn project_paths(params: &Value) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn validate_report_path(project: &str, run_id: &str) -> Result<(), String> {
+    let params = json!({"project":project,"run_id":run_id});
+    id(&params, "project")?;
+    id(&params, "run_id")?;
+    project_paths(&params)
+}
+
 pub fn dispatch(app: &mut AppState, method: &str, params: Value) -> Value {
     match dispatch_inner(app, method, &params) {
         Ok(value) => value,
@@ -124,11 +131,13 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     }
     // Browser tasks share ports and resources. Keep one worker until the
     // persistent per-resource scheduler replaces this conservative admission rule.
-    if matches!(method, "runExplore" | "runGenerate" | "runTests")
-        && app
-            .active_workers
-            .load(std::sync::atomic::Ordering::Acquire)
-            != 0
+    if matches!(
+        method,
+        "runExplore" | "runGenerate" | "runTests" | "generateAllureReport"
+    ) && app
+        .active_workers
+        .load(std::sync::atomic::Ordering::Acquire)
+        != 0
     {
         return Err("Another task is running or cancelling; wait for it to finish".into());
     }
@@ -216,9 +225,13 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
                 app.preview_test_plan(project, kind)
             }
         }
+        "getCaseProvenance" => app.get_case_provenance(id(p, "project")?, id(p, "case_id")?),
+        "getRunEvidence" => app.get_run_evidence(id(p, "project")?, id(p, "run_id")?),
         "getReports" => app.get_reports(id(p, "project")?),
         "getGateStatus" => app.get_gate_status(id(p, "project")?),
         "getReportHtml" => app.get_report_html(id(p, "project")?, id(p, "run_id")?),
+        "generateAllureReport" => app.generate_allure_report(id(p, "project")?, id(p, "run_id")?),
+        "getAllureReportHtml" => app.get_allure_report_html(id(p, "project")?, id(p, "run_id")?),
         "exportProject" => app.export_project(id(p, "project")?),
         "getReviewCases" => app.get_review_cases(id(p, "project")?),
         "updateCaseStatus" => {
@@ -239,8 +252,9 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
         serde_json::from_str(&raw).map_err(|_| "invalid application response")?;
     // A terminal job's error is status data, allowing the browser to render its
     // failure. Errors without a job status are failed RPC operations.
-    if !(method == "getJobStatus" && value.get("status").is_some())
-        && value.get("error").is_some_and(|v| !v.is_null()) {
+    if !(matches!(method, "getJobStatus" | "getRunEvidence") && value.get("status").is_some())
+        && value.get("error").is_some_and(|v| !v.is_null())
+    {
         value["ok"] = json!(false);
     }
     Ok(value)
@@ -298,11 +312,15 @@ mod tests {
         let running = dispatch(&mut app, "getJobStatus", json!({"jobId":"job-1"}));
         assert_eq!(running["status"], "running");
         assert!(running["error"].is_null());
-        job.status = "failed".into(); job.error = Some("model unavailable".into());
+        job.status = "failed".into();
+        job.error = Some("model unavailable".into());
         app.jobs.lock().unwrap().insert("job-1".into(), job);
         let failed = dispatch(&mut app, "getJobStatus", json!({"jobId":"job-1"}));
         assert_eq!(failed["error"], "model unavailable");
         assert_ne!(failed["ok"], false);
-        assert_eq!(dispatch(&mut app, "getJobStatus", json!({"jobId":"missing"}))["ok"], false);
+        assert_eq!(
+            dispatch(&mut app, "getJobStatus", json!({"jobId":"missing"}))["ok"],
+            false
+        );
     }
 }

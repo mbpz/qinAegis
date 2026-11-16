@@ -1,3 +1,4 @@
+import type { ExecutionSnapshot } from './contracts';
 // Shared RPC types — single source of truth
 
 export interface RpcRequest<P = object> {
@@ -67,6 +68,8 @@ export interface Project {
 }
 
 export interface GateStatus {
+  execution_status?: string | null;
+  execution_blocked?: boolean;
   e2e_pass_rate: number | null;
   e2e_pass_rate_display: string;
   performance: string | null;
@@ -78,6 +81,9 @@ export interface GateStatus {
 
 export interface RunReport {
   run_id: string;
+  status?: string;
+  executed?: number;
+  has_evidence?: boolean;
   total: number;
   passed: number;
   failed: number;
@@ -95,7 +101,7 @@ export interface TestCase {
 export interface TestPlan {
   plan: string;
   case_count: number;
-  steps: string[];
+  steps: {id: string; name: string; priority: string; type: string}[];
 }
 
 export interface ReportHtmlResponse {
@@ -126,3 +132,17 @@ export interface ExportResponse {
   }>;
   error?: string;
 }
+export interface CaseProvenance {
+  schema_version: number; project: string; case_id: string; yaml_script: string;
+  created_at: string; contracts: ExecutionSnapshot | null; model: unknown;
+}
+export interface RunEvidence {
+  schema_version: number; run_id: string; project: string; test_type: string; status: string;
+  started_at: string; finished_at: string | null; model: unknown; engine_version: string | null;
+  cases: {case_id: string; name: string; yaml_script: string; target_url: string; provenance: CaseProvenance | null}[];
+  results: {case_id: string; passed: boolean; duration_ms: number; screenshot_base64: string | null; error_message: string | null}[];
+  error: string | null; semantic_validation: 'not_verified';
+}
+
+export interface JobStartResult { ok: boolean; jobId: string; }
+export interface AllureReportResponse { ok: boolean; html?: string; version?: string; error?: string; }

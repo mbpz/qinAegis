@@ -157,6 +157,10 @@ impl ExecutionSnapshot {
         let library: ContractLibrary = serde_json::from_value(serde_json::to_value(library)?)?;
         let mut contracts = Vec::new();
         for binding in library.bindings.iter().filter(|b| b.project() == project) {
+            ensure!(
+                !library.is_deprecated(binding.contract_id(), binding.contract_version()),
+                "bound contract version is deprecated; explicitly migrate the project binding"
+            );
             let publication = library
                 .publications
                 .iter()

@@ -6,6 +6,32 @@ on:
 permissions:
   contents: write
 jobs:
+  engine-checks:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked execution engine dependencies
+        working-directory: sandbox
+        run: npx --yes pnpm@11.24.0 install --frozen-lockfile
+      - name: Validate execution engine without external models
+        working-directory: sandbox
+        run: |
+          npx --yes pnpm@11.24.0 run typecheck
+          npx --yes pnpm@11.24.0 test
+          npx --yes pnpm@11.24.0 run build
+      - uses: actions/download-artifact@v4
+        with:
+          name: qinaegis-x86_64-unknown-linux-gnu
+          path: build/allure-check
+      - name: Validate official Allure through the packaged local service
+        shell: bash
+        run: |
+          tar -xzf build/allure-check/qinaegis-x86_64-unknown-linux-gnu.tar.gz -C build/allure-check
+          python3 scripts/test-allure.py "$PWD/build/allure-check/qinaegis"
   build:
     strategy:
       fail-fast: false
@@ -44,6 +70,7 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
           python scripts/test-local-web.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
           python scripts/test-contract-generation.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
+          python scripts/test-contract-execution.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py
@@ -52,7 +79,7 @@ jobs:
           name: qinaegis-${{ matrix.target }}
           path: build/qinaegis-*
   release:
-    needs: build
+    needs: [build, engine-checks]
     if: startsWith(github.ref, 'refs/tags/v2.')
     runs-on: ubuntu-latest
     steps:

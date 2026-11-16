@@ -16,6 +16,9 @@ pub fn handles(method: &str) -> bool {
             | "exportContracts"
             | "importContracts"
             | "getContractExecution"
+            | "deprecateContract"
+            | "deriveContract"
+            | "migrateContractBindings"
     )
 }
 
@@ -90,6 +93,56 @@ fn handle(store: &ContractStore, method: &str, p: &Value) -> Result<Value> {
     }
     let expected = field(p, "expected_revision")?;
     let snapshot = match method {
+        "deprecateContract" => {
+            confirmation(p)?;
+            store.deprecate(
+                &field::<String>(p, "contract_id")?,
+                field(p, "version")?,
+                &field::<String>(p, "reason")?,
+                expected,
+                "local-owner",
+            )?
+        }
+        "deriveContract" => {
+            confirmation(p)?;
+            store.derive(
+                &field::<String>(p, "source_id")?,
+                field(p, "source_version")?,
+                &field::<String>(p, "new_id")?,
+                &field::<String>(p, "reason")?,
+                expected,
+                "local-owner",
+            )?
+        }
+        "migrateContractBindings" => {
+            confirmation(p)?;
+            let bindings: Vec<qin_aegis_core::contract_store::MigrationBinding> =
+                field(p, "bindings")?;
+            for b in &bindings {
+                anyhow::ensure!(
+                    !b.project.is_empty()
+                        && b.project.len() <= 128
+                        && !b.project.starts_with('.')
+                        && b.project
+                            .bytes()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.')),
+                    "invalid migration project"
+                );
+                anyhow::ensure!(
+                    qin_aegis_core::LocalStorage::project_config_path(&b.project).is_file(),
+                    "project does not exist"
+                );
+            }
+            store.migrate(
+                &field::<String>(p, "contract_id")?,
+                field(p, "from_version")?,
+                field(p, "to_version")?,
+                bindings,
+                &field::<String>(p, "reason")?,
+                expected,
+                "local-owner",
+            )?
+        }
         "saveContractDraft" => store.save_draft(field(p, "draft")?, expected)?,
         "publishContract" => {
             confirmation(p)?;
@@ -178,6 +231,29 @@ mod tests {
         .unwrap();
         assert_eq!(result["publications"][0]["reviewer"], "local-owner");
         assert_eq!(result["revision"], 2);
+        for (method, params) in [
+            (
+                "deprecateContract",
+                json!({"contract_id":"login","version":1,"reason":"retire","expected_revision":2}),
+            ),
+            (
+                "deriveContract",
+                json!({"source_id":"login","source_version":1,"new_id":"copy","reason":"reuse","expected_revision":2}),
+            ),
+            (
+                "migrateContractBindings",
+                json!({"contract_id":"login","from_version":1,"to_version":2,"bindings":[],"reason":"upgrade","expected_revision":2}),
+            ),
+        ] {
+            let before = store.snapshot().unwrap();
+            assert!(handles(method));
+            assert!(handle(&store, method, &params).is_err());
+            let mut denied = params.clone();
+            denied["approved"] = json!(false);
+            assert!(handle(&store, method, &denied).is_err());
+            assert_eq!(store.snapshot().unwrap(), before);
+        }
+
         let mut bundle = serde_json::to_value(store.export().unwrap()).unwrap();
         bundle["contracts"][0]["definition"]["id"] = json!("imported-login");
         bundle["contracts"][0]["reviewer"] = json!("external-source-author");

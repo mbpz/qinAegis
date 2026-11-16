@@ -67,7 +67,9 @@ impl Drop for WorkerGuard {
     fn drop(&mut self) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(entry) = jobs.get_mut(&self.job_id) {
-                if entry.cancel_flag.load(Ordering::Acquire) {
+                if entry.cancel_flag.load(Ordering::Acquire)
+                    && matches!(entry.status.as_str(), "running" | "cancelling")
+                {
                     // This is the only point that confirms the worker actually exited.
                     entry.status = "stopped".into();
                 } else if matches!(entry.status.as_str(), "running" | "cancelling") {
@@ -535,6 +537,10 @@ impl AppState {
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
         let model_snapshot = Self::model_snapshot(&route, &cfg);
+        let generation_context = qin_aegis_core::execution_records::GenerationContext {
+            contracts: contracts.clone(),
+            model: model_snapshot.clone(),
+        };
         let job_id = self.job_id();
         let requirement = requirement.to_string();
         let project = project.to_string();
@@ -595,7 +601,12 @@ impl AppState {
                 }
 
                 match service
-                    .generate_and_save(&project, &spec_markdown, &requirement)
+                    .generate_and_save_with_context(
+                        &project,
+                        &spec_markdown,
+                        &requirement,
+                        Some(generation_context),
+                    )
                     .await
                 {
                     Ok(cases) => {
@@ -625,266 +636,472 @@ impl AppState {
     // ── Run Tests ────────────────────────────────────────────────────────────
 
     pub fn run_tests(&mut self, project: &str, test_type: &str) -> String {
+        use qin_aegis_core::execution_records::{RunCase, RunRecord, RunStore};
+        // Freeze approved inputs before admitting a worker. Never reconstruct
+        // historical provenance from today's contract library or bindings.
+        let prepared = (|| -> anyhow::Result<_> {
+            let project_config = LocalStorage::load_project(project)?;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let mut cases: Vec<_> = rt
+                .block_on(LocalStorageInstance.load_cases_by_status(project, CaseStatus::Approved))?
+                .into_iter()
+                .filter(|case| case.test_type == test_type)
+                .collect();
+            cases.sort_by(|a, b| a.id.cmp(&b.id));
+            anyhow::ensure!(!cases.is_empty(), "no approved cases for this test type");
+            let mut frozen = Vec::new();
+            for case in cases {
+                frozen.push(RunCase {
+                    provenance: qin_aegis_core::execution_records::case_provenance(project, &case)?,
+                    case_id: case.id,
+                    name: case.name,
+                    yaml_script: case.yaml_script,
+                    // A full YAML target may override this fallback, as in the
+                    // existing engine protocol. This records the supplied URL.
+                    target_url: project_config.url.clone(),
+                });
+            }
+            Ok(frozen)
+        })();
+        let cases = match prepared {
+            Ok(cases) => cases,
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
         let (cfg, frozen_visual, model_route) = match self.select_model("execute") {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
         let model_snapshot = Self::model_snapshot(&model_route, &cfg);
         let job_id = self.job_id();
-        let project = project.to_string();
-        let test_type = test_type.to_string();
-        let jobs = self.jobs.clone();
-        let job_id_for_return = job_id.clone();
-
-        // Create JobEntry BEFORE spawning thread
-        let mut entry = JobEntry::new("testExec");
-        entry.snapshot = Some(serde_json::json!({"model":model_snapshot}));
-        let cancel_flag = entry.cancel_flag.clone();
-        let output_arc = entry.output.clone();
-
-        {
-            let mut jobs_guard = jobs.lock().unwrap();
-            jobs_guard.insert(job_id.clone(), entry);
+        let run_id = format!(
+            "run-{}-{}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+            std::process::id(),
+            job_id
+        );
+        let run_dir = LocalStorage::run_dir(project, &run_id);
+        let store = RunStore::new(run_dir.clone());
+        let runtime = qin_aegis_core::runtime::RuntimeResolver::resolve();
+        let record = match RunRecord::prepare(
+            run_id.clone(),
+            project.into(),
+            test_type.into(),
+            model_snapshot.clone(),
+            runtime.as_ref().ok().map(|r| r.version.clone()),
+            cases,
+        ) {
+            Ok(record) => record,
+            Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
+        };
+        if let Err(e) = store.begin(&record) {
+            return serde_json::json!({"error":format!("cannot save execution inputs: {e}")})
+                .to_string();
         }
-
-        self.append_output(&format!(
-            "[{}] run_tests dispatched: project={} type={}\n",
-            job_id, project, test_type
-        ));
-
+        let mut entry = JobEntry::new("testExec");
+        entry.snapshot =
+            Some(serde_json::json!({"model":model_snapshot,"run_id":run_id,"cases":record.cases}));
+        let cancel_flag = entry.cancel_flag.clone();
+        let output = entry.output.clone();
+        let jobs = self.jobs.clone();
+        jobs.lock().unwrap().insert(job_id.clone(), entry);
+        let job_id_for_return = job_id.clone();
         let worker = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), job_id.clone());
+        let test_type = test_type.to_string();
         thread::spawn(move || {
             let _worker = worker;
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let mut results = Vec::new();
+            let outcome = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("failed to create tokio runtime for test execution");
-            rt.block_on(async {
-                // Check cancel flag
-                if cancel_flag.load(Ordering::Relaxed) {
-                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
-                    return;
+                .map_err(anyhow::Error::from)
+                .and_then(|rt| {
+                    rt.block_on(async {
+                        if cancel_flag.load(Ordering::Acquire) {
+                            return Ok(());
+                        }
+                        runtime?;
+                        output.lock().unwrap().push_str(&format!(
+                            "[{job_id}] Executing {} frozen approved cases\n",
+                            record.cases.len()
+                        ));
+                        let executor = TestExecutor::new(
+                            3,
+                            Some(frozen_visual.clone()),
+                            Some(SandboxConfig {
+                                cdp_port: cfg.sandbox.cdp_port,
+                            }),
+                        )
+                        .await?;
+                        let selected = record
+                            .cases
+                            .iter()
+                            .map(|case| TestCaseRef {
+                                id: case.case_id.clone(),
+                                yaml_script: case.yaml_script.clone(),
+                                name: case.name.clone(),
+                                priority: String::new(),
+                                target_url: Some(case.target_url.clone()),
+                            })
+                            .collect();
+                        let executed = executor.run_parallel(selected).await;
+                        let shutdown = executor.shutdown().await;
+                        results = executed?;
+                        shutdown?;
+                        if !cancel_flag.load(Ordering::Acquire) {
+                            Self::run_additional_checks(
+                                &cfg,
+                                &frozen_visual,
+                                &record.cases[0].target_url,
+                                &test_type,
+                                &run_dir,
+                            )
+                            .await?;
+                        }
+                        Ok(())
+                    })
+                });
+            // Engine messages are untrusted and may echo supplied credentials.
+            for result in &mut results {
+                result.error_message = result
+                    .error_message
+                    .take()
+                    .map(|s| Self::redact_run_error(&s, &cfg));
+                result.failed_step = result
+                    .failed_step
+                    .take()
+                    .map(|s| Self::redact_run_error(&s, &cfg));
+            }
+            let error = outcome
+                .err()
+                .map(|e| Self::redact_run_error(&e.to_string(), &cfg));
+            let status = if cancel_flag.load(Ordering::Acquire) {
+                "stopped"
+            } else if error.is_some() {
+                "failed"
+            } else {
+                "completed"
+            };
+            // A successful engine response is insufficient: durable result
+            // coverage must validate and commit before the job completes.
+            let persisted = store.finish(status, results.clone(), error);
+            let persisted = match persisted {
+                Ok(record) => Ok(record),
+                Err(e) => {
+                    let message = format!("execution evidence could not be committed: {e}");
+                    // Invalid result identities must not make it into history.
+                    // A storage failure may also prevent this best-effort failure record.
+                    let _ = store.finish("failed", vec![], Some(message.clone()));
+                    Err(message)
                 }
-
-                {
-                    let mut o = output_arc.lock().unwrap();
-                    o.push_str(&format!("[{}] Running tests: project={} type={}\n", job_id, project, test_type));
+            };
+            let (status, error) = match persisted {
+                Ok(record) => {
+                    // Reporting is a separate adapter: a rendering/export failure
+                    // must not rewrite immutable business execution evidence.
+                    let allure_error = qin_aegis_core::allure::export_run(
+                        &record,
+                        &run_dir.join("allure-results"),
+                    )
+                    .err()
+                    .map(|e| Self::redact_run_error(&e.to_string(), &cfg));
+                    if let Some(error) = &allure_error {
+                        output
+                            .lock()
+                            .unwrap()
+                            .push_str(&format!("[{job_id}] Allure results unavailable: {error}\n"));
+                    }
+                    let passed = record.results.iter().filter(|r| r.passed).count();
+                    output.lock().unwrap().push_str(&format!(
+                        "[{job_id}] Execution {}: {passed}/{} passed; evidence {run_id}\n",
+                        record.status,
+                        record.cases.len()
+                    ));
+                    if let Ok(mut entries) = jobs.lock() {
+                        if let Some(entry) = entries.get_mut(&job_id) {
+                            entry.result = Some(
+                                serde_json::json!({"run_id":run_id,"status":record.status,"passed":passed,"total":record.cases.len(),
+                                    "allure":{"results_ready":allure_error.is_none(),"error":allure_error}}),
+                            );
+                        }
+                    }
+                    (record.status, record.error)
                 }
-
-                let llm_cfg = frozen_visual.clone();
-                let sandbox_cfg = SandboxConfig {
-                    cdp_port: cfg.sandbox.cdp_port,
-                };
-
-                // Check cancel flag before TestExecutor::new
-                if cancel_flag.load(Ordering::Relaxed) {
-                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
-                    return;
+                Err(message) => ("failed".into(), Some(message)),
+            };
+            if let Some(message) = &error {
+                output
+                    .lock()
+                    .unwrap()
+                    .push_str(&format!("[{job_id}] {message}\n"));
+            }
+            // Commit the visible terminal state together; cancellation after a
+            // durable terminal commit cannot rewrite that historical outcome.
+            if let Ok(mut entries) = jobs.lock() {
+                if let Some(entry) = entries.get_mut(&job_id) {
+                    entry.status = status;
+                    entry.error = error;
                 }
+            }
+        });
+        serde_json::json!({"ok":true,"jobId":job_id_for_return}).to_string()
+    }
 
-                match TestExecutor::new(3, Some(llm_cfg), Some(sandbox_cfg)).await {
-                    Ok(executor) => {
-                        let storage = LocalStorageInstance;
-                        match storage.load_cases_by_status(&project, CaseStatus::Approved).await {
-                            Ok(cases) => {
-                                // Filter cases by test_type (smoke/functional/performance/stress)
-                                let filtered: Vec<TestCaseRef> = cases
-                                    .iter()
-                                    .filter(|c| c.test_type == test_type)
-                                    .map(|c| TestCaseRef {
-                                        id: c.id.clone(),
-                                        yaml_script: c.yaml_script.clone(),
-                                        name: c.name.clone(),
-                                        priority: c.priority.clone(),
-                                        target_url: None,
-                                    })
-                                    .collect();
+    fn redact_run_error(message: &str, cfg: &AppConfig) -> String {
+        let mut message = message.to_string();
+        for secret in [&cfg.llm.api_key, &cfg.llm.secondary_api_key] {
+            let secret = resolve_env_var(secret);
+            if !secret.is_empty() {
+                message = message.replace(&secret, "[redacted]");
+            }
+        }
+        message
+    }
 
-                                {
-                                    let mut o = output_arc.lock().unwrap();
-                                    o.push_str(&format!("[{}] Found {} test cases\n", job_id, filtered.len()));
-                                }
+    async fn run_additional_checks(
+        cfg: &AppConfig,
+        visual: &LlmConfig,
+        target_url: &str,
+        test_type: &str,
+        run_dir: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        let (request, filename) = match test_type {
+            "performance" => (
+                JsonRpcRequest::Lighthouse {
+                    url: target_url.to_string(),
+                },
+                "lighthouse.json",
+            ),
+            "stress" => (
+                JsonRpcRequest::Stress {
+                    target_url: target_url.to_string(),
+                    users: 10,
+                    spawn_rate: 2,
+                    duration: 30,
+                },
+                "locust-summary.json",
+            ),
+            _ => return Ok(()),
+        };
+        let process = MidsceneProcess::spawn(
+            Some(visual.clone()),
+            Some(SandboxConfig {
+                cdp_port: cfg.sandbox.cdp_port,
+            }),
+        )
+        .await?;
+        let result = process.call(request).await;
+        let shutdown = process.call(JsonRpcRequest::Shutdown).await;
+        let response = result?;
+        let shutdown = shutdown?;
+        anyhow::ensure!(
+            shutdown.ok,
+            "additional check shutdown failed: {}",
+            shutdown.error.unwrap_or_default()
+        );
+        anyhow::ensure!(
+            response.ok,
+            "additional check failed: {}",
+            response.error.unwrap_or_default()
+        );
+        let data = response
+            .data
+            .ok_or_else(|| anyhow::anyhow!("additional check returned no data"))?;
+        std::fs::write(run_dir.join(filename), serde_json::to_vec(&data)?)?;
+        Ok(())
+    }
 
-                                // Check cancel flag before run_parallel
-                                if cancel_flag.load(Ordering::Relaxed) {
-                                    let _ = executor.shutdown().await;
-                                    Self::set_job_status_internal(&jobs, &job_id, "stopped");
-                                    return;
-                                }
+    pub fn get_case_provenance(&self, project: &str, case_id: &str) -> String {
+        let result = (|| -> anyhow::Result<_> {
+            let case = LocalStorage::load_cases(project)?
+                .into_iter()
+                .find(|c| c.id == case_id)
+                .ok_or_else(|| anyhow::anyhow!("case not found"))?;
+            qin_aegis_core::execution_records::case_provenance(project, &case)
+        })();
+        match result {
+            Ok(record) => serde_json::to_string(&record).unwrap_or_default(),
+            Err(e) => serde_json::json!({"error":e.to_string()}).to_string(),
+        }
+    }
 
-                                let results = match executor.run_parallel(filtered).await {
-                                    Ok(results) => results,
-                                    Err(e) => {
-                                        let mut o = output_arc.lock().unwrap();
-                                        o.push_str(&format!("[{}] ✗ Run failed: {}\n", job_id, e));
-                                        Self::set_job_status_internal(&jobs, &job_id, "failed");
-                                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
-                                        return;
-                                    }
-                                };
+    pub fn get_run_evidence(&self, project: &str, run_id: &str) -> String {
+        let result = qin_aegis_core::execution_records::RunStore::new(LocalStorage::run_dir(
+            project, run_id,
+        ))
+        .load();
+        match result {
+            Ok(record) if record.project == project && record.run_id == run_id => {
+                serde_json::to_string(&record).unwrap_or_default()
+            }
+            Ok(_) => serde_json::json!({"error":"run evidence identity mismatch"}).to_string(),
+            Err(e) => serde_json::json!({"error":e.to_string()}).to_string(),
+        }
+    }
 
-                                // Save run results to storage
-                                let run_id = {
-                                    use std::time::{SystemTime, UNIX_EPOCH};
-                                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                                    format!("run-{}", now.as_secs())
-                                };
-                                let run_dir = LocalStorage::run_dir(&project, &run_id);
-                                if let Err(e) = std::fs::create_dir_all(&run_dir) {
-                                    let mut o = output_arc.lock().unwrap();
-                                    o.push_str(&format!("[{}] ✗ Failed to create run dir: {}\n", job_id, e));
-                                } else {
-                                    let passed = results.iter().filter(|r| r.passed).count();
-                                    let total = results.len();
-                                    if let Err(e) = std::fs::write(
-                                        run_dir.join("summary.json"),
-                                        serde_json::to_string(&serde_json::json!({
-                                            "passed": passed,
-                                            "failed": total - passed,
-                                            "total": total,
-                                            "test_type": test_type,
-                                        })).unwrap(),
-                                    ) {
-                                        let mut o = output_arc.lock().unwrap();
-                                        o.push_str(&format!("[{}] ✗ Failed to save summary: {}\n", job_id, e));
-                                    }
+    fn load_record(
+        project: &str,
+        run_id: &str,
+    ) -> anyhow::Result<qin_aegis_core::execution_records::RunRecord> {
+        let record = qin_aegis_core::execution_records::RunStore::new(LocalStorage::run_dir(
+            project, run_id,
+        ))
+        .load()?;
+        anyhow::ensure!(
+            record.project == project && record.run_id == run_id,
+            "run evidence identity mismatch"
+        );
+        anyhow::ensure!(record.status != "running", "Allure requires a terminal run");
+        Ok(record)
+    }
 
-                                    // For performance type, run lighthouse
-                                    if test_type == "performance" {
-                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
-                                        if let Some(target_url) = project_url {
-                                            let lh_path = run_dir.join("lighthouse.json");
-                                            let llm_cfg = frozen_visual.clone();
-                                            let sandbox_cfg = SandboxConfig {
-                                                cdp_port: cfg.sandbox.cdp_port,
-                                            };
-                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
-                                                Ok(process) => {
-                                                    let lh_result = process.call(JsonRpcRequest::Lighthouse { url: target_url }).await;
-                                                    drop(process);
-                                                    if let Ok(resp) = lh_result {
-                                                        if resp.ok {
-                                                            if let Some(data) = resp.data {
-                                                                if let Err(e) = std::fs::write(&lh_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output_arc.lock().unwrap();
-                                                                    o.push_str(&format!("[{}] ✗ Failed to save lighthouse result: {}\n", job_id, e));
-                                                                }
-                                                            }
-                                                        } else {
-                                                            let mut o = output_arc.lock().unwrap();
-                                                            o.push_str(&format!("[{}] Lighthouse failed: {}\n", job_id, resp.error.unwrap_or_default()));
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    let mut o = output_arc.lock().unwrap();
-                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for lighthouse: {}\n", job_id, e));
-                                                }
-                                            }
-                                        }
-                                    }
+    pub(crate) fn allure_html(project: &str, run_id: &str) -> anyhow::Result<(String, String)> {
+        Self::load_record(project, run_id)?;
+        let root = LocalStorage::run_dir(project, run_id).canonicalize()?;
+        let directory = root.join("allure-report");
+        let metadata = std::fs::symlink_metadata(&directory)?;
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "unsafe Allure report directory"
+        );
+        let read = |name: &str, limit: u64| -> anyhow::Result<String> {
+            let path = directory.join(name);
+            let metadata = std::fs::symlink_metadata(&path)?;
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink() && metadata.len() <= limit,
+                "invalid or oversized Allure report asset"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                anyhow::ensure!(metadata.nlink() == 1, "unsafe Allure report asset");
+            }
+            anyhow::ensure!(
+                path.canonicalize()?.starts_with(&root),
+                "Allure report escapes its run directory"
+            );
+            Ok(std::fs::read_to_string(path)?)
+        };
+        let reporter: serde_json::Value =
+            serde_json::from_str(&read("qinaegis-reporter.json", 4096)?)?;
+        anyhow::ensure!(
+            reporter["schema_version"] == 1
+                && reporter["reporter"] == "allure"
+                && reporter["mode"] == "awesome-single-file",
+            "invalid Allure reporter metadata"
+        );
+        let version = reporter["version"]
+            .as_str()
+            .filter(|v| !v.is_empty() && v.len() <= 64)
+            .ok_or_else(|| anyhow::anyhow!("missing Allure reporter version"))?;
+        Ok((read("index.html", 64 * 1024 * 1024)?, version.to_owned()))
+    }
 
-                                    // For stress type, run locust stress test
-                                    if test_type == "stress" {
-                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
-                                        if let Some(target_url) = project_url {
-                                            let lc_path = run_dir.join("locust-summary.json");
-                                            let llm_cfg = frozen_visual.clone();
-                                            let sandbox_cfg = SandboxConfig {
-                                                cdp_port: cfg.sandbox.cdp_port,
-                                            };
-                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
-                                                Ok(process) => {
-                                                    let lc_result = process.call(JsonRpcRequest::Stress { target_url, users: 10, spawn_rate: 2, duration: 30 }).await;
-                                                    drop(process);
-                                                    if let Ok(resp) = lc_result {
-                                                        if resp.ok {
-                                                            if let Some(data) = resp.data {
-                                                                if let Err(e) = std::fs::write(&lc_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output_arc.lock().unwrap();
-                                                                    o.push_str(&format!("[{}] ✗ Failed to save stress result: {}\n", job_id, e));
-                                                                }
-                                                            }
-                                                        } else {
-                                                            let mut o = output_arc.lock().unwrap();
-                                                            o.push_str(&format!("[{}] Stress test failed: {}\n", job_id, resp.error.unwrap_or_default()));
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    let mut o = output_arc.lock().unwrap();
-                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for stress: {}\n", job_id, e));
-                                                }
-                                            }
-                                        }
-                                    }
+    pub fn get_allure_report_html(&self, project: &str, run_id: &str) -> String {
+        match Self::allure_html(project, run_id) {
+            Ok((html, version)) => {
+                serde_json::json!({"ok":true,"html":html,"version":version}).to_string()
+            }
+            Err(error) => {
+                serde_json::json!({"error":format!("Allure report unavailable: {error}")})
+                    .to_string()
+            }
+        }
+    }
 
-                                    // For security type, run OWASP ZAP scan
-                                    if test_type == "security" {
-                                        let project_url = storage.load_project(&project).await.map(|p| p.url).ok();
-                                        if let Some(target_url) = project_url {
-                                            let zap_path = run_dir.join("zap-report.json");
-                                            let llm_cfg = frozen_visual.clone();
-                                            let sandbox_cfg = SandboxConfig {
-                                                cdp_port: cfg.sandbox.cdp_port,
-                                            };
-                                            match MidsceneProcess::spawn(Some(llm_cfg), Some(sandbox_cfg)).await {
-                                                Ok(process) => {
-                                                    let zap_result = process.call(JsonRpcRequest::ZapScan { target_url }).await;
-                                                    drop(process);
-                                                    if let Ok(resp) = zap_result {
-                                                        if resp.ok {
-                                                            if let Some(data) = resp.data {
-                                                                if let Err(e) = std::fs::write(&zap_path, serde_json::to_string(&data).unwrap()) {
-                                                                    let mut o = output_arc.lock().unwrap();
-                                                                    o.push_str(&format!("[{}] ✗ Failed to save ZAP result: {}\n", job_id, e));
-                                                                } else {
-                                                                    let mut o = output_arc.lock().unwrap();
-                                                                    o.push_str(&format!("[{}] ZAP scan completed: {} alerts\n", job_id, data.get("alert_count").and_then(|v| v.as_u64()).unwrap_or(0)));
-                                                                }
-                                                            }
-                                                        } else {
-                                                            let mut o = output_arc.lock().unwrap();
-                                                            o.push_str(&format!("[{}] ZAP scan failed: {}\n", job_id, resp.error.unwrap_or_default()));
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    let mut o = output_arc.lock().unwrap();
-                                                    o.push_str(&format!("[{}] ✗ Failed to spawn midscene for ZAP: {}\n", job_id, e));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                {
-                                    let mut o = output_arc.lock().unwrap();
-                                    let passed = results.iter().filter(|r| r.passed).count();
-                                    o.push_str(&format!("[{}] ✓ Passed {}/{} tests\n", job_id, passed, results.len()));
-                                    Self::set_job_status_internal(&jobs, &job_id, "completed");
-                                }
+    pub fn generate_allure_report(&mut self, project: &str, run_id: &str) -> String {
+        let record = match Self::load_record(project, run_id) {
+            Ok(record) => record,
+            Err(error) => return serde_json::json!({"error":error.to_string()}).to_string(),
+        };
+        let job_id = self.job_id();
+        let job_return = job_id.clone();
+        let entry = JobEntry::new("allureReport");
+        let output = entry.output.clone();
+        let cancel = entry.cancel_flag.clone();
+        self.jobs.lock().unwrap().insert(job_id.clone(), entry);
+        let jobs = self.jobs.clone();
+        let guard = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), job_id.clone());
+        thread::spawn(move || {
+            let _guard = guard;
+            let outcome = (|| -> anyhow::Result<serde_json::Value> {
+                anyhow::ensure!(
+                    !cancel.load(Ordering::Acquire),
+                    "Allure generation cancelled"
+                );
+                let root = LocalStorage::run_dir(&record.project, &record.run_id).canonicalize()?;
+                qin_aegis_core::allure::export_run(&record, &root.join("allure-results"))?;
+                if Self::allure_html(&record.project, &record.run_id).is_ok() {
+                    return Ok(
+                        serde_json::json!({"run_id":record.run_id,"report_file":"index.html"}),
+                    );
+                }
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let data = rt.block_on(async {
+                    tokio::time::timeout(std::time::Duration::from_secs(120), async {
+                        let process = MidsceneProcess::spawn(None, None).await?;
+                        let response = process
+                            .call(JsonRpcRequest::GenerateAllure {
+                                results_dir: root
+                                    .join("allure-results")
+                                    .to_string_lossy()
+                                    .into_owned(),
+                                report_dir: root
+                                    .join("allure-report")
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            })
+                            .await;
+                        let shutdown = process.call(JsonRpcRequest::Shutdown).await;
+                        let response = response?;
+                        let shutdown = shutdown?;
+                        anyhow::ensure!(shutdown.ok, "Allure engine shutdown failed");
+                        anyhow::ensure!(
+                            response.ok,
+                            "{}",
+                            response
+                                .error
+                                .unwrap_or_else(|| "Allure generation failed".into())
+                        );
+                        Ok::<_, anyhow::Error>(response.data.unwrap_or(serde_json::Value::Null))
+                    })
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Allure generation timed out"))?
+                })?;
+                Self::allure_html(&record.project, &record.run_id)?;
+                Ok(data)
+            })();
+            if let Ok(mut entries) = jobs.lock() {
+                if let Some(entry) = entries.get_mut(&job_id) {
+                    if cancel.load(Ordering::Acquire) {
+                        entry.status = "stopped".into();
+                        entry.error = Some("Allure generation cancelled".into());
+                    } else {
+                        match outcome {
+                            Ok(data) => {
+                                entry.status = "completed".into();
+                                entry.result = Some(data);
                             }
-                            Err(e) => {
-                                let mut o = output_arc.lock().unwrap();
-                                o.push_str(&format!("[{}] ✗ Failed to load cases: {}\n", job_id, e));
-                                Self::set_job_status_internal(&jobs, &job_id, "failed");
-                                Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
+                            Err(error) => {
+                                entry.status = "failed".into();
+                                entry.error = Some(error.to_string());
                             }
                         }
-                        let _ = executor.shutdown().await;
                     }
-                    Err(e) => {
-                        let mut o = output_arc.lock().unwrap();
-                        o.push_str(&format!("[{}] ✗ Failed to start executor: {}\n", job_id, e));
-                        Self::set_job_status_internal(&jobs, &job_id, "failed");
-                        Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
-                    }
+                    output
+                        .lock()
+                        .unwrap()
+                        .push_str(&format!("Allure report generation {}.\n", entry.status));
                 }
-            });
+            }
         });
-
-        format!(r#"{{"ok":true,"jobId":"{}"}}"#, job_id_for_return)
+        serde_json::json!({"ok":true,"jobId":job_return}).to_string()
     }
 
     // ── Output ────────────────────────────────────────────────────────────────
@@ -917,42 +1134,40 @@ impl AppState {
         }
     }
 
-    pub fn get_reports(&self, project: &str) -> String {
-        let reports_dir = LocalStorage::reports_dir(project);
-        if !reports_dir.exists() {
-            return r#"[]"#.to_string();
+    fn report_summary(path: &std::path::Path) -> Option<serde_json::Value> {
+        if path.join("run.json").exists() {
+            let record = qin_aegis_core::execution_records::RunStore::new(path.to_path_buf())
+                .load()
+                .ok()?;
+            if path.file_name()?.to_str()? != record.run_id {
+                return None;
+            }
+            let passed = record.results.iter().filter(|r| r.passed).count();
+            Some(
+                serde_json::json!({"total":record.cases.len(),"passed":passed,"failed":record.cases.len()-passed,
+                "executed":record.results.len(),"status":record.status,"test_type":record.test_type,"has_evidence":true}),
+            )
+        } else {
+            serde_json::from_slice(&std::fs::read(path.join("summary.json")).ok()?).ok()
         }
+    }
+
+    pub fn get_reports(&self, project: &str) -> String {
         let mut reports = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&reports_dir) {
+        if let Ok(entries) = std::fs::read_dir(LocalStorage::reports_dir(project)) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_dir() {
-                    if let Some(run_id) = path.file_name().and_then(|n| n.to_str()) {
-                        let summary_path = path.join("summary.json");
-                        if summary_path.exists() {
-                            if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                                if let Ok(summary) =
-                                    serde_json::from_str::<serde_json::Value>(&content)
-                                {
-                                    reports.push(serde_json::json!({
-                                        "run_id": run_id,
-                                        "total": summary.get("total").unwrap_or(&serde_json::Value::Null),
-                                        "passed": summary.get("passed").unwrap_or(&serde_json::Value::Null),
-                                        "failed": summary.get("failed").unwrap_or(&serde_json::Value::Null),
-                                    }));
-                                }
-                            }
-                        }
-                    }
+                if !path.is_dir() {
+                    continue;
+                }
+                if let Some(mut summary) = Self::report_summary(&path) {
+                    summary["run_id"] = serde_json::json!(entry.file_name().to_string_lossy());
+                    reports.push(summary);
                 }
             }
         }
-        reports.sort_by(|a, b| {
-            let a_ts = b.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
-            let b_ts = a.get("run_id").and_then(|v| v.as_str()).unwrap_or("");
-            b_ts.cmp(a_ts)
-        });
-        serde_json::to_string(&reports).unwrap_or_else(|_| r#"[]"#.to_string())
+        reports.sort_by(|a, b| b["run_id"].as_str().cmp(&a["run_id"].as_str()));
+        serde_json::to_string(&reports).unwrap_or_else(|_| "[]".into())
     }
 
     pub fn get_gate_status(&self, project: &str) -> String {
@@ -967,7 +1182,7 @@ impl AppState {
             .unwrap_or_default();
         }
 
-        let mut latest_run: Option<(String, usize, usize)> = None;
+        let mut latest_run: Option<(String, usize, usize, Option<String>)> = None;
         if let Ok(entries) = std::fs::read_dir(&reports_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -976,24 +1191,16 @@ impl AppState {
                         path.file_name().and_then(|n| n.to_str()).map(String::from)
                     {
                         if latest_run.is_none() || run_id > latest_run.as_ref().unwrap().0 {
-                            let summary_path = path.join("summary.json");
-                            if summary_path.exists() {
-                                if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                                    if let Ok(summary) =
-                                        serde_json::from_str::<serde_json::Value>(&content)
-                                    {
-                                        let total = summary
-                                            .get("total")
-                                            .and_then(|v| v.as_u64())
-                                            .unwrap_or(0)
-                                            as usize;
-                                        let passed = summary
-                                            .get("passed")
-                                            .and_then(|v| v.as_u64())
-                                            .unwrap_or(0)
-                                            as usize;
-                                        latest_run = Some((run_id, total, passed));
-                                    }
+                            if let Some(summary) = Self::report_summary(&path) {
+                                let total = summary["total"].as_u64().unwrap_or(0) as usize;
+                                let passed = summary["passed"].as_u64().unwrap_or(0) as usize;
+                                if total > 0 {
+                                    latest_run = Some((
+                                        run_id,
+                                        total,
+                                        passed,
+                                        summary["status"].as_str().map(String::from),
+                                    ));
                                 }
                             }
                         }
@@ -1003,7 +1210,26 @@ impl AppState {
         }
 
         match latest_run {
-            Some((run_id, total, passed)) => {
+            Some((run_id, total, passed, execution_status)) => {
+                // A complete set of passing assertions cannot override a failed
+                // executor shutdown, additional check, cancellation or active run.
+                if execution_status
+                    .as_deref()
+                    .is_some_and(|status| status != "completed")
+                {
+                    return serde_json::json!({
+                        "e2e_pass_rate": null,
+                        "e2e_pass_rate_display": if execution_status.as_deref() == Some("running") { "Running" } else { "Blocked" },
+                        "execution_status": execution_status,
+                        "execution_blocked": true,
+                        "performance": null,
+                        "stress": null,
+                        "has_runs": true,
+                        "last_run_id": run_id,
+                        "last_run_passed": passed,
+                        "last_run_total": total,
+                    }).to_string();
+                }
                 let reports_dir = LocalStorage::reports_dir(project);
                 let run_dir = reports_dir.join(&run_id);
 
@@ -1040,6 +1266,8 @@ impl AppState {
                 };
                 serde_json::to_string(&serde_json::json!({
                     "e2e_pass_rate": pass_rate,
+                    "execution_status": execution_status,
+                    "execution_blocked": false,
                     "e2e_pass_rate_display": format!("{:.0}%", pass_rate),
                     "performance": performance_val.map(|s| format!("{:.0}%", s)),
                     "stress": stress_val.map(|r| format!("{:.0} req/s", r)),
@@ -1194,15 +1422,9 @@ impl AppState {
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(run_id) = path.file_name().and_then(|n| n.to_str()) {
-                        let summary_path = path.join("summary.json");
-                        if let Ok(content) = std::fs::read_to_string(&summary_path) {
-                            if let Ok(summary) = serde_json::from_str::<serde_json::Value>(&content)
-                            {
-                                all_results.push(serde_json::json!({
-                                    "run_id": run_id,
-                                    "summary": summary,
-                                }));
-                            }
+                        if let Some(summary) = Self::report_summary(&path) {
+                            all_results
+                                .push(serde_json::json!({"run_id":run_id,"summary":summary}));
                         }
                     }
                 }
@@ -1244,7 +1466,7 @@ impl AppState {
                                     "name": case_data.get("name").and_then(|v| v.as_str()).unwrap_or(""),
                                     "status": status,
                                     "priority": case_data.get("priority").and_then(|v| v.as_str()).unwrap_or("P2"),
-                                    "type": case_data.get("type").and_then(|v| v.as_str()).unwrap_or("functional"),
+                                    "type": case_data.get("test_type").and_then(|v| v.as_str()).unwrap_or("functional"),
                                     "requirement_id": case_data.get("requirement_id"),
                                 }));
                             }
@@ -1257,46 +1479,48 @@ impl AppState {
     }
 
     pub fn update_case_status(&self, project: &str, case_id: &str, new_status: &str) -> String {
-        let cases_dir = LocalStorage::cases_dir(project);
-        let valid_statuses = ["draft", "reviewed", "approved", "flaky", "archived"];
-        if !valid_statuses.contains(&new_status) {
-            return serde_json::to_string(&serde_json::json!({
-                "ok": false,
-                "error": "invalid status"
-            }))
-            .unwrap_or_default();
-        }
-        // Find the case file in any status subdir
-        let case_file = format!("{}.json", case_id);
-        for status in &valid_statuses {
-            let src = cases_dir.join(status).join(&case_file);
-            if src.exists() {
-                let dst_dir = cases_dir.join(new_status);
-                if !dst_dir.exists() {
-                    if let Err(e) = std::fs::create_dir_all(&dst_dir) {
-                        return serde_json::to_string(&serde_json::json!({
-                            "ok": false,
-                            "error": format!("failed to create dir: {}", e)
-                        }))
-                        .unwrap_or_default();
-                    }
-                }
-                let dst = dst_dir.join(&case_file);
-                if let Err(e) = std::fs::rename(&src, &dst) {
-                    return serde_json::to_string(&serde_json::json!({
-                        "ok": false,
-                        "error": format!("failed to move case: {}", e)
-                    }))
-                    .unwrap_or_default();
-                }
-                return serde_json::to_string(&serde_json::json!({"ok": true})).unwrap_or_default();
+        let result = (|| -> anyhow::Result<()> {
+            let target: CaseStatus = serde_json::from_value(serde_json::json!(new_status))?;
+            let statuses = [
+                CaseStatus::Draft,
+                CaseStatus::Reviewed,
+                CaseStatus::Approved,
+                CaseStatus::Flaky,
+                CaseStatus::Archived,
+            ];
+            let from = statuses
+                .into_iter()
+                .find(|status| {
+                    LocalStorage::case_path_in_status(project, case_id, *status).is_file()
+                })
+                .ok_or_else(|| anyhow::anyhow!("case not found"))?;
+            anyhow::ensure!(
+                from.can_transition_to(target),
+                "invalid case status transition"
+            );
+            anyhow::ensure!(
+                !LocalStorage::case_path_in_status(project, case_id, target).exists(),
+                "target case identity already exists"
+            );
+            // Existing sources cannot silently survive script edits, even if a
+            // caller tries to approve the changed file through the status API.
+            let path = LocalStorage::case_path_in_status(project, case_id, from);
+            let case: qin_aegis_core::storage::TestCase =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            anyhow::ensure!(case.id == case_id, "case identity mismatch");
+            if matches!(target, CaseStatus::Reviewed | CaseStatus::Approved) {
+                qin_aegis_core::execution_records::case_provenance(project, &case)?;
             }
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(LocalStorageInstance.move_case(project, case_id, from, target))?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => serde_json::json!({"ok":true}).to_string(),
+            Err(e) => serde_json::json!({"error":e.to_string()}).to_string(),
         }
-        serde_json::to_string(&serde_json::json!({
-            "ok": false,
-            "error": "case not found"
-        }))
-        .unwrap_or_default()
     }
 }
 

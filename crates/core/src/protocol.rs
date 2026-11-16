@@ -70,6 +70,11 @@ pub enum JsonRpcRequest {
     },
     #[serde(rename = "zap_scan")]
     ZapScan { target_url: String },
+    #[serde(rename = "allure_generate")]
+    GenerateAllure {
+        results_dir: String,
+        report_dir: String,
+    },
     #[serde(rename = "shutdown")]
     Shutdown,
 }
@@ -284,6 +289,7 @@ impl MidsceneProcess {
             JsonRpcRequest::Lighthouse { .. } => "lighthouse",
             JsonRpcRequest::Stress { .. } => "stress",
             JsonRpcRequest::ZapScan { .. } => "zap_scan",
+            JsonRpcRequest::GenerateAllure { .. } => "allure_generate",
             JsonRpcRequest::Shutdown => "shutdown",
         };
         println!("[protocol] Sending {} request...", method_name);

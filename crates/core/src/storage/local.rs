@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 use crate::storage::trait_def::{
-    CaseStatus, ProjectConfig, Storage, StorageCredentials, StorageError, StorageTransaction, TestCase,
+    CaseStatus, ProjectConfig, Storage, StorageCredentials, StorageError, StorageTransaction,
+    TestCase,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
@@ -56,7 +57,13 @@ impl LocalStorage {
 
     /// Find the actual path of a case by searching all status directories.
     pub fn find_case_path(name: &str, case_id: &str) -> Option<PathBuf> {
-        for status in &[CaseStatus::Draft, CaseStatus::Reviewed, CaseStatus::Approved, CaseStatus::Flaky, CaseStatus::Archived] {
+        for status in &[
+            CaseStatus::Draft,
+            CaseStatus::Reviewed,
+            CaseStatus::Approved,
+            CaseStatus::Flaky,
+            CaseStatus::Archived,
+        ] {
             let path = Self::case_path_in_status(name, case_id, *status);
             if path.exists() {
                 return Some(path);
@@ -121,8 +128,8 @@ impl LocalStorage {
         };
 
         let config_path = Self::project_config_path(name);
-        let yaml = serde_yaml::to_string(&config)
-            .map_err(|e| anyhow::anyhow!("yaml error: {}", e))?;
+        let yaml =
+            serde_yaml::to_string(&config).map_err(|e| anyhow::anyhow!("yaml error: {}", e))?;
         std::fs::write(&config_path, yaml)?;
 
         // Create directories
@@ -192,12 +199,21 @@ impl LocalStorage {
     }
 
     pub fn save_case(name: &str, case: &TestCase) -> anyhow::Result<()> {
-        let status_dir = Self::case_status_dir(name, case.status.clone());
-        std::fs::create_dir_all(&status_dir)?;
-        let path = status_dir.join(format!("{}.json", case.id));
-        let json = serde_json::to_string_pretty(case)?;
-        std::fs::write(&path, json)?;
-        Ok(())
+        Self::save_case_at(
+            &Self::case_path_in_status(name, &case.id, case.status),
+            name,
+            case,
+        )
+    }
+
+    fn save_case_at(path: &std::path::Path, project: &str, case: &TestCase) -> anyhow::Result<()> {
+        if let Some(source) = &case.provenance {
+            source.validate(project, &case.id, &case.yaml_script)?;
+        }
+        let asset = crate::asset_file::AssetFile::new(path.to_path_buf(), 32 * 1024 * 1024);
+        let guard = asset.lock()?;
+        // The source and script share one atomic replacement and durability boundary.
+        guard.write(&serde_json::to_vec_pretty(case)?)
     }
 
     pub fn load_cases(name: &str) -> anyhow::Result<Vec<TestCase>> {
@@ -240,18 +256,31 @@ impl LocalStorageInstance {
     }
 
     /// Load cases from a specific status subdirectory.
-    async fn load_cases_in_dir(&self, name: &str, status: CaseStatus) -> Result<Vec<TestCase>, StorageError> {
+    async fn load_cases_in_dir(
+        &self,
+        name: &str,
+        status: CaseStatus,
+    ) -> Result<Vec<TestCase>, StorageError> {
         let dir = LocalStorage::case_status_dir(name, status);
         if tokio::fs::metadata(&dir).await.is_err() {
             return Ok(Vec::new());
         }
-        let mut entries = tokio::fs::read_dir(&dir).await.map_err(|e| StorageError::Io(e))?;
+        let mut entries = tokio::fs::read_dir(&dir)
+            .await
+            .map_err(|e| StorageError::Io(e))?;
         let mut cases = Vec::new();
-        while let Some(entry) = entries.next_entry().await.map_err(|e| StorageError::Io(e))? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| StorageError::Io(e))?
+        {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                let content = fs::read_to_string(&path).await.map_err(|e| StorageError::Io(e))?;
-                let case: TestCase = serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
+                let content = fs::read_to_string(&path)
+                    .await
+                    .map_err(|e| StorageError::Io(e))?;
+                let case: TestCase =
+                    serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
                 cases.push(case);
             }
         }
@@ -264,14 +293,23 @@ impl LocalStorageInstance {
         if tokio::fs::metadata(&dir).await.is_err() {
             return Ok(Vec::new());
         }
-        let mut entries = tokio::fs::read_dir(&dir).await.map_err(|e| StorageError::Io(e))?;
+        let mut entries = tokio::fs::read_dir(&dir)
+            .await
+            .map_err(|e| StorageError::Io(e))?;
         let mut cases = Vec::new();
-        while let Some(entry) = entries.next_entry().await.map_err(|e| StorageError::Io(e))? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| StorageError::Io(e))?
+        {
             let path = entry.path();
             // Only load files, skip status subdirectories
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
-                let content = fs::read_to_string(&path).await.map_err(|e| StorageError::Io(e))?;
-                let case: TestCase = serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
+                let content = fs::read_to_string(&path)
+                    .await
+                    .map_err(|e| StorageError::Io(e))?;
+                let case: TestCase =
+                    serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
                 cases.push(case);
             }
         }
@@ -328,7 +366,10 @@ impl LocalStorageInstance {
 
     /// Check if cloud credentials are configured (not Local).
     pub fn has_cloud_credentials() -> bool {
-        !matches!(Self::load_credentials().unwrap_or_default(), StorageCredentials::Local)
+        !matches!(
+            Self::load_credentials().unwrap_or_default(),
+            StorageCredentials::Local
+        )
     }
 }
 
@@ -352,7 +393,13 @@ impl Storage for LocalStorageInstance {
             .await
             .map_err(|e| StorageError::Io(e))?;
         // Create status subdirectories for case lifecycle
-        for status in &[CaseStatus::Draft, CaseStatus::Reviewed, CaseStatus::Approved, CaseStatus::Flaky, CaseStatus::Archived] {
+        for status in &[
+            CaseStatus::Draft,
+            CaseStatus::Reviewed,
+            CaseStatus::Approved,
+            CaseStatus::Flaky,
+            CaseStatus::Archived,
+        ] {
             fs::create_dir_all(LocalStorage::case_status_dir(name, *status))
                 .await
                 .map_err(|e| StorageError::Io(e))?;
@@ -368,8 +415,7 @@ impl Storage for LocalStorageInstance {
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        let yaml_content = serde_yaml::to_string(&config)
-            .map_err(|e| StorageError::Parse(e))?;
+        let yaml_content = serde_yaml::to_string(&config).map_err(|e| StorageError::Parse(e))?;
         fs::write(&config_path, yaml_content)
             .await
             .map_err(|e| StorageError::Io(e))?;
@@ -388,7 +434,11 @@ impl Storage for LocalStorageInstance {
             .map_err(|e| StorageError::Io(e))?;
 
         let mut projects = Vec::new();
-        while let Some(entry) = entries.next_entry().await.map_err(|e| StorageError::Io(e))? {
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| StorageError::Io(e))?
+        {
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -437,29 +487,27 @@ impl Storage for LocalStorageInstance {
         fs::read_to_string(&spec_path)
             .await
             .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => StorageError::NotFound(format!("spec for {}", name)),
+                std::io::ErrorKind::NotFound => {
+                    StorageError::NotFound(format!("spec for {}", name))
+                }
                 _ => StorageError::Io(e),
             })
     }
 
     async fn save_case(&self, name: &str, case: &TestCase) -> Result<(), StorageError> {
-        let case_path = LocalStorage::case_path_in_status(name, &case.id, case.status);
-        // Ensure status directory exists
-        if let Some(parent) = case_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| StorageError::Io(e))?;
-        }
-        let json_content = serde_json::to_string_pretty(case)
-            .map_err(|e| StorageError::Json(e))?;
-        fs::write(&case_path, json_content)
-            .await
-            .map_err(|e| StorageError::Io(e))?;
-        Ok(())
+        LocalStorage::save_case(name, case).map_err(|e| StorageError::Internal(e.to_string()))
     }
 
     async fn load_cases(&self, name: &str) -> Result<Vec<TestCase>, StorageError> {
         // Search all status directories
         let mut cases = Vec::new();
-        for status in &[CaseStatus::Draft, CaseStatus::Reviewed, CaseStatus::Approved, CaseStatus::Flaky, CaseStatus::Archived] {
+        for status in &[
+            CaseStatus::Draft,
+            CaseStatus::Reviewed,
+            CaseStatus::Approved,
+            CaseStatus::Flaky,
+            CaseStatus::Archived,
+        ] {
             let mut status_cases = self.load_cases_in_dir(name, *status).await?;
             cases.append(&mut status_cases);
         }
@@ -469,7 +517,11 @@ impl Storage for LocalStorageInstance {
         Ok(cases)
     }
 
-    async fn load_cases_by_status(&self, name: &str, status: CaseStatus) -> Result<Vec<TestCase>, StorageError> {
+    async fn load_cases_by_status(
+        &self,
+        name: &str,
+        status: CaseStatus,
+    ) -> Result<Vec<TestCase>, StorageError> {
         self.load_cases_in_dir(name, status).await
     }
 
@@ -482,7 +534,13 @@ impl Storage for LocalStorageInstance {
         Ok(())
     }
 
-    async fn move_case(&self, name: &str, case_id: &str, from: CaseStatus, to: CaseStatus) -> Result<(), StorageError> {
+    async fn move_case(
+        &self,
+        name: &str,
+        case_id: &str,
+        from: CaseStatus,
+        to: CaseStatus,
+    ) -> Result<(), StorageError> {
         if !from.can_transition_to(to) {
             return Err(StorageError::Internal(format!(
                 "invalid transition: {} -> {}",
@@ -499,17 +557,18 @@ impl Storage for LocalStorageInstance {
             )));
         }
         // Read the case, update status, save to new location, remove old
-        let content = fs::read_to_string(&src).await.map_err(|e| StorageError::Io(e))?;
-        let mut case: TestCase = serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
-        case.status = to;
-        let dst = LocalStorage::case_path_in_status(name, case_id, to);
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| StorageError::Io(e))?;
-        }
-        fs::write(&dst, serde_json::to_string_pretty(&case).map_err(|e| StorageError::Json(e))?)
+        let content = fs::read_to_string(&src)
             .await
             .map_err(|e| StorageError::Io(e))?;
-        fs::remove_file(&src).await.map_err(|e| StorageError::Io(e))?;
+        let mut case: TestCase =
+            serde_json::from_str(&content).map_err(|e| StorageError::Json(e))?;
+        case.status = to;
+        let dst = LocalStorage::case_path_in_status(name, case_id, to);
+        LocalStorage::save_case_at(&dst, name, &case)
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
+        fs::remove_file(&src)
+            .await
+            .map_err(|e| StorageError::Io(e))?;
         Ok(())
     }
 
@@ -539,5 +598,75 @@ impl StorageTransaction for LocalTransaction {
     fn rollback(&mut self) -> Result<(), StorageError> {
         self.operations.clear();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod atomic_case_tests {
+    use super::*;
+    use crate::execution_records::CaseProvenance;
+
+    fn case() -> TestCase {
+        TestCase {
+            id: "receipt".into(),
+            name: "Receipt".into(),
+            requirement_id: "r".into(),
+            test_type: "smoke".into(),
+            yaml_script: "assert receipt".into(),
+            priority: "P1".into(),
+            created_at: "2026-11-16".into(),
+            status: CaseStatus::Draft,
+            provenance: Some(CaseProvenance {
+                schema_version: 1,
+                project: "project".into(),
+                case_id: "receipt".into(),
+                yaml_script: "assert receipt".into(),
+                created_at: "2026-11-16".into(),
+                contracts: None,
+                model: serde_json::json!({"source":"legacy_config","model":"fixture"}),
+            }),
+        }
+    }
+
+    #[test]
+    fn failed_case_save_can_retry_same_identity_without_orphan_source() {
+        let root = std::env::temp_dir().join(format!(
+            "qinaegis-case-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let parent = root.join("draft");
+        std::fs::write(&parent, b"blocked").unwrap();
+        let path = parent.join("receipt.json");
+        let mut value = case();
+        assert!(LocalStorage::save_case_at(&path, "project", &value).is_err());
+        std::fs::remove_file(&parent).unwrap();
+        LocalStorage::save_case_at(&path, "project", &value).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        value.yaml_script = "silently weakened check".into();
+        assert!(LocalStorage::save_case_at(&path, "project", &value).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        let mut stored: TestCase = serde_json::from_slice(&original).unwrap();
+        stored.status = CaseStatus::Reviewed;
+        let target = root.join("reviewed/receipt.json");
+        LocalStorage::save_case_at(&target, "project", &stored).unwrap();
+        let reviewed: TestCase = serde_json::from_slice(&std::fs::read(target).unwrap()).unwrap();
+        assert_eq!(
+            serde_json::to_value(reviewed.provenance).unwrap(),
+            serde_json::to_value(stored.provenance).unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_case_without_source_remains_readable() {
+        let mut json = serde_json::to_value(case()).unwrap();
+        json.as_object_mut().unwrap().remove("provenance");
+        let legacy: TestCase = serde_json::from_value(json).unwrap();
+        assert!(legacy.provenance.is_none());
     }
 }

@@ -10,10 +10,10 @@ const testTypes = [
   { value: 'functional', label: 'Functional Test', desc: 'Full feature coverage' },
   { value: 'performance', label: 'Performance Test', desc: 'Web Vitals measurement' },
   { value: 'stress', label: 'Stress Test', desc: 'Load and concurrency' },
-  { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
 export default function RunView() {
+  const [error, setError] = useState('');
   const [projects, setProjects] = useState<string[]>([]);
   const [project, setProject] = useState('');
   const [testType, setTestType] = useState('smoke');
@@ -48,15 +48,19 @@ export default function RunView() {
 
   const handleRun = async () => {
     setShowPreview(false);
+    setError('');
+    try {
     const result = await rpc.runTests(project, testType);
     if (result.ok) {
       setJobId(result.jobId);
     }
+    } catch (e) { setError(String(e)); }
   };
 
   return (
     <div className="view">
       <h2 className="view-title">Run Tests</h2>
+      {error && <p role="alert">{error}</p>}
 
       <div className="card">
         <div className="card-title">Test Configuration</div>
@@ -112,7 +116,7 @@ export default function RunView() {
                 <strong>{testPlan.case_count} test cases</strong>
                 <ul>
                   {testPlan.steps.map((step, i) => (
-                    <li key={i}>{step}</li>
+                    <li key={step.id || i}>{step.id} · {step.name} · {step.type} · {step.priority}</li>
                   ))}
                 </ul>
               </div>

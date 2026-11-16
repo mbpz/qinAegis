@@ -199,3 +199,46 @@ test('project wire responses contain names for listing and metadata for creation
   assert.deepEqual(await rpc.getProjects(), ['alpha']);
   assert.deepEqual(await rpc.createProject(project.name, project.url, []), project);
 });
+
+
+test('lifecycle actions preserve explicit approval and typed migration inputs', async () => {
+  const { rpc } = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({ csrf: 'csrf' });
+    const body = JSON.parse(init.body); calls.push([body.method, body.params]);
+    return response({id: body.id, ok: true, data: {revision: 12}});
+  };
+  const operations = [
+    ['deprecateContract', {contract_id: 'receipt', version: 1, reason: 'Replaced', expected_revision: 11, approved: true}],
+    ['deriveContract', {source_id: 'receipt', source_version: 1, new_id: 'receipt-special', reason: 'New scenario', expected_revision: 11, approved: true}],
+    ['migrateContractBindings', {contract_id: 'receipt', from_version: 1, to_version: 2, bindings: [{project: 'alpha', parameters: {count: 2}}], reason: 'Reviewed upgrade', expected_revision: 11, approved: true}],
+  ];
+  for (const [method, params] of operations) await rpc[method](params);
+  assert.deepEqual(calls, operations);
+});
+
+test('failed execution evidence remains readable and provenance keeps case identity', async () => {
+  const { rpc } = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({csrf: 'csrf'});
+    const body = JSON.parse(init.body); calls.push([body.method, body.params]);
+    return response({id: body.id, ok: true, data: body.method === 'getCaseProvenance' ? null : {run_id: 'run-1', status: 'failed', error: 'Engine unavailable'}});
+  };
+  assert.equal(await rpc.getCaseProvenance('alpha', 'receipt'), null);
+  assert.equal((await rpc.getRunEvidence('alpha', 'run-1')).error, 'Engine unavailable');
+  assert.deepEqual(calls, [['getCaseProvenance', {project: 'alpha', case_id: 'receipt'}], ['getRunEvidence', {project: 'alpha', run_id: 'run-1'}]]);
+});
+
+
+test('Allure generation is an explicit job and saved HTML uses the selected run', async () => {
+  const { rpc } = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({csrf: 'csrf'});
+    const body = JSON.parse(init.body); calls.push([body.method, body.params]);
+    const data = body.method === 'generateAllureReport' ? {ok: true, jobId: 'allure-1'} : {ok: true, html: '<html>Allure</html>', version: '3'};
+    return response({id: body.id, ok: true, data});
+  };
+  assert.deepEqual(await rpc.generateAllureReport('alpha', 'run-1'), {ok: true, jobId: 'allure-1'});
+  assert.equal((await rpc.getAllureReportHtml('alpha', 'run-1')).version, '3');
+  assert.deepEqual(calls, [['generateAllureReport', {project: 'alpha', run_id: 'run-1'}], ['getAllureReportHtml', {project: 'alpha', run_id: 'run-1'}]]);
+});

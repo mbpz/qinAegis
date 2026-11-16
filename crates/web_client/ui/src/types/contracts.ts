@@ -36,6 +36,9 @@ export interface ContractsSnapshot {
   publications: PublishedContract[];
   proposals: ContractProposal[];
   bindings: ContractBinding[];
+  deprecations: {contract_id: string; version: number; reason: string; reviewer: string}[];
+  derivations: {contract_id: string; source_id: string; source_version: number; reason: string; reviewer: string}[];
+  migrations: {contract_id: string; from_version: number; to_version: number; projects: string[]; reason: string; reviewer: string}[];
 }
 export interface ContractsBundle {
   schema_version: 1;

@@ -22,6 +22,20 @@ impl TestCaseService {
         spec_markdown: &str,
         requirement_text: &str,
     ) -> anyhow::Result<Vec<SaveResult>> {
+        self.generate_and_save_with_context(project_name, spec_markdown, requirement_text, None)
+            .await
+    }
+
+    pub async fn generate_and_save_with_context(
+        &self,
+        project_name: &str,
+        spec_markdown: &str,
+        requirement_text: &str,
+        context: Option<crate::execution_records::GenerationContext>,
+    ) -> anyhow::Result<Vec<SaveResult>> {
+        if let Some(context) = &context {
+            context.validate(project_name)?;
+        }
         let generator = TestCaseGenerator::new(self.llm.clone());
         let critic = Critic::new(self.llm.clone());
 
@@ -48,7 +62,7 @@ impl TestCaseService {
                 }
             };
 
-            let storage_case = StorageTestCase {
+            let mut storage_case = StorageTestCase {
                 id: tc.id.clone(),
                 name: tc.name.clone(),
                 requirement_id: tc.requirement_id.clone(),
@@ -57,8 +71,21 @@ impl TestCaseService {
                 priority: tc.priority.clone(),
                 created_at: chrono::Utc::now().to_rfc3339(),
                 status: CaseStatus::Draft,
+                provenance: None,
             };
 
+            if let Some(context) = &context {
+                let provenance = crate::execution_records::CaseProvenance {
+                    schema_version: 1,
+                    project: project_name.into(),
+                    case_id: tc.id.clone(),
+                    yaml_script: tc.yaml_script.clone(),
+                    created_at: storage_case.created_at.clone(),
+                    contracts: context.contracts.clone(),
+                    model: context.model.clone(),
+                };
+                storage_case.provenance = Some(provenance);
+            }
             self.storage.save_case(project_name, &storage_case).await?;
 
             results.push(SaveResult {

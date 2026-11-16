@@ -3,6 +3,7 @@ import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapsh
 import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
 
 import type {
+  AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence,
   ConfigStatusResponse,
   StateResponse,
   VersionResponse,
@@ -90,7 +91,7 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
       throw new RpcError(body.error?.message || 'Request failed', body.error?.code || 'RPC_ERROR', method);
     }
     const result = body.data;
-    if (method !== 'getJobStatus' && result && typeof result === 'object' && 'error' in result && result.error) {
+    if (!['getJobStatus', 'getRunEvidence'].includes(method) && result && typeof result === 'object' && 'error' in result && result.error) {
       throw new RpcError(String(result.error), 'RPC_ERROR', method);
     }
     return result as T;
@@ -109,6 +110,13 @@ export const rpc = {
   saveModel(params: { profile: ModelProfile; expected_revision: number; clear_api_key: boolean }): Promise<ModelRegistry> { return call('saveModel', params); },
   setModelRoute(params: { task: string; route: TaskModelRoute; expected_revision: number }): Promise<ModelRegistry> { return call('setModelRoute', params); },
   resolveModelRoute(task: string): Promise<{revision: number; task: string; candidates: {id: string; model: string}[]}> { return call('resolveModelRoute', {task}); },
+  deprecateContract(params: {contract_id: string; version: number; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('deprecateContract', params); },
+  deriveContract(params: {source_id: string; source_version: number; new_id: string; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('deriveContract', params); },
+  migrateContractBindings(params: {contract_id: string; from_version: number; to_version: number; bindings: {project: string; parameters: Record<string, unknown>}[]; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('migrateContractBindings', params); },
+  getCaseProvenance(project: string, case_id: string): Promise<CaseProvenance | null> { return call('getCaseProvenance', {project, case_id}); },
+  generateAllureReport(project: string, run_id: string): Promise<JobStartResult> { return call('generateAllureReport', {project, run_id}); },
+  getAllureReportHtml(project: string, run_id: string): Promise<AllureReportResponse> { return call('getAllureReportHtml', {project, run_id}); },
+  getRunEvidence(project: string, run_id: string): Promise<RunEvidence> { return call('getRunEvidence', {project, run_id}); },
   getContracts(): Promise<ContractsSnapshot> {
     return call('getContracts');
   },

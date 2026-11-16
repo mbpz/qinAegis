@@ -15,14 +15,14 @@ console.warn = () => {}; // Silence all console.warn
 
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
-import { globalActionCache } from './action_cache.js';
+import { parseYamlPlan } from './yaml_spec.js';
 import * as readline from 'readline';
 import * as fs from 'fs';
 
 interface JsonRpcRequest {
   id: string;
   method: string;
-  args: unknown[];
+  args: unknown;
 }
 
 let browser: Browser | null = null;
@@ -84,6 +84,19 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
+    if (req.method === 'allure_generate') {
+      const { results_dir, report_dir } = req.args as { results_dir: string; report_dir: string };
+      const { generateAllure } = await import('./allure_report.js');
+      return { id: req.id || '0', ok: true, data: await generateAllure(results_dir, report_dir) };
+    }
+    if (req.method === 'shutdown') {
+      await browser?.close();
+      return { id: req.id || '0', ok: true, data: null };
+    }
+    if (req.method === 'run_yaml') {
+      const args = req.args as unknown as { yaml_script: string; target_url?: string };
+      parseYamlPlan(args.yaml_script, args.target_url);
+    }
     if (!['explore', 'lighthouse', 'stress', 'zap_scan'].includes(req.method)) {
       await ensureConnected();
     } else {
@@ -94,43 +107,20 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
       case 'aiQuery': {
         const prompt = req.args as string;
         debug(`[executor] aiQuery: prompt length ${prompt.length}`);
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, prompt);
-        if (cached !== null) {
-          const dataStr = JSON.stringify(cached);
-          debug(`[executor] aiQuery: CACHE HIT (${dataStr.length} chars)`);
-          return { id: req.id || '0', ok: true, data: dataStr, cached: true };
-        }
         // Include screenshot for page analysis
         const data = await agent!.aiQuery(prompt, { screenshotIncluded: true });
         const dataStr = JSON.stringify(data);
         debug(`[executor] aiQuery: response length ${dataStr.length}`);
-        // Cache the result
-        await globalActionCache.set(page!, prompt, data);
         return { id: req.id || '0', ok: true, data: dataStr };
       }
       case 'aiAct': {
         const action = req.args as string;
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, 'act:' + action);
-        if (cached !== null) {
-          debug(`[executor] aiAct: CACHE HIT`);
-          return { id: req.id || '0', ok: true, data: null, cached: true };
-        }
         await agent!.aiAct(action);
-        await globalActionCache.set(page!, 'act:' + action, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'aiAssert': {
         const assertion = req.args as string;
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, 'assert:' + assertion);
-        if (cached !== null) {
-          debug(`[executor] aiAssert: CACHE HIT`);
-          return { id: req.id || '0', ok: true, data: null, cached: true };
-        }
         await agent!.aiAssert(assertion);
-        await globalActionCache.set(page!, 'assert:' + assertion, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'goto': {
@@ -139,7 +129,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'screenshot': {
-        const buf = await page!.screenshot({ encoding: 'base64' } as any);
+        const buf = (await page!.screenshot()).toString('base64');
         return { id: req.id || '0', ok: true, data: buf };
       }
       case 'currentUrl': {
@@ -202,10 +192,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         const result = await runZapScan(target_url, outputPath);
         return { id: req.id || '0', ok: true, data: result };
       }
-      case 'shutdown': {
-        await browser?.close();
-        process.exit(0);
-      }
       default:
         return { id: req.id || '0', ok: false, error: `Unknown method: ${req.method}` };
     }
@@ -226,9 +212,13 @@ rl.on('line', async (line) => {
     fs.writeSync(2, `[executor] Received request id: '${req.id}', method: ${req.method}\n`);
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
-    fs.writeSync(2, `[executor] Response JSON (${respJson.length} chars): ${respJson}\n`);
+    debug(`[executor] Response sent (${respJson.length} chars)`);
     // ONLY write JSON to stdout - no other output
-    process.stdout.write(respJson + '\n');
+    if (req.method === 'shutdown') {
+      process.stdout.write(respJson + '\n', () => process.exit(0));
+    } else {
+      process.stdout.write(respJson + '\n');
+    }
   } catch (e) {
     const errResp = JSON.stringify({ id: '?', ok: false, error: String(e) });
     process.stdout.write(errResp + '\n');

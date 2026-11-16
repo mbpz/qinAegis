@@ -86,7 +86,7 @@ async function extractFromDom(page: Page): Promise<ExtractedData> {
     ];
     const primaryNav: string[] = [];
     for (const sel of navSelectors) {
-      const els = document.querySelectorAll(sel);
+      const els = document.querySelectorAll<HTMLElement>(sel);
       for (const el of els) {
         const text = el.innerText?.trim();
         if (text && text.length > 0 && text.length < 50 && !primaryNav.includes(text)) {
@@ -117,7 +117,7 @@ async function extractFromDom(page: Page): Promise<ExtractedData> {
 
     const links: string[] = [];
     const sameHost = window.location.hostname;
-    for (const a of document.querySelectorAll('a[href]')) {
+    for (const a of document.querySelectorAll<HTMLAnchorElement>('a[href]')) {
       const href = a.href;
       if (!href) continue;
       try {

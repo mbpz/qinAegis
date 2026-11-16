@@ -156,6 +156,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/api/v2/launch", post(launch))
         .route("/api/v2/shutdown", post(shutdown))
         .route("/api/v2/rpc", post(rpc))
+        .route("/api/v2/allure/{project}/{run_id}", get(allure_report))
         .fallback(static_asset)
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), boundary))
@@ -201,8 +202,38 @@ async fn boundary(State(state): State<ServerState>, request: Request, next: Next
         ("cache-control", "no-store"), ("x-content-type-options", "nosniff"),
         ("referrer-policy", "no-referrer"), ("x-frame-options", "DENY"),
         ("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"),
-    ] { headers.insert(key, HeaderValue::from_static(value)); }
+    ] { if !headers.contains_key(key) { headers.insert(key, HeaderValue::from_static(value)); } }
     response
+}
+
+// A navigated document gets its own restrictive CSP. srcdoc/blob reports inherit
+// the workbench's script-src 'self', which blocks Allure's inline bootstrap.
+async fn allure_report(State(state): State<ServerState>, request: Request) -> Response {
+    if state.csrf(request.headers()).is_none() {
+        return failure(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Valid local session required");
+    }
+    let parts: Vec<_> = request.uri().path().split('/').collect();
+    let (Some(project), Some(run_id)) = (parts.get(4), parts.get(5)) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Ok(permit) = state.blocking_work.clone().try_acquire_owned() else {
+        return failure(StatusCode::SERVICE_UNAVAILABLE, "BUSY", "Application work queue is full");
+    };
+    let (project, run_id) = (project.to_string(), run_id.to_string());
+    match tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        dispatch::validate_report_path(&project, &run_id)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+        AppState::allure_html(&project, &run_id).map_err(|_| StatusCode::NOT_FOUND)
+    }).await {
+        Ok(Ok((html, _))) => ([
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::X_FRAME_OPTIONS, "SAMEORIGIN"),
+            (header::CONTENT_SECURITY_POLICY, "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' blob: data:; style-src 'unsafe-inline' blob: data:; img-src data: blob:; font-src data: blob:; connect-src blob: data:; worker-src blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"),
+        ], html).into_response(),
+        Ok(Err(status)) => failure(status, "REPORT_UNAVAILABLE", "Allure report unavailable"),
+        Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "REPORT_UNAVAILABLE", "Allure report unavailable"),
+    }
 }
 async fn health(State(state): State<ServerState>) -> Json<Value> {
     Json(

@@ -52,6 +52,11 @@ function edit(draft: ContractDraft): Editor {
 }
 
 export default function ContractsView({ projects }: { projects: string[] }) {
+  const [lifecycleReason, setLifecycleReason] = useState('');
+  const [newId, setNewId] = useState('');
+  const [targetVersion, setTargetVersion] = useState('');
+  const [migrationJson, setMigrationJson] = useState('[]');
+  const [lifecycleApproved, setLifecycleApproved] = useState(false);
   const [snapshot, setSnapshot] = useState<ContractsSnapshot | null>(null);
   const [editor, setEditor] = useState<Editor>(blank);
   const [selected, setSelected] = useState('');
@@ -96,11 +101,13 @@ export default function ContractsView({ projects }: { projects: string[] }) {
     setMessage('');
     setFailed(false);
     setImportReviewRevision(null);
+    setLifecycleApproved(false);
     try {
       const data = await action();
       if (!mounted.current || requestId.current !== id) return;
       if (data) setSnapshot(data);
       setPublishConfirmed(false);
+      setLifecycleApproved(false);
       setReviewConfirmed(null);
       setMessage(success);
     } catch (error) {
@@ -118,6 +125,8 @@ export default function ContractsView({ projects }: { projects: string[] }) {
   }
   const publications = snapshot?.publications ?? [];
   const publication = publications.find(item => keyOf(item.definition) === selected);
+  const deprecated = snapshot?.deprecations?.find(item => item.contract_id === publication?.definition.id && item.version === publication?.definition.version);
+  useEffect(() => { setLifecycleApproved(false); }, [selected, snapshot?.revision, lifecycleReason, newId, targetVersion, migrationJson]);
   const comparison = publications.find(item => keyOf(item.definition) === compare);
   const references = snapshot?.bindings.filter(item => item.contract_id === publication?.definition.id) ?? [];
   const pendingDraft = snapshot?.drafts.find(item => item.id === editor.id.trim());
@@ -254,11 +263,53 @@ export default function ContractsView({ projects }: { projects: string[] }) {
           <div style={{ overflowX: 'auto' }}><table><thead><tr><th>Field</th><th>Selected v{publication.definition.version}</th>{comparison && <th>Compare v{comparison.definition.version}</th>}</tr></thead><tbody>{fields.map(field => <tr key={field}><th>{field}</th><td style={{ verticalAlign: 'top', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{pretty(publication.definition[field])}</td>{comparison && <td style={{ verticalAlign: 'top', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: pretty(publication.definition[field]) !== pretty(comparison.definition[field]) ? 'var(--bg-tertiary)' : undefined }}>{pretty(comparison.definition[field])}{pretty(publication.definition[field]) !== pretty(comparison.definition[field]) && <strong> (changed)</strong>}</td>}</tr>)}</tbody></table></div>
         </div>
         <div className="card">
+          <div className="card-title">Contract lifecycle</div>
+          {deprecated && <p role="status">Deprecated: {deprecated.reason} · reviewed by {deprecated.reviewer}. New bindings and generation are blocked; historical evidence remains available.</p>}
+          {snapshot?.derivations?.filter(item => item.contract_id === publication.definition.id).map(item => <p key={item.contract_id}>Derived from {item.source_id} v{item.source_version}: {item.reason} · {item.reviewer}</p>)}
+          <p>Lifecycle changes preserve published versions and historical runs. Migration changes only selected bindings; generated cases require regeneration and human review.</p>
+          <label htmlFor="lifecycle-reason">Reason for lifecycle action</label>
+          <TextArea id="lifecycle-reason" value={lifecycleReason} onValueChange={setLifecycleReason} />
+          <Checkbox label="I have reviewed the selected version, reason and affected bindings and approve the chosen lifecycle action." checked={lifecycleApproved} onCheckedChange={setLifecycleApproved} />
+          <p><Button disabled={!!deprecated || !lifecycleApproved || !lifecycleReason.trim()} onClick={() => mutation(revision => rpc.deprecateContract({contract_id: publication.definition.id, version: publication.definition.version, reason: lifecycleReason.trim(), expected_revision: revision, approved: true}), 'Version deprecated. Historical assets preserved.')}>Deprecate selected version</Button></p>
+          <label htmlFor="derive-id">New contract identity</label>
+          <Input id="derive-id" value={newId} onValueChange={setNewId} />
+          <Button disabled={!lifecycleApproved || !lifecycleReason.trim() || !newId.trim()} onClick={() => mutation(revision => rpc.deriveContract({source_id: publication.definition.id, source_version: publication.definition.version, new_id: newId.trim(), reason: lifecycleReason.trim(), expected_revision: revision, approved: true}), 'Derived v1 draft created. Review and publish separately.')}>Create derived draft</Button>
+          <Collapsible><CollapsibleTrigger>Explicit binding migration</CollapsibleTrigger><CollapsibleContent>
+            <p>Source: {publication.definition.id} v{publication.definition.version}. Only projects listed below move. Review exact parameters against the target input types.</p>
+            <label htmlFor="migration-target">Target publication</label>
+            <Select id="migration-target" value={targetVersion} onValueChange={setTargetVersion}><option value="">Choose target version</option>{publications.filter(item => item.definition.id === publication.definition.id && item.definition.version !== publication.definition.version && !snapshot?.deprecations?.some(d => d.contract_id === item.definition.id && d.version === item.definition.version)).map(item => <option key={item.definition.version} value={String(item.definition.version)}>v{item.definition.version}</option>)}</Select>
+            <Button onClick={() => setMigrationJson(pretty(references.filter(item => item.contract_version === publication.definition.version).map(item => ({project: item.project, parameters: item.parameters}))))}>Prepare source bindings for review</Button>
+            <label htmlFor="migration-bindings">Selected bindings JSON (array of project and parameters)</label>
+            <TextArea id="migration-bindings" rows={6} value={migrationJson} onValueChange={setMigrationJson} />
+            <pre style={{whiteSpace: 'pre-wrap'}}>Target inputs: {pretty(publications.find(item => item.definition.id === publication.definition.id && String(item.definition.version) === targetVersion)?.definition.inputs ?? {})}</pre>
+            <Button disabled={!lifecycleApproved || !lifecycleReason.trim() || !targetVersion} onClick={() => mutation(revision => {
+              const values: unknown = JSON.parse(migrationJson);
+              if (!Array.isArray(values) || !values.length) throw new Error('Select at least one project binding.');
+              const target = publications.find(item => item.definition.id === publication.definition.id && String(item.definition.version) === targetVersion);
+              if (!target) throw new Error('Select a target publication.');
+              const seen = new Set<string>();
+              const bindings = values.map(item => {
+                if (!item || typeof item.project !== 'string' || seen.has(item.project) || !references.some(ref => ref.project === item.project && ref.contract_version === publication.definition.version)) throw new Error('Every selected project must have one binding to the source version.');
+                seen.add(item.project);
+                const parameters = objectJson(JSON.stringify(item.parameters));
+                if (Object.keys(parameters).sort().join('\0') !== Object.keys(target.definition.inputs).sort().join('\0')) throw new Error('Parameters must exactly match target inputs.');
+                for (const [name, type] of Object.entries(target.definition.inputs)) {
+                  const value = parameters[name];
+                  if (type === 'object' ? !value || typeof value !== 'object' || Array.isArray(value) : typeof value !== type) throw new Error(`Incorrect parameter type: ${name}`);
+                }
+                return {project: item.project, parameters};
+              });
+              return rpc.migrateContractBindings({contract_id: publication.definition.id, from_version: publication.definition.version, to_version: target.definition.version, bindings, reason: lifecycleReason.trim(), expected_revision: revision, approved: true});
+            }, 'Selected bindings migrated atomically. Existing cases and runs retain their original sources.')}>Migrate reviewed bindings</Button>
+          </CollapsibleContent></Collapsible>
+          {snapshot?.migrations?.filter(item => item.contract_id === publication.definition.id).map((item, i) => <p key={i}>Migration v{item.from_version} → v{item.to_version}: {item.projects.join(', ')} · {item.reason} · {item.reviewer}</p>)}
+        </div>
+        <div className="card">
           <div className="card-title">Project binding & impact references</div>
           <p>Bind immutable {publication.definition.id} v{publication.definition.version}. Corrections do not migrate existing bindings automatically.</p>
           <div className="input-group"><label htmlFor="binding-project">Project</label><Select id="binding-project" className="input" value={project} onValueChange={value => setProject(value)}><option value="">Select project</option>{projects.map(name => <option key={name} value={name}>{name}</option>)}</Select></div>
           <div className="input-group"><label htmlFor="binding-parameters">Typed parameters JSON (exactly the declared input names)</label><TextArea id="binding-parameters" className="input" rows={5} value={parameters} onValueChange={value => setParameters(value)} /></div>
-          <Button type="button" className="btn btn-primary" disabled={!project || !snapshot} onClick={() => mutation(revision => {
+          <Button type="button" className="btn btn-primary" disabled={!project || !snapshot || !!deprecated} onClick={() => mutation(revision => {
             const values = objectJson(parameters);
             const ports = publication.definition.inputs;
             if (Object.keys(values).sort().join('\0') !== Object.keys(ports).sort().join('\0')) throw new Error('Parameters must exactly match declared input names.');

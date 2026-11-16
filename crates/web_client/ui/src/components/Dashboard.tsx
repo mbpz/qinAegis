@@ -2,21 +2,12 @@ import { Button, Input } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { View } from '../App';
 import { rpc } from '../utils/rpc';
+import type { GateStatus } from '../types/rpc';
 
 interface DashboardProps {
   projects: string[];
   onNavigate: (view: View) => void;
   onProjectsChanged: () => Promise<void>;
-}
-
-interface GateStatus {
-  e2e_pass_rate: number | null;
-  e2e_pass_rate_display: string;
-  performance: string | null;
-  stress: string | null;
-  has_runs: boolean;
-  last_run_passed?: number;
-  last_run_total?: number;
 }
 
 // Shared via ../utils/rpc
@@ -101,6 +92,7 @@ export default function Dashboard({ projects, onNavigate, onProjectsChanged }: D
         <div className="stat-card">
           <div className="stat-value">{gateStatus?.e2e_pass_rate_display ?? '--'}</div>
           <div className="stat-label">Pass Rate</div>
+          {gateStatus?.execution_blocked && <p role="status" style={{fontSize: '13px', color: 'var(--text-secondary)'}}>Execution {gateStatus.execution_status ?? 'blocked'}. The quality gate is blocked even if individual scripts passed. Review execution evidence in Reports.</p>}
         </div>
       </div>
 

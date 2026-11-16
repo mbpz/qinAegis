@@ -1,7 +1,7 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use crate::protocol::{JsonRpcRequest, MidsceneProcess, LlmConfig, SandboxConfig};
+use crate::protocol::{JsonRpcRequest, LlmConfig, MidsceneProcess, SandboxConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
@@ -49,7 +49,11 @@ pub struct TestExecutor {
 }
 
 impl TestExecutor {
-    pub async fn new(max_concurrency: usize, llm_config: Option<LlmConfig>, sandbox_config: Option<SandboxConfig>) -> anyhow::Result<Self> {
+    pub async fn new(
+        max_concurrency: usize,
+        llm_config: Option<LlmConfig>,
+        sandbox_config: Option<SandboxConfig>,
+    ) -> anyhow::Result<Self> {
         let process = MidsceneProcess::spawn(llm_config, sandbox_config).await?;
         let semaphore = Arc::new(Semaphore::new(max_concurrency));
         Ok(Self {
@@ -77,7 +81,10 @@ impl TestExecutor {
             result.retry_count = 0;
             Ok(result)
         } else {
-            let error_msg = resp.error.clone().unwrap_or_else(|| "unknown error".to_string());
+            let error_msg = resp
+                .error
+                .clone()
+                .unwrap_or_else(|| "unknown error".to_string());
             // Pull the real failing step out of the partial TestResult the
             // sandbox returns on failure. Fall back to "unknown" only if
             // the TS executor didn't populate it.
@@ -119,7 +126,10 @@ impl TestExecutor {
 
                 match resp {
                     Ok(resp) if resp.ok => {
-                        let mut result: TestResult = serde_json::from_value(resp.data.unwrap_or_default()).unwrap_or_else(|_| TestResult {
+                        let mut result: TestResult = serde_json::from_value(
+                            resp.data.unwrap_or_default(),
+                        )
+                        .unwrap_or_else(|_| TestResult {
                             case_id: case.id.clone(),
                             passed: false,
                             duration_ms: 0,
@@ -133,7 +143,10 @@ impl TestExecutor {
                         Ok(result)
                     }
                     Ok(resp) => {
-                        let error_msg = resp.error.clone().unwrap_or_else(|| "unknown error".to_string());
+                        let error_msg = resp
+                            .error
+                            .clone()
+                            .unwrap_or_else(|| "unknown error".to_string());
                         // Read the real failing step from the partial
                         // TestResult the sandbox returns on failure.
                         let failed_step = extract_failed_step(&resp.data);
@@ -173,8 +186,12 @@ impl TestExecutor {
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {
         let process = self.process.lock().await;
-        process.call(JsonRpcRequest::Shutdown).await?;
+        let response = process.call(JsonRpcRequest::Shutdown).await?;
+        anyhow::ensure!(
+            response.ok,
+            "executor shutdown failed: {}",
+            response.error.unwrap_or_default()
+        );
         Ok(())
     }
 }
-

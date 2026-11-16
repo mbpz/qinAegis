@@ -75,3 +75,6 @@ mod basic_test {
 }
 
 pub mod runtime;
+
+pub mod execution_records;
+pub mod allure;
