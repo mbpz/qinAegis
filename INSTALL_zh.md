@@ -1,6 +1,6 @@
 # 安装本地 Web 服务
 
-2.0 正在开发。下列发布包安装步骤仅适用于**对应版本经过验证并正式发布后**；发布前请按 README 从源码构建。Homebrew Formula 当前为发布模板，不应直接安装。
+2.0 正在开发。下列发布包安装步骤仅适用于**对应版本经过验证并正式发布后**；发布前请按 [README](README_zh.md) 从源码构建。Homebrew Formula 当前为发布模板，不应直接安装。
 
 `codex/qinaegis-2.0` 分支和 PR 的自动构建会在 Actions 运行产物中提供服务候选归档。核对工作流提交、目标平台和 manifest，再验证摘要。候选包不代表签名、干净机器安装或完整 2.0 GA 已通过；已有 `v1.0` 桌面发布不能当作 2.0 安装包。
 
@@ -34,10 +34,10 @@ sh install.sh --version 2.0.0
 安装式运行时目录须包含以下清单及真实配套文件：
 
 ```json
-{"schema_version":1,"engine":"midscene","version":"已验证的引擎版本","entry":"dist/executor.js","node":"bin/node"}
+{"schema_version":1,"engine":"midscene","version":"your-verified-engine-version","entry":"dist/executor.js","node":"bin/node"}
 ```
 
-`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器，在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录。修改环境变量后重启服务。
+将示例 `version` 替换为已验证的引擎版本，仅使用 ASCII 字母、数字、点、连字符或下划线。`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器，在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录。修改环境变量后重启服务。
 
 开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。自动下载/修复引擎和完整 Web 引擎管理属于后续阶段。
 
@@ -58,3 +58,5 @@ Linux 还可能需要 Playwright 文档要求的浏览器系统依赖。执行 A
 ## 数据与卸载
 
 项目保留在 `~/.qinAegis/projects`，全局配置路径由操作系统决定。先停止服务，再移除安装的 `qinaegis` 程序即可卸载基础包，默认保留配置与项目。需要清理数据时先备份；替换程序不等于回滚未来的数据格式迁移。
+
+日常操作见[用户指南](docs/USER_GUIDE.md)，完整入口见[文档索引](docs/README.md)，候选包与正式发布边界见 [CI 交付说明](docs/CI_INTEGRATION.md)。

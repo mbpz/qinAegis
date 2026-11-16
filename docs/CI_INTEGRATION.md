@@ -12,7 +12,7 @@
 | `publish-homebrew-tap.yml` | 正式稳定的 v2 Release 发布 | 校验归档摘要，更新 `mbpz/homebrew-qinAegis` Formula |
 | `roadmap-check.yml` | 每周一 09:00 UTC、手动运行 | 真实构建/测试结果与失败日志，不再用文件存在推断产品完成 |
 
-普通构建仅有 `contents: read`。创建草稿 Release 的 job 才有仓库写权限；Pages 部署权限局限在 main 部署 job。PR 不拥有部署或 tap 推送权限。同一分支重复提交可取消旧构建，tag 发布保留独立执行。
+普通构建仅有 `contents: read`。创建草稿 Release 的 job 才有仓库写权限；Pages 部署权限局限在 main 部署 job。PR 不拥有部署或 tap 推送权限。同一仓库、同一分支的 push 与 PR 共用并发组，重复提交可取消旧构建；来自不同仓库的同名分支不互相取消，tag 发布保留独立执行。
 
 ## 可复现构建与产物
 
@@ -29,7 +29,7 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 归档只含服务和内嵌 UI。Node、Playwright 浏览器和 Midscene 执行器尚需单独准备；不能把网页打开视为自动化引擎安装完成。macOS/Linux 的用户目录安装脚本已有离线回归，Windows 当前为 ZIP 手工安装，尚无一键安装器。候选构建尚不包含签名、公证或全部系统干净机器验收。
 
-矩阵执行 UI 回归、Rust workspace 回归、隔离数据目录的服务启动/认证/契约生成/执行测试。Linux 后续 job 安装锁定引擎，核验官方 Allure 报告通过已打包服务的完整生成和读取链路。确定性模型和协议 fixture 不等于真实业务视觉测试。
+矩阵执行 UI 回归、Rust workspace 回归、隔离数据目录的服务启动/认证/契约生成/执行测试；冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。Linux 后续 job 安装锁定引擎，核验官方 Allure 报告通过已打包服务的完整生成和读取链路。确定性模型和协议 fixture 不等于真实业务视觉测试。
 
 ## 版本与发布
 

@@ -1,5 +1,13 @@
 # Reliability Loop Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史事件总线闭环执行计划。原任务清单与 healed-script 持久化方案不能直接作为 2.0 自动纠正授权；契约纠正须原因/证据、差异和人工审核，不得自动放宽业务断言。2.0 以冻结运行、明确失败、取消/清理和可组合场景演进，旧 CLI 与进程内总线不等于持久任务已交付。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire existing Critic / Healer / Gate into one closed event-bus pipeline with bounded retries, flaky auto-quarantine, and healed-script persistence.

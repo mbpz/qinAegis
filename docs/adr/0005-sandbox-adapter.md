@@ -1,5 +1,13 @@
 # SandboxAdapter — Health Check + Hot Reload
 
+<!-- product-status-2.0 -->
+> **决策沿用与演进说明 · 2026-11-16**
+>
+> 决策状态：沿用生命周期/健康检查的适配边界，交付说明已演进。2.0 基础服务不捆绑 Node/Chromium，Playwright + Midscene.js 引擎按需准备；“零外部依赖”“跨平台均可运行”是旧方案表述，不能作为当前干净机器验收结论。旧启动、重连和配置示例仅记录该决策阶段。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../CONTEXT.md)、[2.0 批准方案](../plans/local-web.md)及[实现进度与验收缺口](../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 ## Status
 
 **Accepted** — 2026-05-07 更新

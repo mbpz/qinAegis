@@ -1,5 +1,13 @@
 # QinAegis Phase 4 Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史性能/压测实施计划。Lighthouse、Locust 属独立按需能力，本文示例与旧 CI/Notion/CLI 集成不是已验收的 2.0 功能；2.0 须分别验证引擎依赖、目标授权、真实结果和门禁，不能由文件存在推断可用。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement performance testing (Lighthouse CI) and stress testing (Locust) with baseline comparison and GitHub Actions integration.

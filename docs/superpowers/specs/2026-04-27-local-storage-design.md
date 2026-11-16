@@ -1,5 +1,13 @@
 # Local Storage Only - Remove Notion Dependency
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史本地存储方案，本地优先与移除 Notion 必选依赖的方向沿用。旧 CLI、目录树和数据结构不是 2.0 的完整契约；新增契约治理、私有模型注册、冻结来源和不可变运行记录，跨平台路径与迁移以当前实现和验收为准。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 **Date:** 2026-04-27
 **Status:** Approved
 

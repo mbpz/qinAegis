@@ -1,5 +1,9 @@
 # Issue tracker: GitHub
 
+Updated: 2026-11-16. Product scope follows [CONTEXT.md](../../CONTEXT.md), the [2.0 plan](../plans/local-web.md), and [verified progress](../progress/local-web-2.0.md). Track contract reuse/governance, local Web delivery, extensible model routing, Playwright + Midscene.js execution and Allure separately from planned orchestration or accessibility capabilities. An issue closure does not certify the entire 2.0 release.
+
+These are tool conventions. Creating issues, posting comments or changing labels requires authorization from the user or an explicitly invoked workflow; reading tickets does not imply permission to publish.
+
 Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
 ## Conventions

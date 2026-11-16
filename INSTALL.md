@@ -1,6 +1,6 @@
 # Install the local Web service
 
-2.0 is in development. Release installation below applies **after the corresponding verified release is published**. Until then, build from source using README.md. Do not install the Formula template directly.
+2.0 is in development. Release installation below applies **after the corresponding verified release is published**. Until then, build from source using [README.md](README.md). Do not install the Formula template directly.
 
 Automatic CI builds on `codex/qinaegis-2.0` and pull requests provide candidate service archives in the Actions run artifacts. Review the workflow commit, target and manifest, and verify the archive checksum. These are development candidates; a green build does not certify signing, clean-machine installation or a complete 2.0 GA. The public `v1.0` desktop release is not a 2.0 installer.
 
@@ -58,3 +58,5 @@ Linux may also need Playwright's documented OS browser dependencies. Configure a
 ## Data and uninstall
 
 Project data stays in `~/.qinAegis/projects`; configuration uses the OS configuration directory. Stop the service first, then remove only the installed `qinaegis` executable to uninstall the base package. Keep project/config directories for future use, or back them up before deliberately deleting data. Do not assume replacing a binary reverses any future data migration.
+
+See the [user guide](docs/USER_GUIDE.md), [documentation index](docs/README.md) and [CI distribution details](docs/CI_INTEGRATION.md) for current operations and acceptance limits.

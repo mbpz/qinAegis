@@ -1,5 +1,13 @@
 # QinAegis Phase 2 Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史 AI 引擎执行计划。保留 Playwright + Midscene.js 的适配思路；旧 MiniMax 固定模型、源码 tsx 入口、stdio API 和 CLI 任务不是当前完整接口。2.0 以契约、可扩展模型路由、人工审核及来源快照演进，安装引擎与开发 sandbox 明确区分。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the AI-driven test execution engine: Node.js midscene subprocess, project exploration pipeline, test case generation, and AI Critic auto-review.
