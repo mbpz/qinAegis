@@ -1,34 +1,43 @@
-name: Roadmap Check
-
+name: Verify 2.0 progress
 on:
   schedule:
-    - cron: '0 9 * * 1'  # Monday 9am UTC
-  workflow_dispatch:      # manual trigger
-
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: roadmap-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
-    runs-on: macos-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run roadmap check
+      - name: Install locked frontend dependencies
+        working-directory: crates/web_client/ui
+        run: npm ci
+      - name: Verify source and build regressions
         run: bash scripts/roadmap-check.sh > roadmap-status.md
-      - name: Upload status
+      - name: Publish check summary
+        if: always()
+        run: |
+          if [ -f roadmap-status.md ]; then cat roadmap-status.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload status and diagnostic logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: roadmap-status
-          path: roadmap-status.md
-      - name: Open issue on regression
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const status = fs.readFileSync('roadmap-status.md', 'utf8');
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'Roadmap Check Regression',
-              body: `Weekly roadmap check failed.\n\n\`\`\`\n${status}\n\`\`\``,
-            });
+          path: |
+            roadmap-status.md
+            build/roadmap-check/*.log
+          if-no-files-found: warn
+          retention-days: 14

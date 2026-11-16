@@ -4,11 +4,15 @@
 
 产品核心是可复用契约：业务意图、输入、前置条件、断言与证据要求独立于项目绑定、模型和执行器。契约可维护、修改、纠正与版本追溯；模型接入可扩展、可切换；能力按真实场景组合并校验执行时序。详见[项目记忆](CONTEXT.md)和 [2.0 实现计划](docs/plans/local-web.md)。
 
-当前分支正在分阶段实施 2.0，并非所有规划已交付。契约/流程领域基础与本地 HTTP 服务迁移先行。无障碍电脑控制属于后续可选能力，需要用户明确授权，不会随安装自动启用。
+当前分支正在分阶段实施 2.0，并非所有规划已交付。本地 Web、契约生命周期与执行追溯、模型注册/路由及官方 Allure 报告已实现；真实业务视觉执行、自动引擎安装、持久任务恢复和干净机器安装仍待验收。无障碍电脑控制属于后续可选能力，需要用户明确授权，不会随安装自动启用。
 
 ## 从源码运行
 
+合并主分支前，2.0 开发源码位于 `codex/qinaegis-2.0`。先前正式版使用不同架构，不要通过通用的“最新版本”链接获取 2.0。
+
 ```bash
+git clone --branch codex/qinaegis-2.0 https://github.com/mbpz/qinAegis.git
+cd qinAegis
 cd crates/web_client/ui
 npm ci
 npm run build
@@ -41,6 +45,12 @@ qinaegis start --port 19877
 
 ## 发布方式
 
-`bash scripts/build-release.sh TARGET` 构建前端及服务归档，目标包括 macOS 双架构、Linux x86_64、Windows x86_64，实际支持以 CI 与干净环境验收为准。不生成 `.app`、DMG 或 cask。工作流先生成待审阅草稿发布；Homebrew Formula 由正式发布摘要渲染，仓库模板不能在发布前作为可用安装源宣传。
+`bash scripts/build-release.sh TARGET` 构建前端及服务归档，目标包括 macOS 双架构、Linux x86_64、Windows x86_64，实际支持以 CI 与干净环境验收为准。不生成 `.app`、DMG 或 cask。分支/PR 构建保留候选包，版本匹配的 `v2.*` 标签通过检查后生成待审阅草稿发布。产物包含来源元数据和校验摘要；候选构建不能等同于已签名正式安装器。Homebrew Formula 仅跟随经过摘要验证的正式稳定发布，仓库模板不能在发布前作为可用安装源宣传。
+
+## Allure 与官网
+
+在 Reports 选择已保存运行，生成、查看或下载官方 **Allure 3.33.0** 单文件报告。生成报告使用已准备的 Node 引擎，不重新执行测试；用例通过不能掩盖执行基础设施异常。HTML 支持离线查看，附件可能包含项目输入、脚本和截图，分享前需审阅。
+
+GitHub Pages 官网用于公开产品说明，本机工作台运行在自己的电脑上。官网在 `crates/web_client/ui` 中通过 `npm run build:pages` 独立构建至 `build/pages`；PR 提供预览产物，审阅后合并 `main` 才部署。维护和验收边界见 [CI/CD 集成](docs/CI_INTEGRATION.md)与[开发进度](docs/progress/local-web-2.0.md)。
 
 [English](README.md) · [License](LICENSE)

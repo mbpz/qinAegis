@@ -2,6 +2,8 @@
 
 2.0 正在开发。下列发布包安装步骤仅适用于**对应版本经过验证并正式发布后**；发布前请按 README 从源码构建。Homebrew Formula 当前为发布模板，不应直接安装。
 
+`codex/qinaegis-2.0` 分支和 PR 的自动构建会在 Actions 运行产物中提供服务候选归档。核对工作流提交、目标平台和 manifest，再验证摘要。候选包不代表签名、干净机器安装或完整 2.0 GA 已通过；已有 `v1.0` 桌面发布不能当作 2.0 安装包。
+
 ## macOS / Linux
 
 从可信 2.0 发布页下载并审阅 `install.sh`：
@@ -38,6 +40,20 @@ sh install.sh --version 2.0.0
 `entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器，在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录。修改环境变量后重启服务。
 
 开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。自动下载/修复引擎和完整 Web 引擎管理属于后续阶段。
+
+已安装兼容的 Node 24 时，在 2.0 源码目录准备开发引擎：
+
+```bash
+cd sandbox
+npx --yes pnpm@11.24.0 install --frozen-lockfile
+npx --yes pnpm@11.24.0 run build
+npx --yes pnpm@11.24.0 exec playwright install chromium
+export QINAEGIS_DEV_SANDBOX="$PWD"
+cd ..
+./target/release/qinaegis
+```
+
+Linux 还可能需要 Playwright 文档要求的浏览器系统依赖。执行 AI 动作前在本机 Web 工作台配置兼容视觉模型。官方 Allure HTML 使用同一引擎及固定 `allure@3.33.0`，生成时不调用模型、不需要 Java 服务，但仍需要 Node 依赖准备完成；下载报告不会自动安装视觉引擎。
 
 ## 数据与卸载
 

@@ -1,14 +1,21 @@
 name: Release local Web service
 on:
+  pull_request:
+    branches: [main]
   push:
+    branches: [main, 'codex/qinaegis-2.0']
     tags: ['v2.*']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   engine-checks:
     needs: build
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,26 +40,43 @@ jobs:
           tar -xzf build/allure-check/qinaegis-x86_64-unknown-linux-gnu.tar.gz -C build/allure-check
           python3 scripts/test-allure.py "$PWD/build/allure-check/qinaegis"
   build:
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: macos-14, target: aarch64-apple-darwin}
+          - {os: macos-15, target: aarch64-apple-darwin}
           - {os: macos-15-intel, target: x86_64-apple-darwin}
           - {os: ubuntu-22.04, target: x86_64-unknown-linux-gnu}
-          - {os: windows-latest, target: x86_64-pc-windows-msvc}
+          - {os: windows-2022, target: x86_64-pc-windows-msvc}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: crates/web_client/ui/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Check 2.0 versions and release tag
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/release-assets.py check
+          python scripts/test-release-assets.py
+          if [[ "$RELEASE_REF" == refs/tags/* ]]; then
+            python scripts/release-assets.py check --tag "$RELEASE_TAG"
+          fi
       - name: Build embedded UI and executable archive
         shell: bash
         run: bash scripts/build-release.sh '${{ matrix.target }}'
@@ -68,9 +92,11 @@ jobs:
         run: |
           SUFFIX=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
-          python scripts/test-local-web.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
-          python scripts/test-contract-generation.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
-          python scripts/test-contract-execution.py "$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
+          BINARY="$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then BINARY="$(cygpath -w "$BINARY")"; fi
+          python scripts/test-local-web.py "$BINARY"
+          python scripts/test-contract-generation.py "$BINARY"
+          python scripts/test-contract-execution.py "$BINARY"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py
@@ -78,10 +104,12 @@ jobs:
         with:
           name: qinaegis-${{ matrix.target }}
           path: build/qinaegis-*
-  release:
+          if-no-files-found: error
+          retention-days: 14
+  assemble:
     needs: [build, engine-checks]
-    if: startsWith(github.ref, 'refs/tags/v2.')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -89,13 +117,35 @@ jobs:
           pattern: qinaegis-*
           merge-multiple: true
           path: release
-      - name: Generate checksums
-        working-directory: release
-        run: sha256sum qinaegis-* > SHA256SUMS
-      - name: Include installer
-        run: cp scripts/install.sh release/install.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate complete release and checksum every asset
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: python3 scripts/release-assets.py bundle --directory release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distribution-candidate
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+  release:
+    permissions:
+      contents: write
+    needs: assemble
+    if: startsWith(github.ref, 'refs/tags/v2.')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distribution-candidate
+          path: release
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
           generate_release_notes: true
           files: release/*

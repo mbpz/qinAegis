@@ -2,6 +2,8 @@
 
 2.0 is in development. Release installation below applies **after the corresponding verified release is published**. Until then, build from source using README.md. Do not install the Formula template directly.
 
+Automatic CI builds on `codex/qinaegis-2.0` and pull requests provide candidate service archives in the Actions run artifacts. Review the workflow commit, target and manifest, and verify the archive checksum. These are development candidates; a green build does not certify signing, clean-machine installation or a complete 2.0 GA. The public `v1.0` desktop release is not a 2.0 installer.
+
 ## macOS / Linux
 
 Download `install.sh` from a trusted 2.0 release, review it, then run:
@@ -38,6 +40,20 @@ An installed runtime directory must contain:
 `entry` and optional `node` reference files inside that directory. Supply compiled executor resources, matching production dependencies and a compatible automation browser; a manifest alone is insufficient. Set `QINAEGIS_RUNTIME_DIR` to its absolute path **before starting the service**. Environment changes require restarting the service.
 
 For development only, prepare the repository's root `sandbox` dependencies/browser, then set `QINAEGIS_DEV_SANDBOX` to that absolute source directory. The development adapter uses `src/executor.ts` and `node_modules/tsx/dist/cli.mjs`. No implicit source-path fallback is used. Automated runtime downloads/repair and Web engine management are planned, not part of this installer.
+
+With compatible Node 24 installed, prepare the development engine from the 2.0 checkout:
+
+```bash
+cd sandbox
+npx --yes pnpm@11.24.0 install --frozen-lockfile
+npx --yes pnpm@11.24.0 run build
+npx --yes pnpm@11.24.0 exec playwright install chromium
+export QINAEGIS_DEV_SANDBOX="$PWD"
+cd ..
+./target/release/qinaegis
+```
+
+Linux may also need Playwright's documented OS browser dependencies. Configure a compatible visual model in the local Web workbench before executing AI actions. Official Allure HTML generation uses this same engine and the pinned `allure@3.33.0`; it requires no model call or Java server, but still needs the prepared Node dependencies. Downloading a report does not install or prepare the visual-test engine.
 
 ## Data and uninstall
 

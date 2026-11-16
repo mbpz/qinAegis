@@ -4,11 +4,15 @@ A local Web AI quality workbench based on **Playwright + Midscene.js visual test
 
 The product's central asset is the reusable test contract: business intent, inputs, preconditions, assertions and evidence remain separate from project bindings, models and engines. Versioned correction, extensible model routing and composable scenarios are the 2.0 direction. See [project memory](CONTEXT.md) and the [implementation plan](docs/plans/local-web.md) for scope and acceptance criteria.
 
-This branch is 2.0 development, not a claim that every planned feature is shipped. Contract/scenario domain foundations and the local HTTP migration are being delivered in phases. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
+This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, automatic engine installation, durable task recovery and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
 
 ## Build and run
 
+The 2.0 development source is on `codex/qinaegis-2.0` until it is merged into `main`. The previous public release uses a different architecture; do not use a generic “latest” download to obtain 2.0.
+
 ```bash
+git clone --branch codex/qinaegis-2.0 https://github.com/mbpz/qinAegis.git
+cd qinAegis
 cd crates/web_client/ui
 npm ci
 npm run build
@@ -41,6 +45,12 @@ Projects remain under `~/.qinAegis/projects`. Global configuration follows the O
 
 ## Release artifacts
 
-`bash scripts/build-release.sh TARGET` builds UI plus a service archive. Targets are macOS ARM64/Intel, Linux x86_64 and Windows x86_64; platform availability remains subject to CI and clean-machine verification. No `.app`, DMG or cask is produced. Workflows produce a **draft** release for review before publication. The Homebrew Formula is rendered from verified release checksums; the repository template is not directly installable before release.
+`bash scripts/build-release.sh TARGET` builds UI plus a service archive. Targets are macOS ARM64/Intel, Linux x86_64 and Windows x86_64; platform availability remains subject to CI and clean-machine verification. No `.app`, DMG or cask is produced. Branch/PR builds produce candidate artifacts, and matching `v2.*` tags produce a **draft** release after checks. Artifacts include provenance metadata and checksums. A candidate build is not a signed production installer. The Homebrew Formula is rendered only from verified, published stable release assets; the repository template is not directly installable before release.
+
+## Allure and the public website
+
+In Reports, select a saved run to generate, view or download an official **Allure 3.33.0** single-file report. Report generation uses the prepared Node engine, does not rerun tests, and preserves execution failures independently of individual case passes. HTML downloads work offline; attachments can contain project inputs, scripts and screenshots, so review them before sharing.
+
+The public GitHub Pages site describes the product; the private workbench runs on your computer. Pages builds independently with `npm run build:pages` in `crates/web_client/ui`, producing `build/pages`. Pull requests build a preview artifact; deployment follows reviewed changes to `main`. See [CI/release maintenance](docs/CI_INTEGRATION.md) and [verified progress and remaining acceptance](docs/progress/local-web-2.0.md).
 
 [中文说明](README_zh.md) · [安装说明](INSTALL_zh.md) · [License](LICENSE)
