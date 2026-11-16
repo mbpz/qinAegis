@@ -54,11 +54,29 @@ class Smoke:
         self.origin = f"http://127.0.0.1:{self.port}"
 
     def cli(self, *arguments, success=True):
+        print(f"CHECK CLI {arguments[0]}", flush=True)
+        command = [str(self.binary), *arguments]
+        if arguments[0] == "start":
+            # Exercise callers that capture launcher output through pipes.
+            # The outer process below uses files so a service retaining these
+            # pipes fails within 20s instead of hanging Windows communicate().
+            command = [sys.executable, "-c",
+                "import subprocess,sys\n"
+                "r=subprocess.run(sys.argv[1:],stdin=subprocess.DEVNULL,capture_output=True)\n"
+                "sys.stdout.buffer.write(r.stdout)\n"
+                "sys.stderr.buffer.write(r.stderr)\n"
+                "sys.exit(r.returncode)\n", *command]
         try:
-            result = subprocess.run(
-                [str(self.binary), *arguments], env=self.env,
-                cwd=self.home, capture_output=True, text=True, timeout=20,
-            )
+            # File capture never waits for descendants to close a pipe. In
+            # CPython on Windows, run(capture_output=True, timeout=...) drains
+            # its pipes without a deadline after killing a timed-out child.
+            with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+                result = subprocess.run(command, env=self.env, cwd=self.home,
+                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, timeout=20)
+                stdout.seek(0)
+                stderr.seek(0)
+                result.stdout = stdout.read().decode("utf-8", errors="replace")
+                result.stderr = stderr.read().decode("utf-8", errors="replace")
         except (OSError, subprocess.TimeoutExpired) as error:
             raise SmokeFailure(f"CLI {arguments[0]} could not complete ({type(error).__name__})") from None
         # Do not include subprocess output in errors: future launchers may emit credentials.

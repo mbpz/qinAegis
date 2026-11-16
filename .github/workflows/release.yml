@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.event.pull_request.number || github.ref }}
+  group: release-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   engine-checks:
@@ -86,17 +86,23 @@ jobs:
       - name: Rust workspace regressions
         run: cargo test --workspace --locked
       - name: Local Web release smoke
+        timeout-minutes: 5
         shell: bash
         env:
           RELEASE_TARGET: ${{ matrix.target }}
+          PYTHONUNBUFFERED: '1'
         run: |
           SUFFIX=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
           BINARY="$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
           if [[ "$RUNNER_OS" == "Windows" ]]; then BINARY="$(cygpath -w "$BINARY")"; fi
           python scripts/test-local-web.py "$BINARY"
+          echo "::group::Contract generation smoke"
           python scripts/test-contract-generation.py "$BINARY"
+          echo "::endgroup::"
+          echo "::group::Contract execution smoke"
           python scripts/test-contract-execution.py "$BINARY"
+          echo "::endgroup::"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py

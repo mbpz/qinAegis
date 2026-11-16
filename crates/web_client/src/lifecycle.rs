@@ -230,6 +230,34 @@ async fn show_browser(instance: &Instance) -> Result<()> {
     }
     Ok(())
 }
+#[cfg(windows)]
+fn isolate_launcher_handles() -> Result<()> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(kind: u32) -> *mut c_void;
+        fn SetHandleInformation(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+    // Rust's Windows spawn inherits all inheritable handles, including the
+    // launcher's original redirected pipes even when the child's stdio is set
+    // to service.log. Keeping those pipes alive prevents callers seeing EOF.
+    // Clear only inheritance; the launcher can still print its ready message.
+    for kind in [-10_i32, -11, -12] {
+        // SAFETY: GetStdHandle borrows a process-owned standard handle. We do
+        // not close it, and skip the documented null/invalid sentinel values.
+        let handle = unsafe { GetStdHandle(kind as u32) };
+        if handle.is_null() || handle == (-1_isize as *mut c_void) {
+            continue;
+        }
+        // SAFETY: HANDLE_FLAG_INHERIT (1) is the only changed flag. Command
+        // creates separate inheritable handles for its explicit child stdio.
+        if unsafe { SetHandleInformation(handle, 1, 0) } == 0 {
+            return Err(std::io::Error::last_os_error())
+                .context("Cannot isolate background service from launcher handles");
+        }
+    }
+    Ok(())
+}
 async fn start(options: &Options, dir: &Path) -> Result<()> {
     if let Ok(instance) = read_instance(dir) {
         if healthy(&instance).await {
@@ -268,6 +296,7 @@ async fn start(options: &Options, dir: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        isolate_launcher_handles()?;
         // Detach the service from the launching console and its Ctrl+C group.
         command.creation_flags(0x00000008 | 0x00000200);
     }
