@@ -4,6 +4,7 @@ set -euo pipefail
 PYTHON=python3
 if [[ "${OS:-}" == "Windows_NT" ]]; then PYTHON=python; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "${OS:-}" == "Windows_NT" ]]; then ROOT="$(cygpath -m "$ROOT")"; fi
 "$PYTHON" - "$ROOT" "${1:-}" <<'PY'
 import json, pathlib, re, sys
 root=pathlib.Path(sys.argv[1]); version=sys.argv[2]

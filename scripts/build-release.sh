@@ -3,6 +3,7 @@ set -euo pipefail
 PYTHON=python3
 if [[ "${OS:-}" == "Windows_NT" ]]; then PYTHON=python; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "${OS:-}" == "Windows_NT" ]]; then ROOT="$(cygpath -m "$ROOT")"; fi
 TARGET="${1:-$(rustc -vV | sed -n 's/^host: //p')}"
 case "$TARGET" in
   aarch64-apple-darwin|x86_64-apple-darwin|x86_64-unknown-linux-gnu|x86_64-pc-windows-msvc) ;;

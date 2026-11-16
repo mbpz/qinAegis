@@ -83,14 +83,25 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises((ValueError,KeyError)):release.bundle(root)
 
     def test_version_bump_updates_all_products_without_git_side_effects(self):
+        bash=shutil.which('bash')
+        if os.name=='nt':
+            # Windows' bash.exe can be the WSL launcher. Use Git for Windows'
+            # Bash explicitly, matching the shell used by the release workflow.
+            git=shutil.which('git')
+            self.assertIsNotNone(git,'Git for Windows is required for release script tests')
+            bash=next((str(parent/'bin/bash.exe') for parent in Path(git).resolve().parents if (parent/'bin/bash.exe').is_file()),None)
+        self.assertIsNotNone(bash,'Bash is required for release script tests')
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             for name in ['Cargo.toml','Cargo.lock','scripts/install.sh','scripts/bump-version.sh','scripts/release-assets.py','crates/web_client/ui/package.json','crates/web_client/ui/package-lock.json']:
                 destination=root/name;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(release.ROOT/name,destination)
-            subprocess.run(['bash',str(root/'scripts/bump-version.sh'),'2.1.0-rc.1'],check=True,capture_output=True)
+            result=subprocess.run([bash,'scripts/bump-version.sh','2.1.0-rc.1'],cwd=root,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,f'{result.args}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}')
             self.assertEqual(release.check(root,tag='v2.1.0-rc.1'),'2.1.0-rc.1')
             self.assertFalse((root/'.git').exists())
-            subprocess.run(['bash',str(root/'scripts/bump-version.sh'),'1.9.0'],check=False,capture_output=True)
+            result=subprocess.run([bash,'scripts/bump-version.sh','1.9.0'],cwd=root,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0,f'Invalid version was accepted:\n{result.stdout}\n{result.stderr}')
+            self.assertIn('Usage:',result.stderr)
             self.assertEqual(release.check(root),'2.1.0-rc.1')
 
 if __name__=='__main__':unittest.main()
