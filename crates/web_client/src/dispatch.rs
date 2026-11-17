@@ -268,8 +268,45 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
                 .unwrap_or(3);
             app.run_explore(target, depth as u32)
         }
+        "getProjectSpec" => {
+            if p.as_object()
+                .is_some_and(|o| o.keys().any(|k| k != "project"))
+            {
+                return Err("unknown specification parameter".into());
+            }
+            return qin_aegis_core::LocalStorage::get_project_spec(id(p, "project")?)
+                .and_then(|s| Ok(serde_json::to_value(s)?))
+                .map_err(|e| e.to_string());
+        }
+        "saveProjectSpec" => {
+            if p.as_object().is_some_and(|o| {
+                o.keys().any(|k| {
+                    !matches!(
+                        k.as_str(),
+                        "project" | "expected_revision" | "markdown" | "approved"
+                    )
+                })
+            }) {
+                return Err("unknown specification parameter".into());
+            }
+            if p.get("approved").and_then(Value::as_bool) != Some(true) {
+                return Err("explicit specification save approval required".into());
+            }
+            let expected = match p.get("expected_revision") {
+                Some(Value::Null) => None,
+                Some(Value::String(s)) => Some(s.as_str()),
+                _ => return Err("expected_revision must be a string or null".into()),
+            };
+            return qin_aegis_core::LocalStorage::save_project_spec(
+                id(p, "project")?,
+                expected,
+                text(p, "markdown")?,
+            )
+            .and_then(|s| Ok(serde_json::to_value(s)?))
+            .map_err(|e| e.to_string());
+        }
         "runGenerate" => {
-            // External filesystem paths are not accepted over HTTP; project-bound specs follow in asset APIs.
+            // HTTP accepts only a saved, project-bound specification revision.
             if p.get("spec").is_some_and(|v| !v.is_null()) {
                 return Err("spec paths are not accepted; use project assets".into());
             }
@@ -287,7 +324,24 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
             } else {
                 None
             };
-            app.run_generate(text(p, "requirement")?, project, snapshot)
+            {
+                let specification = match p.get("spec_revision") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(revision)) => {
+                        let spec = qin_aegis_core::LocalStorage::get_project_spec(project)
+                            .map_err(|e| e.to_string())?;
+                        spec.validate_snapshot(project).map_err(|e| e.to_string())?;
+                        if spec.revision.as_ref() != Some(revision) {
+                            return Err(
+                                "specification revision conflict; reload before generation".into(),
+                            );
+                        }
+                        Some(spec)
+                    }
+                    _ => return Err("spec_revision must be a string or null".into()),
+                };
+                app.run_generate(text(p, "requirement")?, project, snapshot, specification)
+            }
         }
         "runTests" | "previewTestPlan" => {
             let project = id(p, "project")?;

@@ -53,6 +53,17 @@ def main():
             smoke.instance = smoke.read_instance()
             smoke.authenticate()
             library = smoke.exercise_contracts()
+            spec = smoke.rpc("getProjectSpec", {"project":"smoke-alpha"})
+            require(not spec["exists"] and spec["revision"] is None, "missing specification ambiguous")
+            params={"project":"smoke-alpha","expected_revision":None,"markdown":"# Frozen saved specification: invoice total matches receipt"}
+            smoke.rpc("saveProjectSpec",params,success=False)
+            spec=smoke.rpc("saveProjectSpec",{**params,"approved":True})
+            require(smoke.rpc("getProjectSpec",{"project":"smoke-alpha"})==spec,"saved specification not readable")
+            smoke.rpc("saveProjectSpec",{**params,"approved":True},success=False)
+            smoke.rpc("saveProjectSpec",{**params,"expected_revision":spec["revision"],"markdown":" ","approved":True},success=False)
+            smoke.rpc("saveProjectSpec",{**params,"expected_revision":spec["revision"],"markdown":"x"*131073,"approved":True},success=False)
+            smoke.rpc("getProjectSpec",{"project":"missing"},success=False)
+            smoke.rpc("getProjectSpec",{"project":"smoke-alpha","path":"/etc/passwd"},success=False)
             revision = 0
             for name in ("one", "two"):
                 profile = {"id": name, "label": name, "adapter": "openai_compatible",
@@ -66,7 +77,7 @@ def main():
             preview = smoke.rpc("getContractExecution", {"project": "smoke-alpha"})
             require(preview["contracts"][0]["publication"]["definition"]["version"] == 1,
                     "preview silently upgraded an old binding")
-            job = smoke.rpc("runGenerate", {"project": "smoke-alpha", "requirement": "receipt", "use_contracts": True})
+            job = smoke.rpc("runGenerate", {"project": "smoke-alpha", "requirement": "receipt", "use_contracts": True,"spec_revision":spec["revision"]})
             require(arrived.wait(5), "local model did not receive generation")
             status = smoke.rpc("getJobStatus", {"jobId": job["jobId"]})
             require(status["snapshot"]["model"]["candidates"][0]["id"] == "one"
@@ -74,6 +85,7 @@ def main():
             smoke.rpc("setModelRoute", {"task": "generate", "route": {"primary": "two", "fallbacks": []}, "expected_revision": state["revision"]})
             smoke.rpc("bindContract", {"project": "smoke-alpha", "contract_id": "receipt", "version": 2,
                 "parameters": {"target": "https://alpha-new.invalid", "quantity": 3}, "expected_revision": library["revision"]})
+            smoke.rpc("saveProjectSpec",{"project":"smoke-alpha","expected_revision":spec["revision"],"markdown":"# Later specification must not replace frozen version","approved":True})
             release.set()
             def finish(job_id):
                 deadline = time.monotonic() + 10
@@ -90,6 +102,9 @@ def main():
             prompt = json.dumps(requests[0]["messages"])
             require("alpha-project-input.invalid" in prompt and "alpha-new.invalid" not in prompt
                     and "receipt has a timestamp" not in prompt, "running contract inputs or assertions drifted")
+            require(all("Frozen saved specification" in json.dumps(r["messages"]) and "Later specification" not in json.dumps(r["messages"]) for r in requests), "generator/critic specifications drifted")
+            smoke.rpc("runGenerate",{"project":"smoke-alpha","requirement":"receipt","use_contracts":True,"spec_revision":spec["revision"]},success=False)
+            smoke.rpc("runGenerate",{"project":"smoke-alpha","requirement":"receipt","use_contracts":True,"spec_revision":3},success=False)
             second_job = smoke.rpc("runGenerate", {"project": "smoke-beta", "requirement": "receipt", "use_contracts": True})
             second = finish(second_job["jobId"])
             require(second["snapshot"]["model"]["candidates"][0]["id"] == "two"
@@ -101,6 +116,10 @@ def main():
                 require(len(saved) == 1, "generated draft was not saved to selected project")
                 case = json.loads(saved[0].read_text())
                 require(case["status"] == "draft", "model bypassed human case review")
+                if project == "smoke-alpha":
+                    require(case["provenance"]["specification"] == spec, "generation lost frozen specification provenance")
+                else:
+                    require("specification" not in case["provenance"], "unselected specification entered provenance")
                 calls = case["provenance"]["model_calls"]
                 expected_profile = "one" if project == "smoke-alpha" else "two"
                 require(calls["generator"] and calls["critic"] and
@@ -110,7 +129,7 @@ def main():
                 require(calls["generator"][-1]["call"] < calls["critic"][0]["call"],
                         "critic model call facts reused generator calls")
             require(not (projects / "default").exists(), "generation wrote to hardcoded default project")
-            print("PASS two-project generation, immutable contract/model snapshots, next-job switching and draft review boundary")
+            print("PASS controlled specification CRUD/CAS/limits, frozen generator/critic specification, two-project contract/model snapshots and draft review boundary")
         finally:
             release.set()
             # A failed assertion may release an in-flight request. Wait for the

@@ -103,12 +103,16 @@ fn validate_model(model: &Value) -> Result<()> {
 
 #[derive(Clone, Debug)]
 pub struct GenerationContext {
+    pub specification: Option<crate::storage::local::ProjectSpec>,
     pub contracts: Option<ExecutionSnapshot>,
     pub model: Value,
 }
 impl GenerationContext {
     pub fn validate(&self, project: &str) -> Result<()> {
         identifier(project)?;
+        if let Some(spec) = &self.specification {
+            spec.validate_snapshot(project)?;
+        }
         validate_model(&self.model)?;
         if let Some(snapshot) = &self.contracts {
             let _: ExecutionSnapshot = serde_json::from_value(serde_json::to_value(snapshot)?)?;
@@ -187,6 +191,8 @@ pub struct CaseProvenance {
     pub model: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_calls: Option<GenerationModelCalls>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specification: Option<crate::storage::local::ProjectSpec>,
 }
 impl CaseProvenance {
     pub fn validate(&self, project: &str, case_id: &str, script: &str) -> Result<()> {
@@ -203,6 +209,7 @@ impl CaseProvenance {
             calls.validate(&self.model)?;
         }
         GenerationContext {
+            specification: self.specification.clone(),
             contracts: self.contracts.clone(),
             model: self.model.clone(),
         }
@@ -445,6 +452,7 @@ mod tests {
     use serde_json::json;
     fn provenance() -> CaseProvenance {
         CaseProvenance {
+            specification: None,
             schema_version: 1,
             project: "alpha".into(),
             case_id: "receipt".into(),

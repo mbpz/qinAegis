@@ -25,7 +25,12 @@ Development branch, not a published stable release. Current scope and remaining 
 
 - Reviewed migration from fixed configuration sources with explicit dual-credential policy, exact-content conflict checks, idempotence and backup.
 - Explicit cleanup of verified owned Allure staging residue with expiring previews; execution facts and completed reports remain intact.
-- Windows managed Job Objects bound before child execution, owned-tree cancellation and cleanup error propagation; actual Windows CI for this batch remains pending.
+- Windows managed Job Objects bound before child execution, owned-tree cancellation and cleanup error propagation; verified in actual Windows CI; per-engine timing remains pending.
+
+- One execution slot with up to eight FIFO waiting tasks, frozen submission inputs, visible queue positions and queued cancellation without replay after restart.
+- Separate owned Chromium profiles and private engine workspaces, actual browser isolation and relocated bundled-runtime checks.
+- Managed project specifications with bounded reads, explicit approved CAS saves and frozen generator/critic inputs; core/HTTP/UI and actual browser checks passed, including conflict retention and delayed-save project isolation.
+- Lighthouse/Locust failure and metric validation; ZAP explicitly unavailable until managed container cancellation is implemented.
 
 ### Changed
 
@@ -43,7 +48,7 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Pending acceptance
 
-- Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; durable queue/resource policies, Windows Job Object CI/per-engine timing acceptance and runnable scenario orchestration.
+- Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; multi-resource concurrency, exceptional browser workspace cleanup and per-engine cancellation timing acceptance and runnable scenario orchestration.
 - Clean-machine installation, Windows one-command installer, signing, upgrade/rollback and formal release.
 - Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Independent model protocols and step routing remain future work; synthetic text/JSON probing does not certify visual compatibility.
 

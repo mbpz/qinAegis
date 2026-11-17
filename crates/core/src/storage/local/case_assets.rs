@@ -844,6 +844,7 @@ mod tests {
     fn human_edit_cas_resets_review_and_preserves_expected_result_through_moves_and_typed_save() {
         let (_dir, assets, mut case) = fixture();
         case.provenance = Some(crate::execution_records::CaseProvenance {
+            specification: None,
             schema_version: 1,
             project: "project".into(),
             case_id: case.id.clone(),

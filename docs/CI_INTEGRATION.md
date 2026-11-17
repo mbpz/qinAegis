@@ -74,3 +74,5 @@ Actions 中按失败步骤查看日志；artifact 缺失、tag 不符、归档�
 运行时验收 job 固定 Python 3.12，真实归档通过正式导入器完成摘要、路径和符号链接校验后，再以捆绑 Node 验证重定位执行和官方 Allure。避免使用各系统不同补丁版本的 `tarfile` 抽取行为代替产品安装验证。
 
 当前待验收批次在 engine-checks 增加实际 Chromium 双执行器隔离，以及导入归档后用捆绑 Node/执行器运行同项浏览器检查。运行时增加 locustfile.py 和支持文件来源摘要校验。相关本机测试已通过，本批远端运行待确认；先前 0627ea3 证据不能替代本批 CI。
+
+最近任务隔离批次：修订 `e8e022f` 的真实远端 `44115748630` 四平台、engine-checks 与 assemble 全部通过；engine-checks 包含实际 Chromium 双执行器隔离与重定位运行时浏览器/官方 Allure 检查。Pages `44115748620` 预览通过，生产部署跳过。下载候选独立核对 13 项 SHA 和四份归档内外清单一致，来源为该次 PR 合并提交 `f26ba44b12c264e1c032a0bf9cd6b9fb1b6e95f0`，不是分支 HEAD。

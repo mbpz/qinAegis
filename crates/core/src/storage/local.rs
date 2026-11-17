@@ -9,7 +9,9 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::fs;
 mod case_assets;
+mod spec_assets;
 pub use case_assets::CaseAsset;
+pub use spec_assets::ProjectSpec;
 
 // ============================================================================
 // LocalStorage path helpers (sync, used by CLI for path resolution)
@@ -203,16 +205,26 @@ impl LocalStorage {
         Ok(())
     }
 
-    pub fn save_spec(name: &str, markdown: &str) -> anyhow::Result<()> {
-        let spec_path = Self::project_spec_path(name);
-        std::fs::create_dir_all(spec_path.parent().unwrap())?;
-        std::fs::write(&spec_path, markdown)?;
-        Ok(())
+    fn spec_assets(name: &str) -> anyhow::Result<spec_assets::SpecAssets> {
+        spec_assets::SpecAssets::new(Self::project_dir(name), name)
     }
-
+    pub fn get_project_spec(name: &str) -> anyhow::Result<ProjectSpec> {
+        Self::spec_assets(name)?.get()
+    }
+    pub fn save_project_spec(
+        name: &str,
+        expected: Option<&str>,
+        markdown: &str,
+    ) -> anyhow::Result<ProjectSpec> {
+        Self::spec_assets(name)?.save(expected, markdown)
+    }
+    pub fn save_spec(name: &str, markdown: &str) -> anyhow::Result<()> {
+        Self::spec_assets(name)?.save_current(markdown)
+    }
     pub fn load_spec(name: &str) -> anyhow::Result<String> {
-        let spec_path = Self::project_spec_path(name);
-        Ok(std::fs::read_to_string(&spec_path)?)
+        let spec = Self::get_project_spec(name)?;
+        anyhow::ensure!(spec.exists, "specification missing");
+        Ok(spec.markdown)
     }
 
     pub fn save_case(name: &str, case: &TestCase) -> anyhow::Result<()> {
@@ -406,23 +418,10 @@ impl Storage for LocalStorageInstance {
     }
 
     async fn save_spec(&self, name: &str, markdown: &str) -> Result<(), StorageError> {
-        let spec_path = LocalStorage::project_spec_path(name);
-        fs::write(&spec_path, markdown)
-            .await
-            .map_err(|e| StorageError::Io(e))?;
-        Ok(())
+        LocalStorage::save_spec(name, markdown).map_err(|e| StorageError::Internal(e.to_string()))
     }
-
     async fn load_spec(&self, name: &str) -> Result<String, StorageError> {
-        let spec_path = LocalStorage::project_spec_path(name);
-        fs::read_to_string(&spec_path)
-            .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => {
-                    StorageError::NotFound(format!("spec for {}", name))
-                }
-                _ => StorageError::Io(e),
-            })
+        LocalStorage::load_spec(name).map_err(|e| StorageError::Internal(e.to_string()))
     }
 
     async fn save_case(&self, name: &str, case: &TestCase) -> Result<(), StorageError> {
@@ -508,6 +507,7 @@ mod atomic_case_tests {
             created_at: "2026-11-16".into(),
             status: CaseStatus::Draft,
             provenance: Some(CaseProvenance {
+                specification: None,
                 model_calls: None,
                 schema_version: 1,
                 project: "project".into(),

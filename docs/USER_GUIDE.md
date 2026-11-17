@@ -99,6 +99,16 @@ qinaegis stop
 
 遇到 revision/conflict 时点击 **Refresh library**，比较刷新后的库与待导入内容，再重新确认。页面保留编辑输入，但旧确认不继续生效，不应通过重复点击绕过冲突检查。
 
+### 4.6 Generate：受控项目规格
+
+在 Generate 选择已有项目后，**Saved project specification** 读取该项目固定的 `spec.md`。缺失时可创建，最多 128 KiB；不能输入本机路径。通过 **Original saved specification** 对照原文，在 **Specification Markdown** 编辑，勾选 **I reviewed this specification and approve saving it** 后点击 **Create specification** 或 **Save specification**。改动内容会清除确认及选用状态。
+
+保存使用读取时的精确内容修订；冲突会保留编辑草稿。需要丢弃当前草稿时明确点击 **Reload saved specification**，再比较当前内容重新确认。切换项目会重置编辑器和规格选用，不能沿用上一项目的迟到响应。
+
+需要参与生成时，显式勾选 **Use this saved specification for generation**。有未保存改动时不能选用；保存后也需重新选择。服务在提交时校验修订并冻结规格，生成与 critic 共用规格及原契约断言；规格不能替换或放宽契约断言。后续修改不改变排队任务或历史生成来源。未选用时规格不参与该次生成。
+
+当前核心、真实 HTTP、UI 和实际 Chromium 操作验收通过，F01 已勾选；包括保存迟到响应的项目隔离。完整条件见[规格验收方案](plans/project-specification-acceptance.md)。
+
 ## 5. Models 与 Settings：配置和切换模型
 
 无需模型密钥即可浏览已有资产。新的模型选择使用 **Models and routing**；**Settings** 仍提供基础模型兼容配置、CDP 端口和探索限制。

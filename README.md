@@ -10,6 +10,8 @@ Settings now offers reviewed migration from known configuration sources with an 
 
 Tasks use one execution slot and up to eight FIFO waiting tasks, with frozen submission inputs, visible queue positions and cancellation before execution. Restart marks unfinished tasks interrupted without replay. Browser executors own separate Chromium profiles and private work directories; Windows directory cleanup remains under acceptance.
 
+Generate now supports a managed project spec.md with a 128 KiB limit, original-content comparison, explicit save approval and exact-content conflict checks. Explicitly selecting a saved specification freezes it alongside original contract assertions for both generation and critique. Core, HTTP, UI and real-browser checks passed, including conflict draft retention, approval invalidation and delayed-save isolation when switching projects.
+
 ## Product structure and current scope
 
 The same published contract can be bound to two projects with different parameters. A correction creates a reviewed revision; existing executions retain their original inputs and evidence. Models may propose changes but cannot approve a weaker business assertion merely to obtain a pass.

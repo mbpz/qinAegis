@@ -1036,17 +1036,25 @@ impl AppState {
         requirement: &str,
         project: &str,
         contracts: Option<qin_aegis_core::contract_execution::ExecutionSnapshot>,
+        specification: Option<qin_aegis_core::storage::local::ProjectSpec>,
     ) -> String {
         let (cfg, _, route) = match self.select_model("generate", Some(project)) {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
-        let spec_markdown = match contracts.as_ref().map(|s| s.specification()).transpose() {
+        let mut spec_markdown = match contracts.as_ref().map(|s| s.specification()).transpose() {
             Ok(value) => value.unwrap_or_default(),
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
+        if let Some(spec) = &specification {
+            spec_markdown = format!(
+                "# Saved project specification\n{}\n\n# Published contract assertions\n{}",
+                spec.markdown, spec_markdown
+            );
+        }
         let model_snapshot = Self::model_snapshot(&route, &cfg);
         let generation_context = qin_aegis_core::execution_records::GenerationContext {
+            specification: specification.clone(),
             contracts: contracts.clone(),
             model: model_snapshot.clone(),
         };
@@ -1058,7 +1066,9 @@ impl AppState {
 
         // Create JobEntry BEFORE spawning thread
         let mut entry = JobEntry::new("generate");
-        entry.snapshot = Some(serde_json::json!({"model":model_snapshot,"contracts":contracts}));
+        entry.snapshot = Some(
+            serde_json::json!({"model":model_snapshot,"contracts":contracts,"specification":specification}),
+        );
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 

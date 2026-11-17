@@ -1,3 +1,4 @@
+export interface ProjectSpec {project: string; exists: boolean; markdown: string; revision: string | null}
 // Shared RPC client — single source of truth
 import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapshot } from '../types/contracts';
 import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
@@ -206,8 +207,10 @@ export const rpc = {
     return call<ExecutionSnapshot>('getContractExecution', { project });
   },
 
-  async runGenerate(requirement: string, project: string, use_contracts: boolean): Promise<{ ok: boolean; jobId: string }> {
-    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, project, use_contracts });
+  getProjectSpec(project: string): Promise<ProjectSpec> { return call("getProjectSpec", {project}); },
+  saveProjectSpec(project: string, expected_revision: string | null, markdown: string): Promise<ProjectSpec> { return call("saveProjectSpec", {project,expected_revision,markdown,approved:true}); },
+  async runGenerate(requirement: string, project: string, use_contracts: boolean, spec_revision?: string | null): Promise<{ ok: boolean; jobId: string }> {
+    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, project, use_contracts, ...(spec_revision !== undefined ? {spec_revision} : {}) });
   },
 
   // Run Tests

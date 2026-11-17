@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { rpc } from '../utils/rpc';
 import type { ExecutionSnapshot } from '../types/contracts';
 import JobProgress from './JobProgress';
+import ProjectSpecEditor from './ProjectSpecEditor';
 
 export default function GenerateView({ projects }: { projects: string[] }) {
+  const [specRevision, setSpecRevision] = useState<string | null>(null);
   const [requirement, setRequirement] = useState('');
   const [project, setProject] = useState('');
   const [useContracts, setUseContracts] = useState(true);
@@ -58,7 +60,7 @@ export default function GenerateView({ projects }: { projects: string[] }) {
     setError('');
     setJobId(null);
     try {
-      const result = await rpc.runGenerate(requirement.trim(), project, useContracts);
+      const result = await rpc.runGenerate(requirement.trim(), project, useContracts, specRevision);
       if (!mounted.current) return;
       if (!result.ok || !result.jobId) throw new Error('Local service did not confirm generation.');
       activeJob.current = result.jobId;
@@ -80,9 +82,10 @@ export default function GenerateView({ projects }: { projects: string[] }) {
     <h2 className="view-title">Generate Test Cases</h2>
     <div className="card">
       <div className="card-title">Project & requirement</div>
-      <div className="input-group"><label htmlFor="generate-project">Existing project</label><Select id="generate-project" className="input" value={project} disabled={generating} onValueChange={value => setProject(value)}><option value="">Select a project</option>{projects.map(name => <option key={name} value={name}>{name}</option>)}</Select></div>
+      <div className="input-group"><label htmlFor="generate-project">Existing project</label><Select id="generate-project" className="input" value={project} disabled={generating} onValueChange={value => {setSpecRevision(null);setProject(value);}}><option value="">Select a project</option>{projects.map(name => <option key={name} value={name}>{name}</option>)}</Select></div>
       {!projects.length && <p>Create a project on the Dashboard before generating tests.</p>}
       <div className="input-group"><label htmlFor="generate-requirement">Test requirement</label><TextArea id="generate-requirement" className="input" rows={3} placeholder="e.g., User login with email and password" value={requirement} disabled={generating} onValueChange={value => setRequirement(value)} /></div>
+      <ProjectSpecEditor key={project} project={projectExists ? project : ""} disabled={generating} onRevision={setSpecRevision}/>
       <Checkbox label={"Use published contracts bound to this project"} checked={useContracts} disabled={generating} onCheckedChange={checked => setUseContracts(checked)} />
       {useContracts && projectExists && <div>
         <p>Preview pins the current contract versions, inputs, and assertions. Generation prepares a fresh actual snapshot on the service; later edits may change it. This preview makes no model calls.</p>

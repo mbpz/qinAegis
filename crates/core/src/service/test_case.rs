@@ -103,6 +103,7 @@ impl TestCaseService {
 
             if let Some(context) = &context {
                 let provenance = crate::execution_records::CaseProvenance {
+                    specification: context.specification.clone(),
                     schema_version: 1,
                     project: project_name.into(),
                     case_id: tc.id.clone(),
