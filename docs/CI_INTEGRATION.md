@@ -78,3 +78,7 @@ Actions 中按失败步骤查看日志；artifact 缺失、tag 不符、归档�
 最近任务隔离批次：修订 `e8e022f` 的真实远端 `44115748630` 四平台、engine-checks 与 assemble 全部通过；engine-checks 包含实际 Chromium 双执行器隔离与重定位运行时浏览器/官方 Allure 检查。Pages `44115748620` 预览通过，生产部署跳过。下载候选独立核对 13 项 SHA 和四份归档内外清单一致，来源为该次 PR 合并提交 `f26ba44b12c264e1c032a0bf9cd6b9fb1b6e95f0`，不是分支 HEAD。
 
 F03 流程治理新增 `scripts/test-flows.py`，在四平台基础服务 smoke 中实际启动隔离服务，检查草稿 CAS/发布确认、类型和依赖、双本机项目计划复用、模型配置/端点冻结、秘密保护及重启历史；不启动模型或浏览器动作，也不代表真实视觉业务验收。规格修订 `27dd44f` 的 Release `44133368448` 与 Pages `44133368278` 已通过，候选独立核验 13 项 SHA 和四份归档内外清单，源码 PR 合并提交 `9c2def53a2771a1ba0533312748b228396cdf38c`。
+
+F03 修订 `a4f5ba6` 的 Release `44143164167` 四平台、engine-checks 与 assemble 全部通过，Pages `44143164142` 预览通过/生产部署跳过；下载候选独立验证 13 项 SHA 和四份归档内外清单一致，来源为 PR 合并提交 `7c349718d6570fc53d533d24bffb2157f6072eb4`。
+
+M05 在四平台服务 smoke 新增 `scripts/test-model-protocols.py`：只连接 loopback 确定性 Messages/Chat Completions 提供方，验证原生 text/JSON probe、生成/critic、批准跨协议备用、鉴权拒绝与密钥不进入事实。核心另覆盖超时、响应上限和异常输出。它证明协议行为，不调用付费服务、不认证视觉模型；本批远端结果需按新修订独立核验。

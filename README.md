@@ -21,7 +21,7 @@ The same published contract can be bound to two projects with different paramete
 | Responsibility | Current implementation and limits |
 |---|---|
 | Contract governance | Draft/edit/review/publish, version comparison, correction evidence, deprecation, derivation, reviewed binding migration and controlled import/export |
-| Model routing | Private registry, capability/data authorization, task routes and frozen snapshots; Chat Completions adapter today, bounded generation fallback, one compatible visual primary |
+| Model routing | Private registry, capability/data authorization, task routes and frozen snapshots; Chat Completions and native Anthropic Messages text/JSON adapters, bounded approved generation fallback, one compatible visual primary |
 | Execution | Playwright + Midscene.js through an explicit runtime boundary; approved scripts and contract inputs fixed before execution |
 | Evidence and quality | Immutable run records, failed lifecycle blocks the gate, official Allure generation/view/download; single-run reports today |
 | Scenario composition | Versioned JSON flow governance and typed plan snapshots implemented; runtime orchestration and form composition remain planned |

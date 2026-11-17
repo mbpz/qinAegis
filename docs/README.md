@@ -24,6 +24,8 @@
 | [契约执行追溯与生命周期验收](plans/contract-execution-acceptance.md) | 契约/生成/执行快照、审核迁移、Allure 与事实源 |
 | [受控项目规格验收](plans/project-specification-acceptance.md) | F01 固定规格资产、冲突保护与冻结输入；真实浏览器验收通过 |
 | [流程治理与计划验收](plans/flow-governance-acceptance.md) | F03 JSON 草稿、不可变发布和类型化快照；仅计划，实际浏览器与复核通过 |
+| [流程实际执行路径](plans/flow-execution-acceptance.md) | F04/F05 分步实现和验收门槛；仍待实现 |
+| [独立模型协议验收](plans/model-protocol-acceptance.md) | 原生 Messages 与批准的跨协议备用；本机协议及 Web 验证范围 |
 | [原生运行时维护方案](plans/native-runtime-maintenance.md) | R03/R05 导入、升级与回滚；依赖授权待答，尚未实现 |
 | [自动打包与官网迭代](plans/distribution-pages-2.0.md) | 分支候选包、独立 Pages 构建和正式发布边界 |
 

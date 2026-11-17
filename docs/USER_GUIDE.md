@@ -1,6 +1,6 @@
 # QinAegis 2.0 用户指南
 
-更新：2026-11-17。适用于当前 2.0 开发分支，**不代表完整 2.0 已正式发布**。QinAegis 的核心资产是可复用测试契约；本地 Web 工作台负责维护契约、项目绑定、模型路由、审核、执行和报告。视觉测试基于 **Playwright + Midscene.js**。
+更新：2026-11-18。适用于当前 2.0 开发分支，**不代表完整 2.0 已正式发布**。QinAegis 的核心资产是可复用测试契约；本地 Web 工作台负责维护契约、项目绑定、模型路由、审核、执行和报告。视觉测试基于 **Playwright + Midscene.js**。
 
 本文按当前源码中的页面和操作编写，保留英文界面名称方便查找。发布、平台和验收状态以[开发进度](progress/local-web-2.0.md)为准；长期产品边界见[产品记忆](../CONTEXT.md)。
 
@@ -127,7 +127,12 @@ Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页�
 
 ### 5.1 注册模型
 
-在 Models 点击 **New profile**，填写 Profile ID、Label、Base URL、Model name 和 API key；当前内置适配器为兼容 OpenAI Chat Completions 的端点。声明 text/vision/json/tools 能力，并按已安装引擎支持范围填写 Midscene model family。
+在 Models 点击 **New profile**，填写 Profile ID、Label、**Protocol adapter**、Base URL、Model name 和 API key：
+
+- **OpenAI compatible Chat Completions**：兼容 `/chat/completions` 的端点；声明所需 text/vision/json/tools 能力，视觉任务还需按已安装引擎支持范围填写 Midscene model family。
+- **Anthropic Messages**：原生 `/messages` 协议，Base URL 使用 API 根目录（例如 `https://api.anthropic.com/v1`）；仅支持 text/json，用于生成和评审等文本操作，不用于当前 Midscene 视觉执行。版本固定 `2026-10-21`，不支持 temperature；使用 Messages 结构化输出参数，本地验证 JSON 语法，上游执行请求中的 schema，业务文档仍由领域层校验。
+
+切换协议保留端点和模型名称，但清空输入密钥及不兼容的能力/family；请核对目标并明确重新填写密钥。改变已保存端点或协议时，服务端拒绝沿用旧密钥。协议错误、截断、拒绝或未知内容不能作为成功输出；限流/暂时错误只可使用预先批准的候选，不自动新增备用。完整证明范围见[协议验收](plans/model-protocol-acceptance.md)。
 
 保存只校验配置，不代表已在线验证厂商能力。视觉路由需要同时声明 text 与 vision，并提供引擎支持的 Midscene family。视觉模型需要兼容实际 Midscene 版本；任意文本模型不能直接用于视觉任务。
 
@@ -144,7 +149,7 @@ Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页�
 - 一旦注册库包含配置，任务按注册库路由解析；不能只填写 Settings 就假定缺失的任务路由会自动回退到旧配置。请为实际使用的任务补齐路由。
 - 已开始任务固定原选择；改变路由用于后续任务，不热改正在运行的模型，也不重写契约断言。
 
-通过 **Route scope** 选择项目可覆盖全局路由，**Use global default** 删除所选覆盖。**Test saved profile** 仅向已保存端点发送合成文本，分别观测文本/JSON；未保存表单不参与检测，视觉/tools/Midscene 兼容不由此认证。步骤级策略和独立模型协议仍待实现。模型故障与业务断言失败应分开诊断，切换模型不能作为隐藏业务失败的手段。
+通过 **Route scope** 选择项目可覆盖全局路由，**Use global default** 删除所选覆盖。**Test saved profile** 仅向已保存端点发送合成文本，分别观测文本/JSON；未保存表单不参与检测。检测期间锁定编辑，结果注明实际已保存配置；选择其他配置清除旧结果。视觉/tools/Midscene 兼容不由此认证，视觉选项禁用 Messages 配置。步骤级策略仍待实现。模型故障与业务断言失败应分开诊断，切换模型不能作为隐藏业务失败的手段。
 
 ### 5.3 预览并迁移已知配置
 
@@ -256,7 +261,7 @@ Environment 使用服务解析出的固定运行时检查 Node、已安装包版
 - 完整运行编排器、类型化数据流、条件分支与清理策略；已有 JSON 流程治理、不可变发布与类型化计划快照，所有 runner 仍不可用。
 - Node/引擎自动安装与整体修复、操作系统依赖管理和跨平台干净机器验收；已有独立运行时打包/导入、固定运行时检查及明确授权的 Chromium 安装。
 - 多资源并行调度、浏览器工作目录异常残留恢复及逐引擎取消时限验收；已有单槽有界队列、持久历史和重启中断标记，重启不继续执行；Windows Job Object 清理已通过真实 Windows CI。
-- 视觉/tools/Midscene 在线能力验证、步骤级路由、独立模型协议适配与真实双项目视觉闭环；已有项目路由覆盖和合成文本/JSON 探测。
+- 视觉/tools/Midscene 在线能力验证、步骤级路由与真实双项目视觉闭环；已有项目路由覆盖、两种独立文本协议和合成文本/JSON 探测。
 - 操作系统无障碍电脑辅助。它是须明确授权的可选规划能力，安装或浏览器会话不授予电脑控制权限。
 - Windows 一键安装、各系统干净机器和签名验收、更新/回滚与完整正式发布。
 

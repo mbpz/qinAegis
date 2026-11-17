@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod anthropic;
+
 const MAX_REGISTRY_BYTES: usize = 1024 * 1024;
 const MAX_CANDIDATES: usize = 4;
 
@@ -140,6 +142,9 @@ impl Default for ModelAdapters {
         };
         value
             .register(Arc::new(OpenAiCompatibleFactory))
+            .expect("builtin adapter");
+        value
+            .register(Arc::new(anthropic::AnthropicFactory))
             .expect("builtin adapter");
         value
     }
@@ -399,6 +404,15 @@ impl ModelRegistry {
             ensure!(
                 capabilities.insert(capability),
                 "duplicate model capability"
+            );
+        }
+        if p.adapter == "anthropic_messages" {
+            ensure!(
+                p.capabilities
+                    .iter()
+                    .all(|c| matches!(c.as_str(), "text" | "json"))
+                    && p.midscene_family.is_none(),
+                "Anthropic Messages adapter supports text/JSON only"
             );
         }
         if let Some(family) = &p.midscene_family {

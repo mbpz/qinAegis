@@ -12,7 +12,7 @@ Development branch, not a published stable release. Current scope and remaining 
 ### Added
 
 - Reusable contract library with immutable published versions, project bindings, reviewed corrections, comparison, deprecation, derivation, controlled import/export and reviewed binding migration.
-- Extensible model registry, capability/data authorization, task routing and frozen configuration snapshots; current built-in protocol is Chat Completions.
+- Extensible model registry, capability/data authorization, task routing and frozen configuration snapshots; built-in Chat Completions and native Anthropic Messages text/JSON protocols.
 - Atomic case generation provenance and immutable execution evidence; infrastructure/lifecycle failure blocks the quality gate even when returned cases passed.
 - Official Allure 3.33.0 standard results and on-demand isolated HTML generation, viewing and explicit download.
 - Four-platform CI candidates with version/commit manifests, archive validation and SHA-256 checksums; matching v2 tags create draft releases.
@@ -33,6 +33,7 @@ Development branch, not a published stable release. Current scope and remaining 
 - Lighthouse/Locust failure and metric validation; ZAP explicitly unavailable until managed container cancellation is implemented.
 
 - Versioned JSON flow drafts with CAS, server-owned capability/type/dependency validation, explicitly approved immutable publication and frozen project plan history. Planning only: all runners unavailable and plans non-executable; core/HTTP, real Chromium and independent review passed for this planning scope.
+- Native Messages authentication, system/content blocks and structured output requests, bounded responses/deadlines, explicit rejection and approved cross-protocol fallback; Web protocol selection and saved-profile probe identity. Loopback protocol and actual browser acceptance do not certify paid models or visual business execution.
 
 ### Changed
 
