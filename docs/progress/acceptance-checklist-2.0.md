@@ -57,7 +57,7 @@
 
 - [x] F01：Web 受控规格创建/读取/编辑及项目关联；无任意本机路径入口，缺失/冲突/超限均可恢复。
 - [x] F02：用例内容编辑/差异/审核失效与重新批准闭环；修改脚本不能沿用旧批准状态。
-- [ ] F03：流程草稿/校验/不可变版本与执行计划快照；依赖、端口类型、能力、权限和非幂等副作用校验。
+- [x] F03：流程草稿/校验/不可变版本与执行计划快照；依赖、端口类型、能力、权限和非幂等副作用校验。
 - [ ] F04：运行编排支持类型化输入输出、条件、等待、超时、有界重试与失败清理；原始业务断言不可自动放宽。
 - [ ] F05：Web 可组合并合法调序，已有有效用例可直接执行；缺前置条件明确拒绝。
 - [ ] F06：无模型、空项目、坏规格、模型限流、部分执行失败、取消、刷新/重启等用户旅程端到端验证。
@@ -104,13 +104,15 @@
 
 | 2026-11-18 | F01 | 固定受管项目 spec.md、128 KiB、明确确认与精确内容 CAS；原文/编辑分离，冲突留稿，未保存稿不能参与生成。Rust 210 项、UI 14 项/严格 TypeScript/工作台及 Pages 构建、八个真实 HTTP 脚本通过；生成与 critic 共同观察冻结规格和原断言。真实 Chromium 验证创建/原文对照/修改清确认/冲突留稿/重新读取/项目切换，并延迟保存响应验证切换后不覆盖另一项目；控制台 0 errors/0 warnings。独立复核通过 |
 
+| 2026-11-18 | F03 | 固定流程库/草稿 CAS、类型化端口与来源、稳定拓扑顺序、能力/权限/副作用重试校验、明确不可变发布；项目计划固定选定契约/原断言/项目目标及脱敏模型端点/授权/候选顺序。100 条/8 MiB 受管历史，executable=false、无运行入口。核心/真实 HTTP 与独立复核通过；实际 Chromium 验证保存/校验/发布、双本机项目准备/历史查看、修改清确认、冲突留稿/显式重读及离开页面后的迟到响应隔离，控制台 0 errors/0 warnings。F04/F05/M04 保持待办 |
+
 ## 复现入口与下一批
 
 以下脚本都使用隔离目录；模型/执行器 fixture 只证明协议和产品边界：
 
 - `cargo test --workspace --offline`、`cargo clippy --workspace --all-targets --offline`。
 - `cd crates/web_client/ui` 后运行 `npm test`、`npm run build`、`npm run build:pages`。
-- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py`、`test-config-migration.py`、`test-report-maintenance.py` 接受相同二进制参数。
+- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py`、`test-config-migration.py`、`test-report-maintenance.py`、`test-flows.py` 接受相同二进制参数。
 - `python3 scripts/test-environment.py /绝对路径/qinaegis --runtime /绝对路径/已安装运行时 --install-browser`：配置恢复、运行时版本、显式浏览器安装和实际启动；不提供运行时则验证缺失诊断。
 - `python3 scripts/test-runtime-package.py`、`python3 scripts/test-runtime-install.py`：归档与导入边界；`python3 scripts/test-allure.py /绝对路径/qinaegis` 验证已构建 sandbox 中的官方 Allure（使用明确标记的运行证据 fixture）。
 - `python3 scripts/test-local-performance.py /绝对路径/优化版/qinaegis --output /绝对路径/performance.json`：macOS/Linux 基础服务指标；记录二进制 SHA、设备、样本量和范围，执行含 60 秒空闲测量。
@@ -119,6 +121,10 @@
 
 本次任务/隔离批次本机 Rust 208 项（web 37、core 169、集成 2）、Clippy、UI 14 项/构建及真实 HTTP 队列回归通过。Node 默认 10 项测试及真实 Chromium 隔离测试通过；运行时新增 locustfile.py 来源摘要与导入验证，打包/导入边界回归通过，CI 增加实际浏览器和导入运行时浏览器检查。修订 `e8e022f` 的真实远端 `44115748630` 四平台、engine-checks 与 assemble 全部通过；engine-checks 包含实际 Chromium 双执行器隔离与重定位运行时浏览器/官方 Allure 检查。Pages `44115748620` 预览通过，生产部署跳过。下载候选独立核对 13 项 SHA 和四份归档内外清单一致，来源为该次 PR 合并提交 `f26ba44b12c264e1c032a0bf9cd6b9fb1b6e95f0`，不是分支 HEAD。
 
-后续补 T06 异常残留/Windows 目录验收及 R03/R05 Web 运行时维护；F01 固定项目规格资产已完成，继续 F03/F04/F05；M04 依赖流程快照。M05 独立协议可并行设计，M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。
+后续补 T06 异常残留/Windows 目录验收及 R03/R05 Web 运行时维护；F01 固定项目规格资产已完成，继续 F04/F05；M04 依赖流程快照。M05 独立协议可并行设计，M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。
 
 R03/R05 原生维护的最小依赖方案见 [方案](../plans/native-runtime-maintenance.md)，新增依赖授权待答；此前不实施依赖该授权的导入器。
+
+规格修订 `27dd44f` 的远端 `44133368448` 四平台、engine-checks 和 assemble 全部通过；Pages `44133368278` 预览通过/生产部署跳过。候选 13 项 SHA 与四归档内外清单独立一致，来源 PR 合并提交 `9c2def53a2771a1ba0533312748b228396cdf38c`。这不替代 F03 新修订的 CI。
+
+F03 批次本机 Rust 220 项（web 37、core 181、集成 2）、Clippy、UI 14 项/严格 TypeScript/工作台及 Pages 构建、十个真实 HTTP 脚本与 actionlint 通过。核心流程/计划 10 项回归及独立复核通过。新增 `test-flows.py` 已接入四平台发布矩阵；新修订远端证据另行记录。既有 Clippy 警告及前端 chunk 提示仍存在。

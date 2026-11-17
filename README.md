@@ -12,6 +12,8 @@ Tasks use one execution slot and up to eight FIFO waiting tasks, with frozen sub
 
 Generate now supports a managed project spec.md with a 128 KiB limit, original-content comparison, explicit save approval and exact-content conflict checks. Explicitly selecting a saved specification freezes it alongside original contract assertions for both generation and critique. Core, HTTP, UI and real-browser checks passed, including conflict draft retention, approval invalidation and delayed-save isolation when switching projects.
 
+Flows now supports JSON drafts, library-revision CAS, validation, explicitly approved immutable publication and typed project plan snapshots. All registered capabilities have runner_available=false and plans have executable=false; there is no Run action. Core, actual HTTP, real Chromium and independent review passed for this planning scope.
+
 ## Product structure and current scope
 
 The same published contract can be bound to two projects with different parameters. A correction creates a reviewed revision; existing executions retain their original inputs and evidence. Models may propose changes but cannot approve a weaker business assertion merely to obtain a pass.
@@ -22,7 +24,7 @@ The same published contract can be bound to two projects with different paramete
 | Model routing | Private registry, capability/data authorization, task routes and frozen snapshots; Chat Completions adapter today, bounded generation fallback, one compatible visual primary |
 | Execution | Playwright + Midscene.js through an explicit runtime boundary; approved scripts and contract inputs fixed before execution |
 | Evidence and quality | Immutable run records, failed lifecycle blocks the gate, official Allure generation/view/download; single-run reports today |
-| Scenario composition | Dependency validation and stable ordering exist; a runnable orchestration engine, typed data flow and flow editing remain planned |
+| Scenario composition | Versioned JSON flow governance and typed plan snapshots implemented; runtime orchestration and form composition remain planned |
 | Optional computer control | OS accessibility adapter planned, disabled until explicit permission and platform acceptance |
 
 The domain owns contracts and validation rules. Model adapters generate suggestions, execution adapters perform actions, and reporting preserves facts. Their responsibilities stay separate so changing a model or engine does not rewrite business expectations. The Web UI uses official free beUI components.

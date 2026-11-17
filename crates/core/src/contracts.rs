@@ -20,7 +20,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    fn accepts(self, value: &Value) -> bool {
+    pub fn accepts(self, value: &Value) -> bool {
         match self {
             Self::String => value.is_string(),
             Self::Number => value.is_number(),

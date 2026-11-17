@@ -13,10 +13,11 @@ import ContractsView from './components/ContractsView';
 import ModelsView from './components/ModelsView';
 import EnvironmentView from './components/EnvironmentView';
 import TasksView from './components/TasksView';
+import FlowsView from './components/FlowsView';
 import { rpc } from './utils/rpc';
 import './styles.css';
 
-type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings' | 'contracts' | 'models' | 'environment' | 'tasks';
+type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings' | 'contracts' | 'models' | 'environment' | 'tasks' | 'flows';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -108,6 +109,8 @@ function App() {
         return <EnvironmentView />;
       case 'tasks':
         return <TasksView />;
+      case 'flows':
+        return <FlowsView projects={projects} />;
       case 'models':
         return <ModelsView projects={projects} onSaved={checkConfig} />;
       default:

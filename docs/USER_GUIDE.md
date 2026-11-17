@@ -109,6 +109,18 @@ qinaegis stop
 
 当前核心、真实 HTTP、UI 和实际 Chromium 操作验收通过，F01 已勾选；包括保存迟到响应的项目隔离。完整条件见[规格验收方案](plans/project-specification-acceptance.md)。
 
+### 4.7 Flows：流程版本与项目计划
+
+Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页面采用已有免费 beUI 编辑组件；尚无表单组合器或 Run 按钮。
+
+1. 在 **Saved flow draft** 选择草稿，或用 **Load planning template** 开始。编辑 **Flow draft JSON**，通过 **Original saved flow draft** 对照原文；输入来源只允许字面量、流程输入或上游输出。服务校验类型、依赖、端口、权限、副作用与非幂等重试限制。
+2. 勾选保存确认，点击 **Save flow draft**。保存使用整库修订 CAS；冲突保留编辑输入。需要放弃编辑时明确点击 **Reload flows and discard editor draft**。保存后对相同内容点击 **Validate flow draft**，再勾选发布确认并点击 **Publish flow version**。编辑会清除旧确认；发布版本不能原地覆盖。
+3. 在 **Project plan** 选择发布版本和已有项目，填写 **Typed flow inputs JSON**。浏览器 target 的字面量或流程输入必须匹配项目固定目标；契约参数来自该项目选定绑定，不能自动猜测。需要模型的步骤使用已注册路由；缺失授权、能力或版本绑定会明确拒绝。浏览器可选模型角色若填写，必须为 execute，且符合视觉 family 与能力要求。
+4. 核对所列 planning permissions，明确确认后点击 **Prepare project plan**。此确认仅用于计划校验，不授予执行或系统权限。计划固定流程、项目绑定、原始契约断言、实参及模型注册修订/候选顺序；保留已校验的模型端点及能力和授权事实，不含密钥或标签。后续修改不会改变旧计划。
+5. 在 **Saved project plan** 选择历史项，点击 **View saved plan** 查看冻结快照。计划历史限制为 100 条/8 MiB，达到上限会拒绝新写入并保留已有记录。**Server capability catalog** 显示规划支持与实际 runner 可用性；当前所有 runner 均为 false，计划 executable=false。
+
+核心、真实 HTTP、实际 Chromium 与独立复核通过，F03 已按治理与计划边界验收。F04 条件/等待/超时/有界重试与失败清理、F05 表单组合器、M04 步骤模型降级继续单独推进，见[流程治理验收方案](plans/flow-governance-acceptance.md)。
+
 ## 5. Models 与 Settings：配置和切换模型
 
 无需模型密钥即可浏览已有资产。新的模型选择使用 **Models and routing**；**Settings** 仍提供基础模型兼容配置、CDP 端口和探索限制。
@@ -241,7 +253,7 @@ Environment 使用服务解析出的固定运行时检查 Node、已安装包版
 
 以下仍在后续范围，不能通过当前页面推定已经交付：
 
-- 完整运行编排器、类型化数据流、条件分支与清理策略；目前只有场景依赖校验和稳定拓扑排序基础。
+- 完整运行编排器、类型化数据流、条件分支与清理策略；已有 JSON 流程治理、不可变发布与类型化计划快照，所有 runner 仍不可用。
 - Node/引擎自动安装与整体修复、操作系统依赖管理和跨平台干净机器验收；已有独立运行时打包/导入、固定运行时检查及明确授权的 Chromium 安装。
 - 多资源并行调度、浏览器工作目录异常残留恢复及逐引擎取消时限验收；已有单槽有界队列、持久历史和重启中断标记，重启不继续执行；Windows Job Object 清理已通过真实 Windows CI。
 - 视觉/tools/Midscene 在线能力验证、步骤级路由、独立模型协议适配与真实双项目视觉闭环；已有项目路由覆盖和合成文本/JSON 探测。

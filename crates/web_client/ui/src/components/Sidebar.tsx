@@ -9,6 +9,7 @@ interface SidebarProps {
 const items: { view: View; icon: string; label: string }[] = [
   { view: 'dashboard', icon: '🏠', label: 'Dashboard' },
   { view: 'contracts', icon: '📜', label: 'Contracts' },
+  { view: 'flows', icon: '🧩', label: 'Flows' },
   { view: 'models', icon: '🔀', label: 'Models' },
   { view: 'explore', icon: '🔍', label: 'Explore' },
   { view: 'generate', icon: '✨', label: 'Generate' },

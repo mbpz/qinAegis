@@ -132,6 +132,7 @@ jobs:
           python scripts/test-contract-execution.py "$BINARY"
           echo "::endgroup::"
           python scripts/test-case-assets.py "$BINARY"
+          python scripts/test-flows.py "$BINARY"
           python scripts/test-environment.py "$BINARY"
           python scripts/test-task-history.py "$BINARY"
           python scripts/test-report-maintenance.py "$BINARY"

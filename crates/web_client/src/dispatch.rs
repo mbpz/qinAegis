@@ -154,6 +154,9 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if crate::case_asset_api::handles(method) {
         return crate::case_asset_api::dispatch(method, p).map_err(|e| e.to_string());
     }
+    if crate::flow_api::handles(method) {
+        return crate::flow_api::dispatch(method, p).map_err(|e| e.to_string());
+    }
     if crate::contract_api::handles(method) {
         return crate::contract_api::dispatch(method, p).map_err(|e| e.to_string());
     }

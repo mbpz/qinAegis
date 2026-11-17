@@ -32,6 +32,8 @@ Development branch, not a published stable release. Current scope and remaining 
 - Managed project specifications with bounded reads, explicit approved CAS saves and frozen generator/critic inputs; core/HTTP/UI and actual browser checks passed, including conflict retention and delayed-save project isolation.
 - Lighthouse/Locust failure and metric validation; ZAP explicitly unavailable until managed container cancellation is implemented.
 
+- Versioned JSON flow drafts with CAS, server-owned capability/type/dependency validation, explicitly approved immutable publication and frozen project plan history. Planning only: all runners unavailable and plans non-executable; core/HTTP, real Chromium and independent review passed for this planning scope.
+
 ### Changed
 
 - Replaced the tao/wry desktop shell with an embedded Web UI and a loopback-only HTTP service: background start, browser opening, status and safe stop, private sessions and CSRF checks.

@@ -4,6 +4,7 @@ mod assets;
 mod case_asset_api;
 mod config_migration_api;
 mod contract_api;
+mod flow_api;
 mod dispatch;
 mod environment;
 mod lifecycle;

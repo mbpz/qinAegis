@@ -1,3 +1,4 @@
+import type { FlowDraft, FlowLibrary, FlowValidation, FlowsResponse, FlowPlan, PrepareFlowPlan } from '../types/flows';
 export interface ProjectSpec {project: string; exists: boolean; markdown: string; revision: string | null}
 // Shared RPC client — single source of truth
 import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapshot } from '../types/contracts';
@@ -108,6 +109,12 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  getFlows(): Promise<FlowsResponse> { return call('getFlows'); },
+  saveFlowDraft(draft: FlowDraft, expected_revision: number): Promise<FlowLibrary> { return call('saveFlowDraft', {draft, expected_revision}); },
+  validateFlowDraft(draft: FlowDraft): Promise<FlowValidation> { return call('validateFlowDraft', {draft}); },
+  publishFlow(id: string, expected_revision: number): Promise<FlowLibrary> { return call('publishFlow', {id, expected_revision, approved: true}); },
+  prepareFlowPlan(params: PrepareFlowPlan): Promise<FlowPlan> { return call('prepareFlowPlan', {...params, approved: true}); },
+  getFlowPlan(plan_id: string): Promise<FlowPlan> { return call('getFlowPlan', {plan_id}); },
   listConfigMigrationSources(params: {project?: string} = {}): Promise<ConfigMigrationSources> { return call('listConfigMigrationSources', params); },
   previewConfigMigration(params: {source_id: string; project?: string}): Promise<ConfigMigrationPreview> { return call('previewConfigMigration', params); },
   applyConfigMigration(params: {preview_token: string; secret_policy: ConfigSecretPolicy; approved: true}): Promise<ConfigMigrationResult> { return call('applyConfigMigration', params); },

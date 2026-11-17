@@ -190,6 +190,64 @@ impl ExecutionSnapshot {
         })
     }
 
+    /// Freeze only explicitly selected project bindings; unrelated deprecated bindings do not participate.
+    pub fn prepare_selected(
+        library: &ContractLibrary,
+        project: &str,
+        references: &[(String, u32)],
+        available_capabilities: &[String],
+    ) -> Result<Self> {
+        let library: ContractLibrary = serde_json::from_value(serde_json::to_value(library)?)?;
+        let mut selected = BTreeMap::new();
+        for (id, version) in references {
+            if let Some(previous) = selected.insert(id.clone(), *version) {
+                ensure!(
+                    previous == *version,
+                    "selected contract has conflicting versions"
+                );
+            }
+        }
+        let mut contracts = Vec::new();
+        for (id, version) in selected {
+            ensure!(
+                !library.is_deprecated(&id, version),
+                "selected contract is deprecated"
+            );
+            let binding = library
+                .bindings
+                .iter()
+                .find(|b| {
+                    b.project() == project
+                        && b.contract_id() == id
+                        && b.contract_version() == version
+                })
+                .context("selected contract version is not bound to project")?;
+            let publication = library
+                .publications
+                .iter()
+                .find(|p| p.definition().id == id && p.definition().version == version)
+                .context("selected publication does not exist")?
+                .clone();
+            contracts.push(ExecutionRecord {
+                binding: BindingRecord {
+                    project: project.into(),
+                    contract_id: id,
+                    contract_version: version,
+                    parameters: binding.parameters().clone(),
+                },
+                original_assertions: publication.definition().assertions.clone(),
+                publication,
+            });
+        }
+        Self::try_from(SnapshotRecord {
+            schema_version: 1,
+            library_revision: library.revision,
+            project: project.into(),
+            available_capabilities: available_capabilities.to_vec(),
+            contracts,
+        })
+    }
+
     pub fn library_revision(&self) -> u64 {
         self.library_revision
     }

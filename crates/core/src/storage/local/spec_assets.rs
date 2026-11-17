@@ -38,6 +38,7 @@ fn validate(markdown: &str) -> Result<()> {
 pub(super) struct SpecAssets {
     root: PathBuf,
     project: String,
+    config: crate::storage::ProjectConfig,
 }
 impl SpecAssets {
     pub(super) fn new(root: PathBuf, project: &str) -> Result<Self> {
@@ -68,7 +69,11 @@ impl SpecAssets {
         Ok(Self {
             root,
             project: project.into(),
+            config,
         })
+    }
+    pub(super) fn project_config(&self) -> crate::storage::ProjectConfig {
+        self.config.clone()
     }
     fn asset(&self) -> AssetFile {
         AssetFile::new(self.root.join("spec.md"), MAX_SPEC)

@@ -208,6 +208,10 @@ impl LocalStorage {
     fn spec_assets(name: &str) -> anyhow::Result<spec_assets::SpecAssets> {
         spec_assets::SpecAssets::new(Self::project_dir(name), name)
     }
+    /// Inspect the managed project identity without reading its specification.
+    pub fn checked_project_config(name: &str) -> anyhow::Result<ProjectConfig> {
+        Ok(Self::spec_assets(name)?.project_config())
+    }
     pub fn get_project_spec(name: &str) -> anyhow::Result<ProjectSpec> {
         Self::spec_assets(name)?.get()
     }
