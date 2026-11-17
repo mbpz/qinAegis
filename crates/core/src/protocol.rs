@@ -119,10 +119,97 @@ impl JsonRpcResponse {
 // ============================================================================
 
 /// A private directory created by this engine instance, never an inherited path.
-struct EngineWorkspace(std::path::PathBuf, u64, u64, String);
+struct EngineWorkspace {
+    path: std::path::PathBuf,
+    identity: (u64, [u8; 16]),
+    // Keeping the original directory open prevents its identity being reused.
+    pin: std::fs::File,
+    marker: String,
+    cleanup_on_drop: bool,
+}
 impl EngineWorkspace {
+    fn directory(path: &std::path::Path) -> std::io::Result<(std::fs::File, (u64, [u8; 16]))> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(std::io::Error::other(
+                "engine workspace is not a plain directory",
+            ));
+        }
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Open the directory itself, including reparse points, for rejection
+            // below. Share DELETE so the owned directory can be removed normally.
+            options
+                .custom_flags(0x0200_0000 | 0x0020_0000)
+                .share_mode(7);
+        }
+        let file = options.open(path)?;
+        let identity = Self::identity(&file)?;
+        Ok((file, identity))
+    }
+    fn identity(file: &std::fs::File) -> std::io::Result<(u64, [u8; 16])> {
+        let metadata = file.metadata()?;
+        if !metadata.is_dir() {
+            return Err(std::io::Error::other("engine workspace is not a directory"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mut id = [0; 16];
+            id[..8].copy_from_slice(&metadata.ino().to_le_bytes());
+            Ok((metadata.dev(), id))
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(std::io::Error::other("engine workspace is a reparse point"));
+            }
+            // FILE_ID_INFO identifies directories on NTFS and ReFS. Unknown
+            // filesystems must fail closed rather than substituting a path/PID.
+            #[repr(C)]
+            struct FileIdInfo {
+                volume: u64,
+                id: [u8; 16],
+            }
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GetFileInformationByHandleEx(
+                    handle: *mut std::ffi::c_void,
+                    class: i32,
+                    info: *mut std::ffi::c_void,
+                    size: u32,
+                ) -> i32;
+            }
+            let mut info = FileIdInfo {
+                volume: 0,
+                id: [0; 16],
+            };
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    file.as_raw_handle(),
+                    18, // FileIdInfo
+                    &mut info as *mut _ as *mut std::ffi::c_void,
+                    std::mem::size_of::<FileIdInfo>() as u32,
+                )
+            } == 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok((info.volume, info.id))
+        }
+        #[cfg(not(any(unix, windows)))]
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "directory identity unavailable",
+        ))
+    }
     fn create() -> std::io::Result<Self> {
         use std::hash::{BuildHasher, Hasher};
+        use std::io::Write;
         for _ in 0..16 {
             let token = std::collections::hash_map::RandomState::new()
                 .build_hasher()
@@ -139,16 +226,25 @@ impl EngineWorkspace {
             }
             match builder.create(&path) {
                 Ok(()) => {
+                    let (pin, identity) = Self::directory(&path)?;
                     let marker = format!("qinaegis-owned-workspace-{token:016x}");
-                    std::fs::write(path.join(".qinaegis-owner"), &marker)?;
+                    let mut options = std::fs::OpenOptions::new();
+                    options.write(true).create_new(true);
                     #[cfg(unix)]
                     {
-                        use std::os::unix::fs::MetadataExt;
-                        let metadata = std::fs::metadata(&path)?;
-                        return Ok(Self(path, metadata.dev(), metadata.ino(), marker));
+                        use std::os::unix::fs::OpenOptionsExt;
+                        options.mode(0o600);
                     }
-                    #[cfg(not(unix))]
-                    return Ok(Self(path, 0, 0, marker));
+                    options
+                        .open(path.join(".qinaegis-owner"))?
+                        .write_all(marker.as_bytes())?;
+                    return Ok(Self {
+                        path,
+                        identity,
+                        pin,
+                        marker,
+                        cleanup_on_drop: true,
+                    });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(error),
@@ -159,26 +255,73 @@ impl EngineWorkspace {
             "cannot allocate engine workspace",
         ))
     }
+    /// Only called after the exclusively managed process tree has exited.
+    fn cleanup(&mut self) -> std::io::Result<()> {
+        use std::io::Read;
+        let (current, identity) = match Self::directory(&self.path) {
+            Ok(value) => value,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.cleanup_on_drop = false;
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        if identity != self.identity || Self::identity(&self.pin)? != self.identity {
+            return Err(std::io::Error::other(
+                "engine workspace identity changed; retained",
+            ));
+        }
+        let path = self.path.join(".qinaegis-owner");
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.len() != self.marker.len() as u64
+        {
+            return Err(std::io::Error::other(
+                "engine workspace ownership marker changed; retained",
+            ));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if metadata.file_attributes() & 0x400 != 0 {
+                return Err(std::io::Error::other(
+                    "engine workspace marker is a reparse point",
+                ));
+            }
+        }
+        let file = std::fs::File::open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::other(
+                "engine workspace ownership marker is not a file",
+            ));
+        }
+        let mut bytes = Vec::new();
+        file.take(self.marker.len() as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes != self.marker.as_bytes() {
+            return Err(std::io::Error::other(
+                "engine workspace ownership marker changed; retained",
+            ));
+        }
+        drop(current);
+        std::fs::remove_dir_all(&self.path)?;
+        self.cleanup_on_drop = false;
+        Ok(())
+    }
+    fn retain(mut self) {
+        // Release the directory handle while leaving files for diagnosis. A
+        // pending process must never trigger recursive deletion during Drop.
+        self.cleanup_on_drop = false;
+    }
 }
 impl Drop for EngineWorkspace {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let identity_matches = std::fs::symlink_metadata(&self.0).is_ok_and(|m| {
-                m.is_dir() && !m.file_type().is_symlink() && m.dev() == self.1 && m.ino() == self.2
-            });
-            let marker_matches =
-                std::fs::read_to_string(self.0.join(".qinaegis-owner")).is_ok_and(|s| s == self.3);
-            if identity_matches && marker_matches {
-                if let Err(error) = std::fs::remove_dir_all(&self.0) {
-                    tracing::warn!(path = %self.0.display(), %error, "engine workspace retained for manual inspection");
-                }
-                return;
+        if self.cleanup_on_drop {
+            if let Err(error) = self.cleanup() {
+                tracing::warn!(path = %self.path.display(), %error, "engine workspace retained for manual inspection");
             }
         }
-        // Windows lacks a pinned directory identity here; retain conservatively.
-        tracing::warn!(path = %self.0.display(), "engine workspace retained: ownership cannot be revalidated");
     }
 }
 
@@ -216,10 +359,14 @@ impl ProcessOwner {
                     .is_some()
                     && self.tree.cleanup_complete()?
                 {
-                    self.workspace
+                    let mut workspace = self
+                        .workspace
                         .lock()
-                        .map_err(|_| anyhow::anyhow!("workspace owner unavailable"))?
-                        .take();
+                        .map_err(|_| anyhow::anyhow!("workspace owner unavailable"))?;
+                    if let Some(owned) = workspace.as_mut() {
+                        owned.cleanup()?;
+                    }
+                    workspace.take();
                     return Ok(());
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -244,8 +391,8 @@ impl Drop for ProcessOwner {
         if !reaped || !self.tree.cleanup_complete().unwrap_or(false) {
             if let Ok(workspace) = self.workspace.get_mut() {
                 if let Some(workspace) = workspace.take() {
-                    tracing::warn!(path = %workspace.0.display(), "engine workspace retained: process cleanup is still pending");
-                    std::mem::forget(workspace);
+                    tracing::warn!(path = %workspace.path.display(), "engine workspace retained: process cleanup is still pending");
+                    workspace.retain();
                 }
             }
         }
@@ -304,7 +451,7 @@ impl MidsceneProcess {
         let workspace = EngineWorkspace::create()?;
         let mut cmd = Command::new(&runtime.node);
         cmd.args(&runtime.arguments)
-            .current_dir(&workspace.0)
+            .current_dir(&workspace.path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -509,9 +656,15 @@ impl MidsceneProcess {
             _ = &mut cancelled => Err(anyhow::anyhow!("engine request cancelled")),
             response = tokio::time::timeout(budget, exchange) => response.map_err(|_| anyhow::anyhow!("engine request timed out")).and_then(|v|v),
         };
-        if result.is_err() {
-            self.owner.terminate().await?;
-        }
+        let result = match result {
+            Err(failure) => match self.owner.terminate().await {
+                Ok(()) => Err(failure),
+                Err(cleanup) => Err(anyhow::anyhow!(
+                    "{failure}; engine cleanup failed: {cleanup}"
+                )),
+            },
+            success => success,
+        };
         flight.completed = true;
         drop(lock);
         result
@@ -763,16 +916,120 @@ for line in sys.stdin:
 #[cfg(test)]
 mod workspace_tests {
     use super::EngineWorkspace;
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn ownership_failure_is_reported_after_process_exit() {
+        let workspace = EngineWorkspace::create().unwrap();
+        let path = workspace.path.clone();
+        std::fs::write(path.join(".qinaegis-owner"), "changed-owner").unwrap();
+        let mut command =
+            tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
+        command
+            .args(["-u", "-c", "import time; time.sleep(120)"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let process = super::MidsceneProcess::launch(command).await.unwrap();
+        *process.owner.workspace.lock().unwrap() = Some(workspace);
+        let result = process
+            .call_with_deadline(
+                super::JsonRpcRequest::CurrentUrl,
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                std::time::Duration::from_millis(25),
+            )
+            .await;
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("request timed out"));
+        assert!(error.contains("engine cleanup failed"));
+        assert!(path.exists(), "unverified directory must be preserved");
+        assert!(
+            process.terminate().await.is_err(),
+            "retry must retain the failure"
+        );
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
+    fn missing_or_oversized_markers_preserve_the_directory() {
+        for marker in [None, Some(vec![b'x'; 1024 * 1024])] {
+            let mut workspace = EngineWorkspace::create().unwrap();
+            let path = workspace.path.clone();
+            let marker_path = path.join(".qinaegis-owner");
+            std::fs::remove_file(&marker_path).unwrap();
+            if let Some(bytes) = marker {
+                std::fs::write(&marker_path, bytes).unwrap();
+            }
+            std::fs::write(path.join("evidence"), b"preserve").unwrap();
+            assert!(workspace.cleanup().is_err());
+            drop(workspace);
+            assert_eq!(std::fs::read(path.join("evidence")).unwrap(), b"preserve");
+            std::fs::remove_dir_all(path).unwrap();
+        }
+    }
+    #[test]
+    fn explicitly_retained_workspace_is_not_deleted_by_drop() {
+        let workspace = EngineWorkspace::create().unwrap();
+        let path = workspace.path.clone();
+        workspace.retain();
+        assert!(path.exists());
+        std::fs::remove_dir_all(path).unwrap();
+    }
     #[cfg(unix)]
+    #[test]
+    fn linked_ownership_marker_cannot_authorize_deletion() {
+        let mut workspace = EngineWorkspace::create().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let marker = external.path().join("owner");
+        let expected = workspace.marker.clone();
+        std::fs::write(&marker, &workspace.marker).unwrap();
+        let path = workspace.path.clone();
+        std::fs::remove_file(path.join(".qinaegis-owner")).unwrap();
+        std::os::unix::fs::symlink(&marker, path.join(".qinaegis-owner")).unwrap();
+        assert!(workspace.cleanup().is_err());
+        drop(workspace);
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), expected);
+        assert!(path.exists());
+        std::fs::remove_dir_all(path).unwrap();
+    }
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn abnormal_engine_exit_removes_only_verified_owned_workspace() {
+        let workspace = EngineWorkspace::create().unwrap();
+        let path = workspace.path.clone();
+        let external = tempfile::tempdir().unwrap();
+        std::fs::write(external.path().join("evidence"), b"unrelated").unwrap();
+        let mut command =
+            tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
+        command
+            .args(["-u", "-c", "raise SystemExit(23)"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let process = super::MidsceneProcess::launch(command).await.unwrap();
+        *process.owner.workspace.lock().unwrap() = Some(workspace);
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(6),
+            process.call(super::JsonRpcRequest::CurrentUrl),
+        )
+        .await
+        .unwrap();
+        assert!(result.is_err());
+        process.terminate().await.unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            std::fs::read(external.path().join("evidence")).unwrap(),
+            b"unrelated"
+        );
+    }
+    #[cfg(any(unix, windows))]
     #[test]
     fn replaced_workspace_directory_is_never_deleted() {
         let workspace = EngineWorkspace::create().unwrap();
-        let original = workspace.0.clone();
+        let original = workspace.path.clone();
         let moved = original.with_extension("moved");
         std::fs::rename(&original, &moved).unwrap();
         std::fs::create_dir(&original).unwrap();
         // Even a copied marker is insufficient without the original inode.
-        std::fs::write(original.join(".qinaegis-owner"), &workspace.3).unwrap();
+        std::fs::write(original.join(".qinaegis-owner"), &workspace.marker).unwrap();
         std::fs::write(original.join("unrelated"), b"preserved").unwrap();
         drop(workspace);
         assert_eq!(
@@ -786,22 +1043,21 @@ mod workspace_tests {
     fn workspaces_are_unique_private_and_only_remove_owned_files() {
         let first = EngineWorkspace::create().unwrap();
         let second = EngineWorkspace::create().unwrap();
-        assert_ne!(first.0, second.0);
-        std::fs::write(first.0.join("output"), b"one").unwrap();
-        std::fs::write(second.0.join("output"), b"two").unwrap();
+        assert_ne!(first.path, second.path);
+        std::fs::write(first.path.join("output"), b"one").unwrap();
+        std::fs::write(second.path.join("output"), b"two").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(
-                std::fs::metadata(&first.0).unwrap().permissions().mode() & 0o777,
+                std::fs::metadata(&first.path).unwrap().permissions().mode() & 0o777,
                 0o700
             );
-            std::os::unix::fs::symlink(&second.0, first.0.join("external")).unwrap();
+            std::os::unix::fs::symlink(&second.path, first.path.join("external")).unwrap();
         }
-        let path = first.0.clone();
+        let path = first.path.clone();
         drop(first);
-        #[cfg(unix)]
         assert!(!path.exists());
-        assert_eq!(std::fs::read(second.0.join("output")).unwrap(), b"two");
+        assert_eq!(std::fs::read(second.path.join("output")).unwrap(), b"two");
     }
 }

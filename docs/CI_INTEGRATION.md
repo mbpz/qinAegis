@@ -82,3 +82,7 @@ F03 流程治理新增 `scripts/test-flows.py`，在四平台基础服务 smoke 
 F03 修订 `a4f5ba6` 的 Release `44143164167` 四平台、engine-checks 与 assemble 全部通过，Pages `44143164142` 预览通过/生产部署跳过；下载候选独立验证 13 项 SHA 和四份归档内外清单一致，来源为 PR 合并提交 `7c349718d6570fc53d533d24bffb2157f6072eb4`。
 
 M05 在四平台服务 smoke 新增 `scripts/test-model-protocols.py`：只连接 loopback 确定性 Messages/Chat Completions 提供方，验证原生 text/JSON probe、生成/critic、批准跨协议备用、鉴权拒绝与密钥不进入事实。核心另覆盖超时、响应上限和异常输出。它证明协议行为，不调用付费服务、不认证视觉模型；本批远端结果需按新修订独立核验。
+
+T06 工作目录清理增量不修改发布矩阵：四平台 Rust 回归现在同时检查普通退出/异常退出、目录替换、缺失或超限标记、显式保留以及清理错误传播；Unix 另验证标记符号链接。Windows 采用持有的目录句柄和卷/128 位文件 ID，只有对应新修订的真实 Windows 运行才是该路径证据。跨重启自动恢复仍未实现，不能由目录名或 PID 推断可删除。
+
+M05 修订 `9dff2e0` 的 Release `44148136999` 四平台、engine-checks 和 assemble 全部通过；首次 ARM64 因托管 runner 容量不足取消，重试后实际执行通过。Pages `44148137089` 预览通过/生产部署跳过。下载候选独立核验 13 项 SHA 与四归档内外清单一致，来源 PR 合并提交 `81a922d6095b87d453a8e273ac6c727365c17d0a`。

@@ -2456,12 +2456,18 @@ mod boundary_tests {
             .open(path.with_extension("lock"))
             .unwrap();
         lock.try_lock().unwrap();
+        // A concurrently spawned child may temporarily inherit this open-file
+        // description. Keep a clone to exercise that boundary deterministically.
+        let inherited = lock.try_clone().unwrap();
         // Holding the lock proves that a no-change checkpoint never accesses storage.
         history.write("one", &entry, false);
         assert!(history.error.lock().unwrap().is_none());
         entry.output.lock().unwrap().push_str("changed");
         history.write("one", &entry, false);
         assert!(history.error.lock().unwrap().is_some());
+        // Match AssetGuard's explicit release; closing one descriptor alone is
+        // insufficient while another descriptor still refers to the lock.
+        lock.unlock().unwrap();
         drop(lock);
         history.write("one", &entry, false);
         assert_eq!(
@@ -2469,6 +2475,7 @@ mod boundary_tests {
                 ["records"][0]["output"],
             "changed"
         );
+        drop(inherited);
         entry.status = "completed".into();
         history.write("one", &entry, true);
         assert_eq!(

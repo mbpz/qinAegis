@@ -29,6 +29,7 @@ Development branch, not a published stable release. Current scope and remaining 
 
 - One execution slot with up to eight FIFO waiting tasks, frozen submission inputs, visible queue positions and queued cancellation without replay after restart.
 - Separate owned Chromium profiles and private engine workspaces, actual browser isolation and relocated bundled-runtime checks.
+- Pinned workspace directory identity checks, bounded ownership markers and explicit cleanup failure propagation; abandoned work retains files without leaking the directory handle. New Windows directory handling awaits its own CI; cross-restart recovery remains pending.
 - Managed project specifications with bounded reads, explicit approved CAS saves and frozen generator/critic inputs; core/HTTP/UI and actual browser checks passed, including conflict retention and delayed-save project isolation.
 - Lighthouse/Locust failure and metric validation; ZAP explicitly unavailable until managed container cancellation is implemented.
 
@@ -53,7 +54,7 @@ Development branch, not a published stable release. Current scope and remaining 
 
 - Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; multi-resource concurrency, exceptional browser workspace cleanup and per-engine cancellation timing acceptance and runnable scenario orchestration.
 - Clean-machine installation, Windows one-command installer, signing, upgrade/rollback and formal release.
-- Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Independent model protocols and step routing remain future work; synthetic text/JSON probing does not certify visual compatibility.
+- Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Additional model protocols and step fallback policies remain future work; synthetic text/JSON probing does not certify visual compatibility.
 
 ## Historical entries
 
