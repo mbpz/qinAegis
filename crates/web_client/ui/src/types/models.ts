@@ -17,4 +17,5 @@ export interface ModelRegistry {
   revision: number;
   profiles: ModelProfile[];
   routes: Record<string, TaskModelRoute>;
+  project_routes?: Record<string, Record<string, TaskModelRoute>>;
 }

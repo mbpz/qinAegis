@@ -38,6 +38,8 @@ export interface StateResponse {
   ok: boolean;
   config: AppConfig | null;
   currentView: string;
+  config_revision: number;
+  config_backup_available: boolean;
 }
 
 export interface AppConfig {
@@ -110,9 +112,9 @@ export interface ReportHtmlResponse {
   error?: string;
 }
 
-export type JobType = 'explore' | 'generate' | 'testExec';
+export type JobType = 'explore' | 'generate' | 'testExec' | 'allureReport' | 'modelProbe' | 'runtimeCheck' | 'browserInstall';
 
-export type JobStatusValue = 'idle' | 'running' | 'cancelling' | 'completed' | 'failed' | 'stopped';
+export type JobStatusValue = 'idle' | 'running' | 'cancelling' | 'completed' | 'failed' | 'stopped' | 'interrupted';
 
 export interface JobStatus {
   jobId: string;
@@ -146,3 +148,10 @@ export interface RunEvidence {
 
 export interface JobStartResult { ok: boolean; jobId: string; }
 export interface AllureReportResponse { ok: boolean; html?: string; version?: string; error?: string; }
+
+export interface TaskSummary { jobId: string; jobType: string; status: JobStatusValue; error?: string | null; created_at?: number; updated_at?: number; }
+
+export interface CaseAsset {
+  case_id: string; name: string; yaml_script: string; expected_result: string;
+  status: TestCase['status']; provenance: CaseProvenance | null; digest: string;
+}

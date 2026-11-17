@@ -13,7 +13,7 @@ pub fn registry() -> Result<ModelRegistry> {
 pub fn handles(method: &str) -> bool {
     matches!(
         method,
-        "getModels" | "saveModel" | "setModelRoute" | "resolveModelRoute"
+        "getModels" | "saveModel" | "setModelRoute" | "setProjectModelRoute" | "resolveModelRoute"
     )
 }
 
@@ -23,18 +23,37 @@ pub fn dispatch(method: &str, p: &Value) -> Result<Value> {
         "getModels" => store.snapshot()?,
         "saveModel" => {
             let mut profile: Value = field(p, "profile")?;
-            if let Some(object) = profile.as_object_mut() { object.remove("api_key_configured"); }
-            store.upsert(field(p, "expected_revision")?, serde_json::from_value(profile)
-                .map_err(|_| anyhow::anyhow!("invalid model profile"))?,
-                p.get("clear_api_key").and_then(Value::as_bool).unwrap_or(false))?
-        },
+            if let Some(object) = profile.as_object_mut() {
+                object.remove("api_key_configured");
+            }
+            store.upsert(
+                field(p, "expected_revision")?,
+                serde_json::from_value(profile)
+                    .map_err(|_| anyhow::anyhow!("invalid model profile"))?,
+                p.get("clear_api_key")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            )?
+        }
         "setModelRoute" => store.set_route(
             field(p, "expected_revision")?,
             &field::<String>(p, "task")?,
             field(p, "route")?,
         )?,
+        "setProjectModelRoute" => store.set_project_route(
+            field(p, "expected_revision")?,
+            &field::<String>(p, "project")?,
+            &field::<String>(p, "task")?,
+            field(p, "route")?,
+        )?,
         "resolveModelRoute" => {
-            let route = store.resolve(&field::<String>(p, "task")?, &[])?;
+            let route = store.resolve_for_project(
+                p.get("project")
+                    .map(|v| v.as_str().ok_or_else(|| anyhow::anyhow!("invalid project")))
+                    .transpose()?,
+                &field::<String>(p, "task")?,
+                &[],
+            )?;
             let candidates: Vec<Value> = route.candidates().iter().map(|profile| serde_json::json!({
                 "id":profile.id,"model":profile.model,"adapter":profile.adapter,"capabilities":profile.capabilities,
                 "midscene_family":profile.midscene_family,

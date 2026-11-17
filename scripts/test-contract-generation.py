@@ -99,7 +99,16 @@ def main():
             for project in ("smoke-alpha", "smoke-beta"):
                 saved = list((projects / project / "cases" / "draft").glob("*.json"))
                 require(len(saved) == 1, "generated draft was not saved to selected project")
-                require(json.loads(saved[0].read_text())["status"] == "draft", "model bypassed human case review")
+                case = json.loads(saved[0].read_text())
+                require(case["status"] == "draft", "model bypassed human case review")
+                calls = case["provenance"]["model_calls"]
+                expected_profile = "one" if project == "smoke-alpha" else "two"
+                require(calls["generator"] and calls["critic"] and
+                        all(attempt["profile_id"] == expected_profile and attempt["outcome"] == "succeeded"
+                            for attempt in calls["generator"] + calls["critic"]),
+                        "atomic provenance omitted the actually used generation/critic model")
+                require(calls["generator"][-1]["call"] < calls["critic"][0]["call"],
+                        "critic model call facts reused generator calls")
             require(not (projects / "default").exists(), "generation wrote to hardcoded default project")
             print("PASS two-project generation, immutable contract/model snapshots, next-job switching and draft review boundary")
         finally:

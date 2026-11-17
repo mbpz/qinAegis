@@ -139,7 +139,8 @@ def main():
                         'generation provenance lost original version')
                 smoke.rpc('runTests', {'project': project, 'type': 'smoke'}, success=False)
                 for status in ('reviewed', 'approved'):
-                    smoke.rpc('updateCaseStatus', {'project': project, 'case_id': case['id'], 'status': status})
+                    smoke.rpc('updateCaseStatus', {'project': project, 'case_id': case['id'], 'status': status,
+                        'expected_digest': smoke.rpc('getCaseAsset', {'project': project, 'case_id': case['id']})['digest']})
                 saved[project] = (case, provenance)
             # Lifecycle changes must be explicit and atomic, retaining old case provenance.
             base = {'contract_id': 'receipt', 'version': 1, 'reason': 'use corrected receipt', 'expected_revision': library['revision']}

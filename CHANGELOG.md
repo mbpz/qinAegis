@@ -18,6 +18,11 @@ Development branch, not a published stable release. Current scope and remaining 
 - Four-platform CI candidates with version/commit manifests, archive validation and SHA-256 checksums; matching v2 tags create draft releases.
 - Independent contract-focused GitHub Pages build, PR preview artifacts and main-only deployment.
 
+- Project-scoped model overrides, synthetic text/JSON capability observations and actual generator/critic attempt records.
+- Standalone compiled runtime packaging with bundled Node, validated offline import, fixed Web diagnostics and explicit Chromium installation.
+- Atomic configuration CAS, private backup and explicit recovery; bounded durable task history, incremental logs and interrupted recovery without replay.
+- Full case editing with original-content comparison, approval reset, exact-content review/approval and recoverable case transitions.
+
 ### Changed
 
 - Replaced the tao/wry desktop shell with an embedded Web UI and a loopback-only HTTP service: background start, browser opening, status and safe stop, private sessions and CSRF checks.
@@ -34,9 +39,9 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Pending acceptance
 
-- Real dual-project visual execution with authorized compatible models; installed runtime preparation/diagnostics; durable tasks, cancellation/recovery and runnable scenario orchestration.
+- Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; durable queue/resource policies, Windows whole-tree cancellation and runnable scenario orchestration.
 - Clean-machine installation, Windows one-command installer, signing, upgrade/rollback and formal release.
-- Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Model protocol expansion and project/step routing remain future work; current registration does not imply online compatibility testing.
+- Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Independent model protocols and step routing remain future work; synthetic text/JSON probing does not certify visual compatibility.
 
 ## Historical entries
 

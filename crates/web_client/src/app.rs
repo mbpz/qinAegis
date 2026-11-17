@@ -11,6 +11,112 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+const LOG_LIMIT: usize = 64 * 1024;
+#[derive(Clone, Default)]
+pub struct JobOutput {
+    text: String,
+    start: u64,
+    secrets: Vec<String>,
+    pending: String,
+}
+impl JobOutput {
+    fn configure(&mut self, secrets: &[String]) {
+        self.secrets = secrets.iter().filter(|s| !s.is_empty()).cloned().collect();
+        self.secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
+        // Production configures before any worker writes. Conservatively mask
+        // preexisting text because a previously truncated secret is unrecoverable.
+        if !self.secrets.is_empty() && !self.text.is_empty() {
+            self.text = "*".repeat(self.text.len());
+        }
+    }
+    fn push_str(&mut self, value: &str) {
+        let mut incoming = std::mem::take(&mut self.pending);
+        incoming.push_str(value);
+        let mut offset = 0;
+        while offset < incoming.len() {
+            let rest = &incoming[offset..];
+            if self
+                .secrets
+                .iter()
+                .any(|s| s.len() > rest.len() && s.starts_with(rest))
+            {
+                self.pending = rest.into();
+                break;
+            } else if let Some(secret) = self.secrets.iter().find(|s| rest.starts_with(s.as_str()))
+            {
+                self.text.push_str(&"*".repeat(secret.len()));
+                offset += secret.len();
+            } else {
+                let ch = rest.chars().next().unwrap();
+                self.text.push(ch);
+                offset += ch.len_utf8();
+            }
+        }
+        self.trim();
+    }
+    fn finish(&mut self) {
+        self.text.push_str(&"*".repeat(self.pending.len()));
+        self.pending.clear();
+        self.trim();
+    }
+    fn trim(&mut self) {
+        if self.text.len() > LOG_LIMIT {
+            let mut remove = self.text.len() - LOG_LIMIT;
+            while !self.text.is_char_boundary(remove) {
+                remove += 1;
+            }
+            self.text.drain(..remove);
+            self.start += remove as u64;
+        }
+    }
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+#[derive(Clone)]
+pub(crate) struct History {
+    store: Arc<qin_aegis_core::jobs::JobStore>,
+    serial: Arc<Mutex<()>>,
+    error: Arc<Mutex<Option<String>>>,
+    last: Arc<Mutex<Option<(String, serde_json::Value)>>>,
+}
+impl History {
+    fn write(&self, id: &str, entry: &JobEntry, terminal: bool) {
+        let mut record = entry.record(id);
+        if !terminal {
+            record.status = if entry.cancel_flag.load(Ordering::Acquire) {
+                "cancelling"
+            } else {
+                "running"
+            }
+            .into();
+        }
+        let mut signature = serde_json::to_value(&record).expect("job record serializes");
+        signature["updated_at"] = serde_json::json!(0);
+        if !terminal
+            && self
+                .last
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(previous_id, previous)| previous_id == id && previous == &signature)
+        {
+            return;
+        }
+        match self.store.checkpoint(record) {
+            Ok(()) => *self.last.lock().unwrap() = Some((id.into(), signature)),
+            Err(error) => {
+                *self.error.lock().unwrap() =
+                    Some(format!("Task history persistence failed: {error}"))
+            }
+        }
+    }
+}
+
 // ============================================================================
 // JobEntry — tracks async job state for cancel/status control
 // ============================================================================
@@ -19,11 +125,16 @@ use std::thread;
 pub struct JobEntry {
     pub job_type: String,
     pub status: String, // idle/running/completed/failed/stopped
-    pub output: Arc<Mutex<String>>,
+    pub output: Arc<Mutex<JobOutput>>,
+    pub created_at: u64,
+    secrets: Vec<String>,
+    pub(crate) history: Option<History>,
     pub cancel_flag: Arc<AtomicBool>,
     pub result: Option<serde_json::Value>,
     pub error: Option<String>,
     pub snapshot: Option<serde_json::Value>,
+    // Published with the active worker count after final output and history cleanup.
+    worker_done: bool,
     // done_tx intentionally omitted - not needed after thread spawn
 }
 
@@ -32,11 +143,68 @@ impl JobEntry {
         Self {
             job_type: job_type.to_string(),
             status: "running".to_string(),
-            output: Arc::new(Mutex::new(String::new())),
+            output: Arc::new(Mutex::new(JobOutput::default())),
+            created_at: now(),
+            secrets: Vec::new(),
+            history: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
             result: None,
             error: None,
             snapshot: None,
+            worker_done: false,
+        }
+    }
+    fn visible_status(&self) -> &str {
+        if !self.worker_done && !matches!(self.status.as_str(), "running" | "cancelling") {
+            "running"
+        } else {
+            &self.status
+        }
+    }
+    fn redact(&self, mut text: String) -> String {
+        for secret in &self.secrets {
+            if !secret.is_empty() {
+                text = text.replace(secret, "[REDACTED]");
+            }
+        }
+        text
+    }
+    fn record(&self, id: &str) -> qin_aegis_core::jobs::JobRecord {
+        let output = self.output.lock().unwrap().clone();
+        let clean = |value: &Option<serde_json::Value>| {
+            value.as_ref().map(|v| {
+                fn walk(v: &mut serde_json::Value, entry: &JobEntry) {
+                    match v {
+                        serde_json::Value::String(s) => *s = entry.redact(s.clone()),
+                        serde_json::Value::Array(a) => {
+                            for v in a {
+                                walk(v, entry);
+                            }
+                        }
+                        serde_json::Value::Object(o) => {
+                            for (_, v) in o {
+                                walk(v, entry);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let mut v = v.clone();
+                walk(&mut v, self);
+                v
+            })
+        };
+        qin_aegis_core::jobs::JobRecord {
+            id: id.into(),
+            job_type: self.job_type.clone(),
+            status: self.status.clone(),
+            output: output.text,
+            output_start: output.start,
+            result: clean(&self.result),
+            error: self.error.as_ref().map(|e| self.redact(e.clone())),
+            snapshot: clean(&self.snapshot),
+            created_at: self.created_at,
+            updated_at: now().max(self.created_at),
         }
     }
 }
@@ -46,6 +214,7 @@ struct WorkerGuard {
     active: Arc<AtomicUsize>,
     jobs: Arc<Mutex<HashMap<String, JobEntry>>>,
     job_id: String,
+    done: Arc<AtomicBool>,
 }
 
 impl WorkerGuard {
@@ -55,16 +224,42 @@ impl WorkerGuard {
         job_id: String,
     ) -> Self {
         active.fetch_add(1, Ordering::AcqRel);
+        let done = Arc::new(AtomicBool::new(false));
+        let history = jobs
+            .lock()
+            .unwrap()
+            .get(&job_id)
+            .and_then(|e| e.history.clone());
+        if let Some(history) = history {
+            let finished = done.clone();
+            let entries = jobs.clone();
+            let id = job_id.clone();
+            thread::spawn(move || {
+                while !finished.load(Ordering::Acquire) {
+                    thread::sleep(std::time::Duration::from_millis(250));
+                    let _serial = history.serial.lock().unwrap();
+                    if finished.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let entry = entries.lock().unwrap().get(&id).cloned();
+                    if let Some(entry) = entry {
+                        history.write(&id, &entry, false);
+                    }
+                }
+            });
+        }
         Self {
             active,
             jobs,
             job_id,
+            done,
         }
     }
 }
 
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
+        self.done.store(true, Ordering::Release);
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(entry) = jobs.get_mut(&self.job_id) {
                 if entry.cancel_flag.load(Ordering::Acquire)
@@ -79,6 +274,18 @@ impl Drop for WorkerGuard {
                         .get_or_insert_with(|| "worker exited without a result".into());
                 }
             }
+        }
+        let entry = self.jobs.lock().unwrap().get(&self.job_id).cloned();
+        if let Some(entry) = entry {
+            entry.output.lock().unwrap().finish();
+            if let Some(history) = &entry.history {
+                let _serial = history.serial.lock().unwrap();
+                history.write(&self.job_id, &entry, true);
+            }
+        }
+        let mut jobs = self.jobs.lock().unwrap();
+        if let Some(entry) = jobs.get_mut(&self.job_id) {
+            entry.worker_done = true;
         }
         self.active.fetch_sub(1, Ordering::AcqRel);
     }
@@ -129,11 +336,13 @@ pub struct AppState {
     pub next_job_id: std::sync::atomic::AtomicU64,
     pub jobs: Arc<Mutex<HashMap<String, JobEntry>>>, // jobId -> JobEntry
     pub active_workers: Arc<AtomicUsize>,
+    pub(crate) history: Option<History>,
+    pub(crate) session_id: String,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        let config_result = AppConfig::load_global();
+        let config_result: Result<AppConfig, ()> = Err(());
         Self {
             config: config_result.ok(),
             output: Arc::new(Mutex::new(String::new())),
@@ -141,18 +350,109 @@ impl Default for AppState {
             next_job_id: std::sync::atomic::AtomicU64::new(1),
             jobs: Arc::new(Mutex::new(HashMap::new())),
             active_workers: Arc::new(AtomicUsize::new(0)),
+            history: None,
+            session_id: "test".into(),
         }
     }
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new() -> anyhow::Result<Self> {
+        let store = Arc::new(qin_aegis_core::jobs::JobStore::new(
+            LocalStorage::base_path().join("jobs/history.json"),
+        ));
+        let records = store.load_and_recover()?;
+        let mut app = Self::default();
+        app.config = AppConfig::load_global().ok();
+        app.session_id = crate::server::random_token()?;
+        let history = History {
+            store,
+            serial: Arc::new(Mutex::new(())),
+            error: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
+        };
+        for r in records {
+            let mut e = JobEntry::new(&r.job_type);
+            e.status = r.status;
+            e.output = Arc::new(Mutex::new(JobOutput {
+                text: r.output,
+                start: r.output_start,
+                ..JobOutput::default()
+            }));
+            e.created_at = r.created_at;
+            e.result = r.result;
+            e.error = r.error;
+            e.snapshot = r.snapshot;
+            e.worker_done = true;
+            app.jobs.lock().unwrap().insert(r.id, e);
+        }
+        app.history = Some(history);
+        Ok(app)
+    }
+
+    fn register_job(&self, id: &str, mut entry: JobEntry) -> anyhow::Result<()> {
+        if let Some(cfg) = &self.config {
+            entry.secrets.extend([
+                resolve_env_var(&cfg.llm.api_key),
+                resolve_env_var(&cfg.llm.secondary_api_key),
+            ]);
+        }
+        entry.output.lock().unwrap().configure(&entry.secrets);
+        entry.history = self.history.clone();
+        if let Some(history) = &self.history {
+            let _serial = history.serial.lock().unwrap();
+            history.store.checkpoint(entry.record(id))?;
+        }
+        let mut jobs = self.jobs.lock().unwrap();
+        while jobs.len() >= 100 {
+            let remove = jobs
+                .iter()
+                .filter(|(_, e)| e.worker_done)
+                .min_by_key(|(_, e)| e.created_at)
+                .map(|(id, _)| id.clone());
+            if let Some(id) = remove {
+                jobs.remove(&id);
+            } else {
+                anyhow::bail!("Task history full of active work");
+            }
+        }
+        jobs.insert(id.into(), entry);
+        Ok(())
+    }
+    pub fn get_jobs(&self) -> String {
+        let mut jobs = self.jobs.lock().unwrap().iter().map(|(id,e)|serde_json::json!({"jobId":id,"jobType":e.job_type,"status":e.visible_status(),"created_at":e.created_at,"error":e.error.as_ref().map(|v|e.redact(v.clone()))})).collect::<Vec<_>>();
+        jobs.sort_by(|a, b| {
+            b["created_at"]
+                .as_u64()
+                .cmp(&a["created_at"].as_u64())
+                .then_with(|| b["jobId"].as_str().cmp(&a["jobId"].as_str()))
+        });
+        let error = self
+            .history
+            .as_ref()
+            .and_then(|h| h.error.lock().unwrap().clone());
+        serde_json::json!({"jobs":jobs,"history_error":error}).to_string()
+    }
+    pub fn get_job_log(&self, id: &str, cursor: u64) -> String {
+        let entry = self.jobs.lock().unwrap().get(id).cloned();
+        let Some(entry) = entry else {
+            return serde_json::json!({"error":"job not found"}).to_string();
+        };
+        let output = entry.output.lock().unwrap();
+        let end = output.start + output.text.len() as u64;
+        let mut offset = cursor
+            .saturating_sub(output.start)
+            .min(output.text.len() as u64) as usize;
+        while !output.text.is_char_boundary(offset) {
+            offset += 1;
+        }
+        serde_json::json!({"jobId":id,"output":output.text[offset..],"cursor":end,"truncated":cursor<output.start||cursor>end}).to_string()
     }
 
     fn job_id(&self) -> String {
         format!(
-            "job-{}",
+            "job-{}-{}",
+            self.session_id,
             self.next_job_id
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         )
@@ -161,21 +461,29 @@ impl AppState {
     fn append_output(&self, msg: &str) {
         let mut o = self.output.lock().unwrap();
         o.push_str(msg);
+        if o.len() > LOG_LIMIT {
+            let mut start = o.len() - LOG_LIMIT;
+            while !o.is_char_boundary(start) {
+                start += 1;
+            }
+            o.drain(..start);
+        }
     }
 
     pub fn get_job_status(&self, job_id: &str) -> String {
         let entry = self.jobs.lock().unwrap().get(job_id).cloned();
         match entry {
             Some(entry) => {
-                let output = entry.output.lock().unwrap().clone();
+                let output = entry.output.lock().unwrap().text.clone();
                 serde_json::to_string(&serde_json::json!({
                     "jobId": job_id,
                     "jobType": entry.job_type,
-                    "status": entry.status,
+                    "status": entry.visible_status(),
                     "output": output,
-                    "result": entry.result,
-                    "error": entry.error,
-                    "snapshot": entry.snapshot,
+                    "result": entry.record(job_id).result,
+                    "error": entry.record(job_id).error,
+                    "snapshot": entry.record(job_id).snapshot,
+                    "history_error":self.history.as_ref().and_then(|h|h.error.lock().unwrap().clone()),
                 }))
                 .unwrap_or_default()
             }
@@ -214,6 +522,7 @@ impl AppState {
     fn select_model(
         &self,
         task: &str,
+        project: Option<&str>,
     ) -> anyhow::Result<(
         AppConfig,
         LlmConfig,
@@ -222,8 +531,11 @@ impl AppState {
         let mut cfg = self.config.clone().unwrap_or_default();
         let registry = crate::model_api::registry()?;
         let snapshot = registry.snapshot()?;
-        if !snapshot.profiles.is_empty() || !snapshot.routes.is_empty() {
-            let route = registry.resolve(task, &[])?;
+        if !snapshot.profiles.is_empty()
+            || !snapshot.routes.is_empty()
+            || !snapshot.project_routes.is_empty()
+        {
+            let route = registry.resolve_for_project(project, task, &[])?;
             let selected = route
                 .candidates()
                 .first()
@@ -367,21 +679,68 @@ impl AppState {
             Ok(cfg) => cfg,
             Err(error) => return serde_json::json!({"ok":false,"error":error}).to_string(),
         };
-        match cfg.save_global() {
-            Ok(()) => {
+        let Some(expected) = value
+            .get("expected_revision")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return serde_json::json!({"ok":false,"error":"expected_revision is required; reload settings"}).to_string();
+        };
+        match cfg.save_to_checked(&AppConfig::global_path(), expected) {
+            Ok(revision) => {
                 self.config = Some(cfg);
-                serde_json::json!({"ok":true}).to_string()
+                serde_json::json!({"ok":true,"revision":revision}).to_string()
             }
-            Err(_) => {
-                serde_json::json!({"ok":false,"error":"could not save configuration"}).to_string()
-            }
+            Err(error) => serde_json::json!({"ok":false,"error":error.to_string()}).to_string(),
         }
+    }
+
+    pub fn start_maintenance<F>(&mut self, job_type: &str, work: F) -> String
+    where
+        F: FnOnce(Arc<AtomicBool>) -> anyhow::Result<serde_json::Value> + Send + 'static,
+    {
+        if self.active_workers.load(Ordering::Acquire) != 0 {
+            return serde_json::json!({"error":"Another task is running or cancelling"})
+                .to_string();
+        }
+        let id = self.job_id();
+        let entry = JobEntry::new(job_type);
+        let cancel = entry.cancel_flag.clone();
+        if let Err(error) = self.register_job(&id, entry) {
+            return serde_json::json!({"error":error.to_string()}).to_string();
+        }
+        let jobs = self.jobs.clone();
+        let guard = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), id.clone());
+        let job_id = id.clone();
+        thread::spawn(move || {
+            let _guard = guard;
+            let outcome = work(cancel.clone());
+            if let Ok(mut entries) = jobs.lock() {
+                if let Some(entry) = entries.get_mut(&job_id) {
+                    if cancel.load(Ordering::Acquire) {
+                        entry.status = "stopped".into();
+                        entry.error = Some("Task cancelled".into());
+                    } else {
+                        match outcome {
+                            Ok(result) => {
+                                entry.status = "completed".into();
+                                entry.result = Some(result);
+                            }
+                            Err(error) => {
+                                entry.status = "failed".into();
+                                entry.error = Some(error.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        serde_json::json!({"ok":true,"jobId":id}).to_string()
     }
 
     // ── Explore ──────────────────────────────────────────────────────────────
 
     pub fn run_explore(&mut self, url: &str, depth: u32) -> String {
-        let (cfg, frozen_visual, model_route) = match self.select_model("explore") {
+        let (cfg, frozen_visual, model_route) = match self.select_model("explore", None) {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
@@ -397,9 +756,13 @@ impl AppState {
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
-        {
-            let mut jobs_guard = jobs.lock().unwrap();
-            jobs_guard.insert(job_id.clone(), entry);
+        if let Some(route) = &model_route {
+            entry
+                .secrets
+                .extend(route.candidates().iter().map(|p| p.api_key.clone()));
+        }
+        if let Err(error) = self.register_job(&job_id, entry) {
+            return serde_json::json!({"error":error.to_string()}).to_string();
         }
 
         self.append_output(&format!(
@@ -440,7 +803,14 @@ impl AppState {
                     return;
                 }
 
-                match Explorer::new(Some(llm_cfg), Some(sandbox_cfg), None).await {
+                match Explorer::new_cancellable(
+                    Some(llm_cfg),
+                    Some(sandbox_cfg),
+                    None,
+                    cancel_flag.clone(),
+                )
+                .await
+                {
                     Ok(mut explorer) => {
                         // Check cancel flag before explore()
                         if cancel_flag.load(Ordering::Relaxed) {
@@ -528,7 +898,7 @@ impl AppState {
         project: &str,
         contracts: Option<qin_aegis_core::contract_execution::ExecutionSnapshot>,
     ) -> String {
-        let (cfg, _, route) = match self.select_model("generate") {
+        let (cfg, _, route) = match self.select_model("generate", Some(project)) {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
@@ -553,9 +923,13 @@ impl AppState {
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
-        {
-            let mut jobs_guard = jobs.lock().unwrap();
-            jobs_guard.insert(job_id.clone(), entry);
+        if let Some(route) = &route {
+            entry
+                .secrets
+                .extend(route.candidates().iter().map(|p| p.api_key.clone()));
+        }
+        if let Err(error) = self.register_job(&job_id, entry) {
+            return serde_json::json!({"error":error.to_string()}).to_string();
         }
 
         self.append_output(&format!("[{}] generate dispatched\n", job_id));
@@ -580,19 +954,24 @@ impl AppState {
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
 
-                let llm = match route.as_ref() {
-                    Some(route) => match qin_aegis_core::models::build_client(route) {
-                        Ok(client) => client,
+                let (llm, trace) = match route.as_ref() {
+                    Some(route) => match qin_aegis_core::models::build_client_with_trace(route) {
+                        Ok((client, trace)) => (client, Some(trace)),
                         Err(e) => {
                             Self::set_job_status_internal(&jobs, &job_id, "failed");
                             Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
                             return;
                         }
                     },
-                    None => create_llm_client(&cfg),
+                    None => (create_llm_client(&cfg), None),
                 };
 
                 let service = TestCaseService::new(llm, LocalStorageInstance);
+                let service = if let Some(trace) = trace {
+                    service.with_model_trace(trace)
+                } else {
+                    service
+                };
 
                 // Check cancel flag before generate
                 if cancel_flag.load(Ordering::Relaxed) {
@@ -600,15 +979,13 @@ impl AppState {
                     return;
                 }
 
-                match service
-                    .generate_and_save_with_context(
-                        &project,
-                        &spec_markdown,
-                        &requirement,
-                        Some(generation_context),
-                    )
-                    .await
-                {
+                let generated = tokio::select! {
+                    result = service.generate_and_save_with_context(
+                        &project, &spec_markdown, &requirement, Some(generation_context),
+                    ) => result,
+                    _ = crate::environment::cancelled(cancel_flag.clone()) => Err(anyhow::anyhow!("Generation cancelled")),
+                };
+                match generated {
                     Ok(cases) => {
                         let mut o = output_arc.lock().unwrap();
                         let saved: usize = cases.iter().filter(|c| c.saved).count();
@@ -669,7 +1046,7 @@ impl AppState {
             Ok(cases) => cases,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
-        let (cfg, frozen_visual, model_route) = match self.select_model("execute") {
+        let (cfg, frozen_visual, model_route) = match self.select_model("execute", Some(project)) {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
@@ -708,7 +1085,18 @@ impl AppState {
         let cancel_flag = entry.cancel_flag.clone();
         let output = entry.output.clone();
         let jobs = self.jobs.clone();
-        jobs.lock().unwrap().insert(job_id.clone(), entry);
+        if let Some(route) = &model_route {
+            entry
+                .secrets
+                .extend(route.candidates().iter().map(|p| p.api_key.clone()));
+        }
+        if let Err(error) = self.register_job(&job_id, entry) {
+            let failure = format!("task admission failed: {error}");
+            if let Err(finalize) = store.finish("failed", Vec::new(), Some(failure.clone())) {
+                return serde_json::json!({"error":format!("{failure}; cannot finalize execution evidence: {finalize}")}).to_string();
+            }
+            return serde_json::json!({"error":failure}).to_string();
+        }
         let job_id_for_return = job_id.clone();
         let worker = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), job_id.clone());
         let test_type = test_type.to_string();
@@ -729,12 +1117,13 @@ impl AppState {
                             "[{job_id}] Executing {} frozen approved cases\n",
                             record.cases.len()
                         ));
-                        let executor = TestExecutor::new(
+                        let executor = TestExecutor::new_cancellable(
                             3,
                             Some(frozen_visual.clone()),
                             Some(SandboxConfig {
                                 cdp_port: cfg.sandbox.cdp_port,
                             }),
+                            cancel_flag.clone(),
                         )
                         .await?;
                         let selected = record
@@ -759,6 +1148,7 @@ impl AppState {
                                 &record.cases[0].target_url,
                                 &test_type,
                                 &run_dir,
+                                cancel_flag.clone(),
                             )
                             .await?;
                         }
@@ -868,6 +1258,7 @@ impl AppState {
         target_url: &str,
         test_type: &str,
         run_dir: &std::path::Path,
+        cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         let (request, filename) = match test_type {
             "performance" => (
@@ -893,11 +1284,14 @@ impl AppState {
                 cdp_port: cfg.sandbox.cdp_port,
             }),
         )
-        .await?;
+        .await?
+        .with_cancellation(cancel);
         let result = process.call(request).await;
         let shutdown = process.call(JsonRpcRequest::Shutdown).await;
+        let cleanup = process.terminate().await;
         let response = result?;
         let shutdown = shutdown?;
+        cleanup?;
         anyhow::ensure!(
             shutdown.ok,
             "additional check shutdown failed: {}",
@@ -1023,7 +1417,9 @@ impl AppState {
         let entry = JobEntry::new("allureReport");
         let output = entry.output.clone();
         let cancel = entry.cancel_flag.clone();
-        self.jobs.lock().unwrap().insert(job_id.clone(), entry);
+        if let Err(error) = self.register_job(&job_id, entry) {
+            return serde_json::json!({"error":error.to_string()}).to_string();
+        }
         let jobs = self.jobs.clone();
         let guard = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), job_id.clone());
         thread::spawn(move || {
@@ -1045,7 +1441,9 @@ impl AppState {
                     .build()?;
                 let data = rt.block_on(async {
                     tokio::time::timeout(std::time::Duration::from_secs(120), async {
-                        let process = MidsceneProcess::spawn(None, None).await?;
+                        let process = MidsceneProcess::spawn(None, None)
+                            .await?
+                            .with_cancellation(cancel.clone());
                         let response = process
                             .call(JsonRpcRequest::GenerateAllure {
                                 results_dir: root
@@ -1059,8 +1457,10 @@ impl AppState {
                             })
                             .await;
                         let shutdown = process.call(JsonRpcRequest::Shutdown).await;
+                        let cleanup = process.terminate().await;
                         let response = response?;
                         let shutdown = shutdown?;
+                        cleanup?;
                         anyhow::ensure!(shutdown.ok, "Allure engine shutdown failed");
                         anyhow::ensure!(
                             response.ok,
@@ -1326,7 +1726,7 @@ impl AppState {
             .map(|c| format!("[{}] {} ({})", c.id, c.name, c.test_type))
             .collect();
 
-        let plan_text = if let Ok((cfg, _, route)) = self.select_model("generate") {
+        let plan_text = if let Ok((cfg, _, route)) = self.select_model("generate", Some(project)) {
             let llm = match route
                 .as_ref()
                 .map(qin_aegis_core::models::build_client)
@@ -1478,50 +1878,7 @@ impl AppState {
         serde_json::to_string(&cases).unwrap_or_else(|_| r#"[]"#.to_string())
     }
 
-    pub fn update_case_status(&self, project: &str, case_id: &str, new_status: &str) -> String {
-        let result = (|| -> anyhow::Result<()> {
-            let target: CaseStatus = serde_json::from_value(serde_json::json!(new_status))?;
-            let statuses = [
-                CaseStatus::Draft,
-                CaseStatus::Reviewed,
-                CaseStatus::Approved,
-                CaseStatus::Flaky,
-                CaseStatus::Archived,
-            ];
-            let from = statuses
-                .into_iter()
-                .find(|status| {
-                    LocalStorage::case_path_in_status(project, case_id, *status).is_file()
-                })
-                .ok_or_else(|| anyhow::anyhow!("case not found"))?;
-            anyhow::ensure!(
-                from.can_transition_to(target),
-                "invalid case status transition"
-            );
-            anyhow::ensure!(
-                !LocalStorage::case_path_in_status(project, case_id, target).exists(),
-                "target case identity already exists"
-            );
-            // Existing sources cannot silently survive script edits, even if a
-            // caller tries to approve the changed file through the status API.
-            let path = LocalStorage::case_path_in_status(project, case_id, from);
-            let case: qin_aegis_core::storage::TestCase =
-                serde_json::from_slice(&std::fs::read(path)?)?;
-            anyhow::ensure!(case.id == case_id, "case identity mismatch");
-            if matches!(target, CaseStatus::Reviewed | CaseStatus::Approved) {
-                qin_aegis_core::execution_records::case_provenance(project, &case)?;
-            }
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            rt.block_on(LocalStorageInstance.move_case(project, case_id, from, target))?;
-            Ok(())
-        })();
-        match result {
-            Ok(()) => serde_json::json!({"ok":true}).to_string(),
-            Err(e) => serde_json::json!({"error":e.to_string()}).to_string(),
-        }
-    }
+
 }
 
 /// Apply a browser patch without serializing secrets back to the caller.
@@ -1671,6 +2028,8 @@ mod boundary_tests {
             next_job_id: std::sync::atomic::AtomicU64::new(1),
             jobs: Arc::new(Mutex::new(HashMap::new())),
             active_workers: Arc::new(AtomicUsize::new(0)),
+            history: None,
+            session_id: "test".into(),
         };
         let value: serde_json::Value = serde_json::from_str(&app.get_config()).unwrap();
         assert_eq!(value["llm"]["api_key"], "");
@@ -1685,6 +2044,8 @@ mod boundary_tests {
             next_job_id: std::sync::atomic::AtomicU64::new(1),
             jobs: Arc::new(Mutex::new(HashMap::new())),
             active_workers: Arc::new(AtomicUsize::new(0)),
+            history: None,
+            session_id: "test".into(),
         }
     }
 
@@ -1721,9 +2082,72 @@ mod boundary_tests {
         AppState::set_job_status_internal(&app.jobs, "job-1", "failed");
         assert_eq!(app.active_workers.load(Ordering::Acquire), 1);
         assert_eq!(app.jobs.lock().unwrap()["job-1"].status, "completed");
+        let status: serde_json::Value = serde_json::from_str(&app.get_job_status("job-1")).unwrap();
+        assert_eq!(status["status"], "running");
+        let jobs: serde_json::Value = serde_json::from_str(&app.get_jobs()).unwrap();
+        assert_eq!(jobs["jobs"][0]["status"], "running");
         drop(guard);
         assert_eq!(app.active_workers.load(Ordering::Acquire), 0);
         assert_eq!(app.jobs.lock().unwrap()["job-1"].status, "completed");
+        let status: serde_json::Value = serde_json::from_str(&app.get_job_status("job-1")).unwrap();
+        assert_eq!(status["status"], "completed");
+    }
+
+    #[test]
+    fn terminal_visibility_waits_for_guard_history_flush_and_admission_release() {
+        let dir = TaskTemp::new();
+        let path = dir.path().join("history.json");
+        let mut app = empty_app();
+        let history = History {
+            store: Arc::new(qin_aegis_core::jobs::JobStore::new(&path)),
+            serial: Arc::new(Mutex::new(())),
+            error: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
+        };
+        app.history = Some(history.clone());
+        app.register_job("job-1", JobEntry::new("test")).unwrap();
+        let guard = WorkerGuard::new(app.active_workers.clone(), app.jobs.clone(), "job-1".into());
+        AppState::set_job_status_internal(&app.jobs, "job-1", "completed");
+        let serial = history.serial.lock().unwrap();
+        let dropping = guard.done.clone();
+        let cleanup = thread::spawn(move || drop(guard));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !dropping.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "guard failed to start cleanup"
+            );
+            thread::yield_now();
+        }
+        let status: serde_json::Value = serde_json::from_str(&app.get_job_status("job-1")).unwrap();
+        assert_eq!(status["status"], "running");
+        let jobs: serde_json::Value = serde_json::from_str(&app.get_jobs()).unwrap();
+        assert_eq!(jobs["jobs"][0]["status"], "running");
+        assert_eq!(app.active_workers.load(Ordering::Acquire), 1);
+        assert!(app
+            .start_maintenance("next", |_| Ok(json!({})))
+            .contains("Another task"));
+        // A late cancellation must not rewrite the already committed business result.
+        assert!(app.stop_job("job-1").contains("not running"));
+        drop(serial);
+        cleanup.join().unwrap();
+        let status: serde_json::Value = serde_json::from_str(&app.get_job_status("job-1")).unwrap();
+        assert_eq!(status["status"], "completed");
+        assert_eq!(app.active_workers.load(Ordering::Acquire), 0);
+        let disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(disk.to_string().contains("completed"));
+        let next: serde_json::Value =
+            serde_json::from_str(&app.start_maintenance("next", |_| Ok(json!({})))).unwrap();
+        assert_eq!(next["ok"], true);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.active_workers.load(Ordering::Acquire) != 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "next worker did not finish"
+            );
+            thread::yield_now();
+        }
     }
 
     #[test]
@@ -1758,5 +2182,152 @@ mod boundary_tests {
         assert!(validate_endpoints(&cfg, |_| "file:///etc/passwd".into()).is_err());
         assert!(validate_endpoints(&cfg, |_| String::new()).is_err());
         assert!(validate_endpoints(&cfg, str::to_owned).is_err());
+    }
+    struct TaskTemp(std::path::PathBuf);
+    impl TaskTemp {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "qinaegis-task-test-{}",
+                crate::server::random_token().unwrap()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+    impl Drop for TaskTemp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn task_output_cursor_and_history_redaction() {
+        let dir = TaskTemp::new();
+        let path = dir.path().join("history.json");
+        let mut app = empty_app();
+        app.history = Some(History {
+            store: Arc::new(qin_aegis_core::jobs::JobStore::new(&path)),
+            serial: Arc::new(Mutex::new(())),
+            error: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
+        });
+        let mut e = JobEntry::new("generate");
+        e.secrets.push("private-test-key".into());
+        e.output.lock().unwrap().push_str(&"中".repeat(40000));
+        e.output.lock().unwrap().push_str("private-test-key");
+        e.result = Some(json!({"echo":"private-test-key"}));
+        app.register_job("job-safe", e).unwrap();
+        let log: serde_json::Value = serde_json::from_str(&app.get_job_log("job-safe", 0)).unwrap();
+        assert_eq!(log["truncated"], true);
+        assert!(!log.to_string().contains("private-test-key"));
+        let cursor = log["cursor"].as_u64().unwrap();
+        let empty: serde_json::Value =
+            serde_json::from_str(&app.get_job_log("job-safe", cursor)).unwrap();
+        assert_eq!(empty["output"], "");
+        let disk = std::fs::read_to_string(path).unwrap();
+        assert!(!disk.contains("private-test-key"));
+        assert!(disk.contains("REDACTED"));
+    }
+    #[test]
+    fn task_initial_persistence_failure_starts_no_worker() {
+        let dir = TaskTemp::new();
+        let path = dir.path().join("history.json");
+        std::fs::write(&path, "corrupt").unwrap();
+        let mut app = empty_app();
+        app.history = Some(History {
+            store: Arc::new(qin_aegis_core::jobs::JobStore::new(path)),
+            serial: Arc::new(Mutex::new(())),
+            error: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
+        });
+        let ran = Arc::new(AtomicBool::new(false));
+        let flag = ran.clone();
+        let result = app.start_maintenance("probe", move |_| {
+            flag.store(true, Ordering::Release);
+            Ok(json!({}))
+        });
+        assert!(result.contains("error"));
+        assert!(!ran.load(Ordering::Acquire));
+        assert!(app.jobs.lock().unwrap().is_empty());
+        assert_eq!(app.active_workers.load(Ordering::Acquire), 0);
+    }
+    #[test]
+    fn streaming_redaction_precedes_truncation_and_cursor_slicing() {
+        let secret = "private-key-fixture";
+        let mut output = JobOutput::default();
+        output.configure(&[secret.into()]);
+        output.push_str("private-key-");
+        assert!(output.text.is_empty());
+        output.push_str("fixture");
+        assert_eq!(output.text, "*".repeat(secret.len()));
+        output.push_str(&"x".repeat(LOG_LIMIT - 5));
+        assert!(output.text.starts_with("*****"));
+        assert!(!output.text.contains("xture"));
+        let mut entry = JobEntry::new("test");
+        entry.secrets.push(secret.into());
+        entry.output.lock().unwrap().configure(&entry.secrets);
+        entry
+            .output
+            .lock()
+            .unwrap()
+            .push_str(&format!("before {secret} after"));
+        let app = empty_app();
+        app.jobs.lock().unwrap().insert("safe".into(), entry);
+        let log: serde_json::Value = serde_json::from_str(&app.get_job_log("safe", 10)).unwrap();
+        assert_eq!(
+            log["output"],
+            format!("{} after", "*".repeat(secret.len() - 3))
+        );
+        assert_eq!(log["cursor"], (7 + secret.len() + 6) as u64);
+        let mut pending = JobOutput::default();
+        pending.configure(&["abc".into(), "abcdef".into()]);
+        pending.push_str("abc");
+        assert!(pending.text.is_empty());
+        pending.push_str("def");
+        assert_eq!(pending.text, "******");
+        pending.push_str("abcde");
+        pending.finish();
+        assert_eq!(pending.text, "***********");
+    }
+    #[test]
+    fn unchanged_checkpoints_skip_storage_and_failed_changes_retry() {
+        let dir = TaskTemp::new();
+        let path = dir.path().join("history.json");
+        let history = History {
+            store: Arc::new(qin_aegis_core::jobs::JobStore::new(&path)),
+            serial: Arc::new(Mutex::new(())),
+            error: Arc::new(Mutex::new(None)),
+            last: Arc::new(Mutex::new(None)),
+        };
+        let mut entry = JobEntry::new("test");
+        history.write("one", &entry, false);
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path.with_extension("lock"))
+            .unwrap();
+        lock.try_lock().unwrap();
+        // Holding the lock proves that a no-change checkpoint never accesses storage.
+        history.write("one", &entry, false);
+        assert!(history.error.lock().unwrap().is_none());
+        entry.output.lock().unwrap().push_str("changed");
+        history.write("one", &entry, false);
+        assert!(history.error.lock().unwrap().is_some());
+        drop(lock);
+        history.write("one", &entry, false);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap()
+                ["records"][0]["output"],
+            "changed"
+        );
+        entry.status = "completed".into();
+        history.write("one", &entry, true);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()
+                ["records"][0]["status"],
+            "completed"
+        );
     }
 }

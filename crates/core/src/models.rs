@@ -51,6 +51,7 @@ pub struct ModelRegistrySnapshot {
     pub revision: u64,
     pub profiles: Vec<ModelProfileSnapshot>,
     pub routes: BTreeMap<String, TaskModelRoute>,
+    pub project_routes: BTreeMap<String, BTreeMap<String, TaskModelRoute>>,
 }
 
 #[derive(Deserialize)]
@@ -60,6 +61,8 @@ struct Document {
     revision: u64,
     profiles: Vec<ModelProfile>,
     routes: BTreeMap<String, TaskModelRoute>,
+    #[serde(default)]
+    project_routes: BTreeMap<String, BTreeMap<String, TaskModelRoute>>,
 }
 
 impl Default for Document {
@@ -69,6 +72,7 @@ impl Default for Document {
             revision: 0,
             profiles: Vec::new(),
             routes: BTreeMap::new(),
+            project_routes: BTreeMap::new(),
         }
     }
 }
@@ -93,6 +97,7 @@ impl Document {
                 })
                 .collect(),
             routes: self.routes.clone(),
+            project_routes: self.project_routes.clone(),
         }
     }
 
@@ -112,7 +117,7 @@ impl Document {
             })
             .collect();
         let bytes = serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version":1,"revision":self.revision,"profiles":profiles,"routes":self.routes
+            "schema_version":1,"revision":self.revision,"profiles":profiles,"routes":self.routes,"project_routes":self.project_routes
         }))?;
         guard.write(&bytes)
     }
@@ -185,6 +190,16 @@ impl ModelRegistry {
         for (task, route) in &doc.routes {
             validate_route(task, route, &doc.profiles)?;
         }
+        ensure!(
+            doc.project_routes.len() <= 256,
+            "too many project model scopes"
+        );
+        for (project, routes) in &doc.project_routes {
+            validate_project(project)?;
+            for (task, route) in routes {
+                validate_route(task, route, &doc.profiles)?;
+            }
+        }
         Ok(doc)
     }
 
@@ -252,13 +267,63 @@ impl ModelRegistry {
         Ok(doc.snapshot())
     }
 
-    pub fn resolve(&self, task: &str, required_caps: &[&str]) -> Result<ResolvedModelRoute> {
+    /// None removes the override; subsequent runs use the global route.
+    pub fn set_project_route(
+        &self,
+        expected_revision: u64,
+        project: &str,
+        task: &str,
+        route: Option<TaskModelRoute>,
+    ) -> Result<ModelRegistrySnapshot> {
+        validate_project(project)?;
         validate_task(task)?;
         let guard = self.file.lock()?;
+        let mut doc = self.read(&guard)?;
+        ensure!(
+            doc.revision == expected_revision,
+            "model registry revision conflict"
+        );
+        if let Some(route) = route {
+            resolve_profiles(task, &route, &doc.profiles, &[])?;
+            ensure!(
+                doc.project_routes.contains_key(project) || doc.project_routes.len() < 256,
+                "too many project model scopes"
+            );
+            doc.project_routes
+                .entry(project.to_owned())
+                .or_default()
+                .insert(task.to_owned(), route);
+        } else if let Some(routes) = doc.project_routes.get_mut(project) {
+            routes.remove(task);
+            if routes.is_empty() {
+                doc.project_routes.remove(project);
+            }
+        }
+        doc.save(&guard)?;
+        Ok(doc.snapshot())
+    }
+
+    pub fn resolve(&self, task: &str, required_caps: &[&str]) -> Result<ResolvedModelRoute> {
+        self.resolve_for_project(None, task, required_caps)
+    }
+
+    pub fn resolve_for_project(
+        &self,
+        project: Option<&str>,
+        task: &str,
+        required_caps: &[&str],
+    ) -> Result<ResolvedModelRoute> {
+        validate_task(task)?;
+        if let Some(project) = project {
+            validate_project(project)?;
+        }
+        let guard = self.file.lock()?;
         let doc = self.read(&guard)?;
-        let route = doc
-            .routes
-            .get(task)
+        let scoped = project
+            .and_then(|p| doc.project_routes.get(p))
+            .and_then(|routes| routes.get(task));
+        let route = scoped
+            .or_else(|| doc.routes.get(task))
             .context("no model route configured for task")?;
         let (profiles, capabilities) = resolve_profiles(task, route, &doc.profiles, required_caps)?;
         Ok(ResolvedModelRoute {
@@ -267,6 +332,32 @@ impl ModelRegistry {
             profiles,
             capabilities,
             adapters: self.adapters.clone(),
+        })
+    }
+
+    /// Capture one approved destination, never a fallback chain. No network I/O under the file lock.
+    pub fn prepare_probe(&self, profile_id: &str) -> Result<ModelProbe> {
+        let guard = self.file.lock()?;
+        let doc = self.read(&guard)?;
+        let route = TaskModelRoute {
+            primary: profile_id.to_owned(),
+            fallbacks: vec![],
+        };
+        let (profiles, _) = resolve_profiles("generate", &route, &doc.profiles, &[])?;
+        let profile = profiles
+            .into_iter()
+            .next()
+            .context("model profile missing")?;
+        let client = self
+            .adapters
+            .factories
+            .get(&profile.adapter)
+            .context("unknown model adapter")?
+            .build(&profile)?;
+        Ok(ModelProbe {
+            revision: doc.revision,
+            profile,
+            client,
         })
     }
 
@@ -319,6 +410,72 @@ impl ModelRegistry {
             );
         }
         Ok(())
+    }
+}
+
+fn validate_project(project: &str) -> Result<()> {
+    ensure!(
+        !project.is_empty()
+            && project.len() <= 128
+            && !project.starts_with('.')
+            && project
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')),
+        "invalid project model scope"
+    );
+    Ok(())
+}
+
+/// Synthetic observations, not provider declarations or visual-engine certification.
+#[derive(Debug, Serialize)]
+pub struct ModelProbeResult {
+    pub revision: u64,
+    pub profile_id: String,
+    pub model: String,
+    pub text: bool,
+    pub json: Option<bool>,
+    pub vision: Option<bool>,
+    pub tools: Option<bool>,
+    pub error: Option<String>,
+}
+
+pub struct ModelProbe {
+    revision: u64,
+    profile: ModelProfile,
+    client: ArcLlmClient,
+}
+impl ModelProbe {
+    pub async fn run(self) -> ModelProbeResult {
+        self.run_with_timeout(Duration::from_secs(10)).await
+    }
+    async fn run_with_timeout(self, budget: Duration) -> ModelProbeResult {
+        let mut result = ModelProbeResult {
+            revision: self.revision,
+            profile_id: self.profile.id,
+            model: self.profile.model,
+            text: false,
+            json: None,
+            vision: None,
+            tools: None,
+            error: None,
+        };
+        let observation = tokio::time::timeout(budget, async {
+            let response = self.client.chat_with_options(&[Message::user("Reply with exactly QINAEGIS_OK. Synthetic connection check; no project data.")],
+                ChatOptions::new().with_max_tokens(32)).await?;
+            result.text = response.trim() == "QINAEGIS_OK";
+            if self.profile.capabilities.iter().any(|c| c == "json") {
+                let response = self.client.chat_with_options(&[Message::user("Reply with exactly {\"ok\":true}. Synthetic JSON check; no project data.")],
+                    ChatOptions::new().with_max_tokens(32).with_json_schema(r#"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}"#)).await?;
+                result.json = Some(serde_json::from_str::<serde_json::Value>(&response).ok() == Some(serde_json::json!({"ok":true})));
+            }
+            Ok::<(), LlmError>(())
+        }).await;
+        result.error = match observation {
+            Ok(Ok(())) => None,
+            Ok(Err(_)) => Some("model probe request failed".into()),
+            Err(_) => Some("model probe timed out".into()),
+        };
+        result
     }
 }
 
@@ -437,7 +594,63 @@ impl ResolvedModelRoute {
     }
 }
 
+/// Bounded metadata only; callers must snapshot and atomically save it with their asset.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelCallAttempt {
+    pub call: u64,
+    pub attempt: u8,
+    pub profile_id: String,
+    pub outcome: ModelCallOutcome,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCallOutcome {
+    Succeeded,
+    TransportFailure,
+    TimedOut,
+    Rejected,
+}
+#[derive(Default)]
+pub struct ModelCallTrace {
+    next_call: std::sync::atomic::AtomicU64,
+    entries: std::sync::Mutex<(Vec<ModelCallAttempt>, bool)>,
+}
+impl ModelCallTrace {
+    pub fn snapshot(&self) -> Result<Vec<ModelCallAttempt>> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+        ensure!(!entries.1, "model trace capacity exceeded");
+        Ok(entries.0.clone())
+    }
+    fn record(&self, entry: ModelCallAttempt) {
+        if let Ok(mut entries) = self.entries.lock() {
+            if entries.0.len() < 1024 {
+                entries.0.push(entry);
+            } else {
+                entries.1 = true;
+            }
+        }
+    }
+}
+
 pub fn build_client(route: &ResolvedModelRoute) -> Result<ArcLlmClient> {
+    build_registered_client(route, None)
+}
+/// Credentials/inputs/outputs/errors never enter the trace. Call identity groups fallback attempts.
+pub fn build_client_with_trace(
+    route: &ResolvedModelRoute,
+) -> Result<(ArcLlmClient, Arc<ModelCallTrace>)> {
+    let trace = Arc::new(ModelCallTrace::default());
+    let client = build_registered_client(route, Some(trace.clone()))?;
+    Ok((client, trace))
+}
+fn build_registered_client(
+    route: &ResolvedModelRoute,
+    trace: Option<Arc<ModelCallTrace>>,
+) -> Result<ArcLlmClient> {
     let mut clients = Vec::new();
     for profile in &route.profiles {
         let factory = route
@@ -451,12 +664,14 @@ pub fn build_client(route: &ResolvedModelRoute) -> Result<ArcLlmClient> {
     Ok(ArcLlmClient::new(RegisteredClient {
         clients,
         capabilities: route.capabilities.clone(),
+        trace,
     }))
 }
 
 struct RegisteredClient {
     clients: Vec<(String, ArcLlmClient)>,
     capabilities: BTreeSet<String>,
+    trace: Option<Arc<ModelCallTrace>>,
 }
 #[async_trait]
 impl LlmClient for RegisteredClient {
@@ -489,37 +704,62 @@ impl RegisteredClient {
         options: ChatOptions,
         total_budget: Duration,
     ) -> Result<String, LlmError> {
+        let call = self
+            .trace
+            .as_ref()
+            .map(|t| {
+                t.next_call
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1
+            })
+            .unwrap_or(0);
         let candidate_budget = total_budget / self.clients.len().max(1) as u32;
-        tokio::time::timeout(total_budget, async {
-            for (index, (id, client)) in self.clients.iter().enumerate() {
-                match tokio::time::timeout(
-                    candidate_budget,
-                    client.chat_with_options(messages, options.clone()),
-                )
-                .await
-                {
-                    Ok(Ok(result)) => {
-                        tracing::info!(provider_id = %id, "model request completed");
-                        return Ok(result);
+        let deadline = tokio::time::Instant::now() + total_budget;
+        for (index, (id, client)) in self.clients.iter().enumerate() {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(LlmError::ModelFailure("model route timed out"));
+            }
+            let response = tokio::time::timeout_at(
+                deadline.min(tokio::time::Instant::now() + candidate_budget),
+                client.chat_with_options(messages, options.clone()),
+            )
+            .await;
+            if let Some(trace) = &self.trace {
+                let outcome = match &response {
+                    Ok(Ok(_)) => ModelCallOutcome::Succeeded,
+                    Ok(Err(LlmError::ModelFailure(_))) | Ok(Err(LlmError::Request(_))) => {
+                        ModelCallOutcome::TransportFailure
                     }
-                    Ok(Err(LlmError::ModelFailure(_))) | Ok(Err(LlmError::Request(_))) | Err(_) => {
-                        tracing::warn!(
-                            provider_id = %id,
-                            fallback = index + 1 < self.clients.len(),
-                            "model request failed"
-                        );
-                    }
-                    Ok(Err(_)) => {
-                        return Err(LlmError::Api(
-                            "model request rejected without fallback".to_owned(),
-                        ))
-                    }
+                    Err(_) => ModelCallOutcome::TimedOut,
+                    Ok(Err(_)) => ModelCallOutcome::Rejected,
+                };
+                trace.record(ModelCallAttempt {
+                    call,
+                    attempt: (index + 1) as u8,
+                    profile_id: id.clone(),
+                    outcome,
+                });
+            }
+            match response {
+                Ok(Ok(result)) => {
+                    tracing::info!(provider_id = %id, "model request completed");
+                    return Ok(result);
+                }
+                Ok(Err(LlmError::ModelFailure(_))) | Ok(Err(LlmError::Request(_))) | Err(_) => {
+                    tracing::warn!(
+                        provider_id = %id,
+                        fallback = index + 1 < self.clients.len(),
+                        "model request failed"
+                    );
+                }
+                Ok(Err(_)) => {
+                    return Err(LlmError::Api(
+                        "model request rejected without fallback".to_owned(),
+                    ))
                 }
             }
-            Err(LlmError::ModelFailure("approved model route exhausted"))
-        })
-        .await
-        .unwrap_or(Err(LlmError::ModelFailure("model route timed out")))
+        }
+        Err(LlmError::ModelFailure("approved model route exhausted"))
     }
 }
 
@@ -812,6 +1052,180 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), corrupted);
     }
 
+    #[test]
+    fn project_overrides_are_isolated_cas_checked_and_frozen() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ModelRegistry::new(dir.path().join("models.json"));
+        registry.upsert(0, profile("one"), false).unwrap();
+        registry.upsert(1, profile("two"), false).unwrap();
+        registry
+            .set_route(2, "generate", route("one", &[]))
+            .unwrap();
+        registry
+            .set_project_route(3, "project.a", "generate", Some(route("two", &[])))
+            .unwrap();
+        let frozen = registry
+            .resolve_for_project(Some("project.a"), "generate", &[])
+            .unwrap();
+        assert_eq!(frozen.candidates()[0].id, "two");
+        assert_eq!(
+            registry
+                .resolve_for_project(Some("other"), "generate", &[])
+                .unwrap()
+                .candidates()[0]
+                .id,
+            "one"
+        );
+        assert!(registry
+            .set_project_route(3, "project.a", "generate", None)
+            .is_err());
+        assert!(registry
+            .set_project_route(4, "../escape", "generate", None)
+            .is_err());
+        assert!(registry
+            .set_project_route(4, "project.a", "execute", Some(route("one", &[])))
+            .is_err());
+        registry
+            .set_project_route(4, "project.a", "generate", None)
+            .unwrap();
+        assert_eq!(
+            registry
+                .resolve_for_project(Some("project.a"), "generate", &[])
+                .unwrap()
+                .candidates()[0]
+                .id,
+            "one"
+        );
+        assert_eq!(frozen.candidates()[0].id, "two");
+        let snapshot = registry.snapshot().unwrap();
+        assert!(snapshot.project_routes.is_empty());
+        assert!(!serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains("private-test-key"));
+    }
+
+    #[tokio::test]
+    async fn probe_calls_local_chat_protocol_with_synthetic_inputs_and_json_schema() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for expected in ["QINAEGIS_OK", r#"{"ok":true}"#] {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut data = Vec::new();
+                let mut buffer = [0; 4096];
+                loop {
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    data.extend_from_slice(&buffer[..n]);
+                    if let Some(split) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&data[..split]).to_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if data.len() >= split + 4 + length {
+                            assert!(headers.starts_with("post /v1/chat/completions "));
+                            let body: serde_json::Value =
+                                serde_json::from_slice(&data[split + 4..]).unwrap();
+                            assert_eq!(body["max_tokens"], 32);
+                            assert!(body["messages"][0]["content"]
+                                .as_str()
+                                .unwrap()
+                                .contains("Synthetic"));
+                            if expected.starts_with('{') {
+                                assert_eq!(body["response_format"]["type"], "json_schema");
+                            }
+                            break;
+                        }
+                    }
+                }
+                let response = serde_json::json!({"choices":[{"message":{"role":"assistant","content":expected}}]}).to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ModelRegistry::new(dir.path().join("models.json"));
+        let mut p = profile("local");
+        p.base_url = format!("http://{address}/v1");
+        p.allow_remote = false;
+        p.capabilities.push("json".into());
+        registry.upsert(0, p, false).unwrap();
+        let result = registry.prepare_probe("local").unwrap().run().await;
+        server.join().unwrap();
+        assert!(result.text);
+        assert_eq!(result.json, Some(true));
+        assert!(result.error.is_none());
+        assert_eq!(result.vision, None);
+        assert_eq!(registry.snapshot().unwrap().revision, 1);
+    }
+
+    struct ProbeClient {
+        response: &'static str,
+    }
+    #[async_trait]
+    impl LlmClient for ProbeClient {
+        async fn chat(&self, _: &[Message]) -> Result<String, LlmError> {
+            Ok(self.response.into())
+        }
+    }
+    fn probe(client: ArcLlmClient) -> ModelProbe {
+        let mut p = profile("test");
+        p.capabilities.push("json".into());
+        ModelProbe {
+            revision: 9,
+            profile: p,
+            client,
+        }
+    }
+    #[tokio::test]
+    async fn probe_observations_never_infer_vision_or_echo_provider_errors() {
+        let result = probe(ArcLlmClient::new(ProbeClient {
+            response: "QINAEGIS_OK",
+        }))
+        .run()
+        .await;
+        assert!(result.text);
+        assert_eq!(result.json, Some(false));
+        assert_eq!(result.vision, None);
+        assert_eq!(result.tools, None);
+        assert_eq!(result.revision, 9);
+        let result = probe(ArcLlmClient::new(MockClient {
+            id: "primary".into(),
+            calls: Arc::new(AtomicUsize::new(0)),
+            business_failure: true,
+        }))
+        .run()
+        .await;
+        assert_eq!(result.error.as_deref(), Some("model probe request failed"));
+        assert!(!serde_json::to_string(&result)
+            .unwrap()
+            .contains("private business assertion"));
+        let result = probe(ArcLlmClient::new(HangingClient {
+            calls: Arc::new(AtomicUsize::new(0)),
+        }))
+        .run_with_timeout(Duration::from_millis(10))
+        .await;
+        assert_eq!(result.error.as_deref(), Some("model probe timed out"));
+    }
+    #[test]
+    fn prepare_probe_enforces_remote_consent_without_mutating_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ModelRegistry::new(dir.path().join("models.json"));
+        let mut denied = profile("denied");
+        denied.allow_remote = false;
+        registry.upsert(0, denied, false).unwrap();
+        assert!(registry.prepare_probe("denied").is_err());
+        assert!(registry.prepare_probe("missing").is_err());
+        assert_eq!(registry.snapshot().unwrap().revision, 1);
+    }
+
     struct MockFactory {
         calls: Arc<AtomicUsize>,
         business_failure: bool,
@@ -895,6 +1309,39 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
     #[tokio::test]
+    async fn trace_groups_fallback_and_excludes_provider_details() {
+        let (_dir, route, _) = mock_route(false);
+        let (client, trace) = build_client_with_trace(&route).unwrap();
+        client
+            .chat(&[Message::user("private input")])
+            .await
+            .unwrap();
+        let frozen = trace.snapshot().unwrap();
+        assert_eq!(frozen.len(), 2);
+        assert_eq!(frozen[0].call, frozen[1].call);
+        assert_eq!(frozen[0].outcome, ModelCallOutcome::TransportFailure);
+        assert_eq!(frozen[1].outcome, ModelCallOutcome::Succeeded);
+        assert_eq!(frozen[1].profile_id, "fallback");
+        client.chat(&[]).await.unwrap();
+        assert_eq!(frozen.len(), 2);
+        assert_eq!(trace.snapshot().unwrap().len(), 4);
+        let serialized = serde_json::to_string(&frozen).unwrap();
+        assert!(!serialized.contains("private"));
+        let (_dir, route, _) = mock_route(true);
+        let (client, trace) = build_client_with_trace(&route).unwrap();
+        assert!(client.chat(&[]).await.is_err());
+        assert_eq!(
+            trace.snapshot().unwrap()[0].outcome,
+            ModelCallOutcome::Rejected
+        );
+        let trace = ModelCallTrace::default();
+        for _ in 0..1025 {
+            trace.record(frozen[0].clone());
+        }
+        assert!(trace.snapshot().is_err());
+    }
+
+    #[tokio::test]
     async fn unsupported_call_capability_never_reaches_any_provider() {
         let (_dir, route, calls) = mock_route(false);
         let error = build_client(&route)
@@ -914,6 +1361,28 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             std::future::pending().await
         }
+    }
+
+    #[tokio::test]
+    async fn total_deadline_records_the_last_inflight_attempt() {
+        let trace = Arc::new(ModelCallTrace::default());
+        let client = RegisteredClient {
+            clients: vec![(
+                "last".into(),
+                ArcLlmClient::new(HangingClient {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }),
+            )],
+            capabilities: BTreeSet::from(["text".into()]),
+            trace: Some(trace.clone()),
+        };
+        assert!(client
+            .chat_with_budget(&[], ChatOptions::default(), Duration::from_millis(10))
+            .await
+            .is_err());
+        let saved = trace.snapshot().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].outcome, ModelCallOutcome::TimedOut);
     }
 
     #[tokio::test]
@@ -937,6 +1406,7 @@ mod tests {
                 ),
             ],
             capabilities: BTreeSet::from(["text".into()]),
+            trace: None,
         };
         let result = client
             .chat_with_budget(&[], ChatOptions::default(), Duration::from_millis(100))

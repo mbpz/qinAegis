@@ -1,15 +1,15 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
-use crate::automation::{
-    AutomationCommand, AutomationError, AutomationResponse,
-    BrowserAutomation, ExploreResult, PageInfo, TestResult,
-};
 use super::trait_def::AiPageInfo;
+use crate::automation::{
+    AutomationCommand, AutomationError, AutomationResponse, BrowserAutomation, ExploreResult,
+    PageInfo, TestResult,
+};
 use crate::performance::LighthouseResult;
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
 use crate::prompts::ExplorerPrompt;
-use crate::sandbox::{SandboxAdapter, PlaywrightBrowserAdapter};
+use crate::protocol::{JsonRpcRequest, JsonRpcResponse, MidsceneProcess};
+use crate::sandbox::{PlaywrightBrowserAdapter, SandboxAdapter};
 use crate::stress::{LocustResult, StressTestConfig};
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -25,10 +25,36 @@ impl MidsceneAutomation {
         llm_config: Option<crate::protocol::LlmConfig>,
         sandbox_config: Option<crate::protocol::SandboxConfig>,
     ) -> Result<Self, AutomationError> {
+        Self::new_cancellable(
+            llm_config,
+            sandbox_config,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .await
+    }
+
+    pub async fn new_cancellable(
+        llm_config: Option<crate::protocol::LlmConfig>,
+        sandbox_config: Option<crate::protocol::SandboxConfig>,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<Self, AutomationError> {
+        if cancel.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(AutomationError::ProcessDied(
+                "exploration cancelled before engine startup".into(),
+            ));
+        }
         let process = MidsceneProcess::spawn(llm_config, sandbox_config)
             .await
-            .map_err(|e| AutomationError::ProcessDied(e.to_string()))?;
+            .map_err(|e| AutomationError::ProcessDied(e.to_string()))?
+            .with_cancellation(cancel);
         Ok(Self { process })
+    }
+
+    pub async fn terminate(&self) -> Result<(), AutomationError> {
+        self.process
+            .terminate()
+            .await
+            .map_err(|e| AutomationError::ProcessDied(e.to_string()))
     }
 
     /// Spawn with an explicit SandboxAdapter (enables CDP retry and hot reload).
@@ -36,7 +62,8 @@ impl MidsceneAutomation {
         llm_config: Option<crate::protocol::LlmConfig>,
         adapter: Arc<dyn SandboxAdapter>,
     ) -> Result<Self, AutomationError> {
-        let cdp_port = adapter.cdp_url()
+        let cdp_port = adapter
+            .cdp_url()
             .and_then(|url| {
                 let parts: Vec<&str> = url.split(':').collect();
                 parts.get(2).map(|p| (*p).to_string())
@@ -70,7 +97,9 @@ impl MidsceneAutomation {
 
     /// Run a Lighthouse performance audit via the TS sandbox.
     pub async fn run_lighthouse(&self, url: &str) -> Result<LighthouseResult, AutomationError> {
-        let req = JsonRpcRequest::Lighthouse { url: url.to_string() };
+        let req = JsonRpcRequest::Lighthouse {
+            url: url.to_string(),
+        };
         let resp = self.call(req).await?;
         if resp.ok {
             serde_json::from_value(resp.data.unwrap_or_default())
@@ -81,7 +110,10 @@ impl MidsceneAutomation {
     }
 
     /// Run a Locust stress test via the TS sandbox.
-    pub async fn run_stress(&self, config: &StressTestConfig) -> Result<LocustResult, AutomationError> {
+    pub async fn run_stress(
+        &self,
+        config: &StressTestConfig,
+    ) -> Result<LocustResult, AutomationError> {
         let req = JsonRpcRequest::Stress {
             target_url: config.target_url.clone(),
             users: config.users,
@@ -97,7 +129,9 @@ impl MidsceneAutomation {
         }
     }
 
-    fn explore_result_from_response(resp: JsonRpcResponse) -> Result<ExploreResult, AutomationError> {
+    fn explore_result_from_response(
+        resp: JsonRpcResponse,
+    ) -> Result<ExploreResult, AutomationError> {
         if resp.ok {
             serde_json::from_value(resp.data.unwrap_or_default())
                 .map_err(|e| AutomationError::ParseError(e.to_string()))
@@ -128,7 +162,10 @@ impl MidsceneAutomation {
 
 #[async_trait]
 impl BrowserAutomation for MidsceneAutomation {
-    async fn execute(&self, _cmd: AutomationCommand) -> Result<AutomationResponse, AutomationError> {
+    async fn execute(
+        &self,
+        _cmd: AutomationCommand,
+    ) -> Result<AutomationResponse, AutomationError> {
         // This method exists for trait completeness but individual methods should be used.
         Err(AutomationError::UnsupportedCommand(
             "use specific methods instead".into(),
@@ -144,7 +181,11 @@ impl BrowserAutomation for MidsceneAutomation {
         Self::explore_result_from_response(resp)
     }
 
-    async fn run_yaml(&self, yaml_script: &str, case_id: &str) -> Result<TestResult, AutomationError> {
+    async fn run_yaml(
+        &self,
+        yaml_script: &str,
+        case_id: &str,
+    ) -> Result<TestResult, AutomationError> {
         let req = JsonRpcRequest::RunYaml {
             yaml_script: yaml_script.to_string(),
             case_id: case_id.to_string(),
@@ -222,7 +263,13 @@ impl BrowserAutomation for MidsceneAutomation {
 
     async fn shutdown(&self) -> Result<(), AutomationError> {
         let req = JsonRpcRequest::Shutdown;
-        self.call(req).await?;
+        let response = self.call(req).await;
+        let cleanup = self.terminate().await;
+        let response = response?;
+        cleanup?;
+        if !response.ok {
+            return Err(AutomationError::Internal("executor shutdown failed".into()));
+        }
         Ok(())
     }
 }
@@ -252,8 +299,13 @@ impl BfsExplorer {
     /// Perform visual click-driven exploration.
     /// Instead of crawling by URL, uses AI to identify clickable elements
     /// and explores via ai_act clicks (handles SPA client-side routing).
-    pub async fn explore(&mut self, seed_urls: &[String], max_depth: u32) -> Result<ExploreResult, AutomationError> {
-        let mut visited_states: std::collections::HashSet<String> = std::collections::HashSet::new();
+    pub async fn explore(
+        &mut self,
+        seed_urls: &[String],
+        max_depth: u32,
+    ) -> Result<ExploreResult, AutomationError> {
+        let mut visited_states: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut queue: Vec<(String, u32)> = seed_urls.iter().map(|u| (u.clone(), 0)).collect();
         let mut pages: Vec<PageInfo> = Vec::new();
         let mut clicks_count = 0;
@@ -266,8 +318,12 @@ impl BfsExplorer {
         if let Some(auth) = &self.auth {
             if !seed_urls.is_empty() {
                 println!("[explorer] Auto-login before exploration...");
-                let login_prompt = auth.login_prompt.clone()
-                    .unwrap_or_else(|| format!("在账号框输入{}，在密码框输入{}，然后点击登录按钮", auth.username, auth.password));
+                let login_prompt = auth.login_prompt.clone().unwrap_or_else(|| {
+                    format!(
+                        "在账号框输入{}，在密码框输入{}，然后点击登录按钮",
+                        auth.username, auth.password
+                    )
+                });
                 let full_action = login_prompt;
                 if let Err(e) = self.automation.goto(&seed_urls[0]).await {
                     errors.push(format!("goto seed URL failed: {}", e));
@@ -278,7 +334,7 @@ impl BfsExplorer {
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         // After login, queue home page for exploration (don't re-visit login page)
                         let home_url = if let Some(pos) = seed_urls[0].find("://") {
-                            let host = seed_urls[0][pos+3..].split('/').next().unwrap_or("");
+                            let host = seed_urls[0][pos + 3..].split('/').next().unwrap_or("");
                             let scheme = &seed_urls[0][..pos];
                             format!("{}://{}/", scheme, host)
                         } else {
@@ -315,7 +371,8 @@ impl BfsExplorer {
 
             // BFS exploration per page: click multiple elements before moving on
             let mut page_clicks = 0;
-            let mut seen_elements: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut seen_elements: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
 
             loop {
                 if clicks_count >= max_total_clicks {
@@ -342,15 +399,25 @@ impl BfsExplorer {
                                 // Deduplicate by ACTUAL URL (not AI description)
                                 let url_sig = info.url.clone();
                                 if visited_states.contains(&url_sig) {
-                                    println!("[explorer] Already visited URL {}, skipping", url_sig);
+                                    println!(
+                                        "[explorer] Already visited URL {}, skipping",
+                                        url_sig
+                                    );
                                     break;
                                 }
                                 visited_states.insert(url_sig.clone());
 
                                 // Also dedupe by state signature (title+nav) within same URL
-                                let state_sig = format!("{}|{}|{:?}", info.title, info.primary_nav.join(","), info.key_elements);
+                                let state_sig = format!(
+                                    "{}|{}|{:?}",
+                                    info.title,
+                                    info.primary_nav.join(","),
+                                    info.key_elements
+                                );
                                 if visited_states.contains(&state_sig) {
-                                    println!("[explorer] Already visited this page state, skipping");
+                                    println!(
+                                        "[explorer] Already visited this page state, skipping"
+                                    );
                                     break;
                                 }
                                 visited_states.insert(state_sig);
@@ -358,25 +425,34 @@ impl BfsExplorer {
                                 let clickables = &info.clickable_elements;
 
                                 // Filter out already-seen elements
-                                let new_elements: Vec<_> = clickables.iter()
+                                let new_elements: Vec<_> = clickables
+                                    .iter()
                                     .filter(|e| !seen_elements.contains(&e.description))
                                     .collect();
 
                                 if new_elements.is_empty() {
-                                    println!("[explorer] No more new clickable elements on this page");
+                                    println!(
+                                        "[explorer] No more new clickable elements on this page"
+                                    );
                                     break;
                                 }
 
                                 // Click the first new element
                                 let elem = &new_elements[0];
                                 let action = format!("点击：{}", elem.description);
-                                println!("[explorer] Click [{}]: {} ({})", page_clicks + 1, elem.description, elem.reason);
+                                println!(
+                                    "[explorer] Click [{}]: {} ({})",
+                                    page_clicks + 1,
+                                    elem.description,
+                                    elem.reason
+                                );
 
                                 seen_elements.insert(elem.description.clone());
 
                                 match self.automation.ai_act(&action).await {
                                     Ok(()) => {
-                                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(2))
+                                            .await;
                                         page_clicks += 1;
                                         clicks_count += 1;
                                     }
@@ -393,14 +469,18 @@ impl BfsExplorer {
                         }
                     }
                     Err(e) => {
-                                    errors.push(format!("ai_query failed: {}", e));
+                        errors.push(format!("ai_query failed: {}", e));
                         break;
                     }
                 }
             }
         }
 
-        println!("[explorer] Exploration complete! Crawled {} pages, total clicks: {}", pages.len(), clicks_count);
+        println!(
+            "[explorer] Exploration complete! Crawled {} pages, total clicks: {}",
+            pages.len(),
+            clicks_count
+        );
         let markdown = to_markdown(&pages);
         if pages.is_empty() && !errors.is_empty() {
             return Err(AutomationError::Internal(format!(
@@ -433,7 +513,12 @@ fn to_markdown(pages: &[PageInfo]) -> String {
                 "- **表单**: {}\n",
                 page.forms
                     .iter()
-                    .map(|f| format!("{} {} ({})", f.method.to_uppercase(), f.action, f.fields.join(", ")))
+                    .map(|f| format!(
+                        "{} {} ({})",
+                        f.method.to_uppercase(),
+                        f.action,
+                        f.fields.join(", ")
+                    ))
                     .collect::<Vec<_>>()
                     .join("; ")
             );

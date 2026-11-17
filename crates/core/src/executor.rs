@@ -3,7 +3,10 @@
 
 use crate::protocol::{JsonRpcRequest, LlmConfig, MidsceneProcess, SandboxConfig};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio::sync::{Mutex, Semaphore};
 
 /// Extract `failed_step` from a JSON-RPC response data field.
@@ -54,7 +57,32 @@ impl TestExecutor {
         llm_config: Option<LlmConfig>,
         sandbox_config: Option<SandboxConfig>,
     ) -> anyhow::Result<Self> {
-        let process = MidsceneProcess::spawn(llm_config, sandbox_config).await?;
+        Self::new_cancellable(
+            max_concurrency,
+            llm_config,
+            sandbox_config,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await
+    }
+
+    pub async fn new_cancellable(
+        max_concurrency: usize,
+        llm_config: Option<LlmConfig>,
+        sandbox_config: Option<SandboxConfig>,
+        cancel: Arc<AtomicBool>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            max_concurrency > 0 && max_concurrency <= 32,
+            "executor concurrency must be 1..32"
+        );
+        anyhow::ensure!(
+            !cancel.load(Ordering::Acquire),
+            "execution cancelled before engine startup"
+        );
+        let process = MidsceneProcess::spawn(llm_config, sandbox_config)
+            .await?
+            .with_cancellation(cancel);
         let semaphore = Arc::new(Semaphore::new(max_concurrency));
         Ok(Self {
             process: Arc::new(Mutex::new(process)),
@@ -186,12 +214,42 @@ impl TestExecutor {
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {
         let process = self.process.lock().await;
-        let response = process.call(JsonRpcRequest::Shutdown).await?;
+        let response = process.call(JsonRpcRequest::Shutdown).await;
+        // Always release the child, even when shutdown failed or cancellation was set.
+        let cleanup = process.terminate().await;
+        let response = response?;
+        cleanup?;
         anyhow::ensure!(
             response.ok,
             "executor shutdown failed: {}",
             response.error.unwrap_or_default()
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelled_executor_does_not_spawn_an_engine() {
+        let cancel = Arc::new(AtomicBool::new(true));
+        let error = TestExecutor::new_cancellable(1, None, None, cancel)
+            .await
+            .err()
+            .expect("cancelled construction must fail");
+        assert!(error
+            .to_string()
+            .contains("cancelled before engine startup"));
+    }
+
+    #[tokio::test]
+    async fn invalid_concurrency_is_rejected_before_engine_startup() {
+        let error = TestExecutor::new_cancellable(0, None, None, Arc::new(AtomicBool::new(false)))
+            .await
+            .err()
+            .expect("zero concurrency must not hang");
+        assert!(error.to_string().contains("concurrency"));
     }
 }

@@ -242,3 +242,38 @@ test('Allure generation is an explicit job and saved HTML uses the selected run'
   assert.equal((await rpc.getAllureReportHtml('alpha', 'run-1')).version, '3');
   assert.deepEqual(calls, [['generateAllureReport', {project: 'alpha', run_id: 'run-1'}], ['getAllureReportHtml', {project: 'alpha', run_id: 'run-1'}]]);
 });
+
+test('configuration recovery, browser download and project model changes retain concurrency and consent', async () => {
+  const { rpc } = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({csrf: 'csrf'});
+    const body = JSON.parse(init.body); calls.push([body.method, body.params]);
+    return response({id: body.id, ok: true, data: {ok: true}});
+  };
+  await rpc.setConfig({llm: {model: 'reviewed'}}, 7);
+  await rpc.restoreConfigBackup(8);
+  await rpc.installRuntimeBrowser();
+  await rpc.setProjectModelRoute({project: 'alpha', task: 'generate', route: null, expected_revision: 9});
+  await rpc.probeModel('vision-local');
+  assert.deepEqual(calls, [
+    ['setConfig', {config: {llm: {model: 'reviewed'}}, expected_revision: 7}],
+    ['restoreConfigBackup', {expected_revision: 8, approved: true}],
+    ['installRuntimeBrowser', {approved: true}],
+    ['setProjectModelRoute', {project: 'alpha', task: 'generate', route: null, expected_revision: 9}],
+    ['probeModel', {profile_id: 'vision-local'}],
+  ]);
+});
+
+test('interrupted history and incremental log offsets survive the RPC boundary', async () => {
+  const { rpc } = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({csrf: 'csrf'});
+    const body = JSON.parse(init.body); calls.push([body.method, body.params]);
+    const data = body.method === 'getJobs' ? {jobs: [{jobId: 'old-task', status: 'interrupted'}], history_error: null}
+      : {output: 'retained tail', cursor: 70000, truncated: true};
+    return response({id: body.id, ok: true, data});
+  };
+  assert.equal((await rpc.getJobs()).jobs[0].status, 'interrupted');
+  assert.deepEqual(await rpc.getJobLog('old-task', 42), {output: 'retained tail', cursor: 70000, truncated: true});
+  assert.deepEqual(calls, [['getJobs', {}], ['getJobLog', {jobId: 'old-task', cursor: 42}]]);
+});

@@ -55,6 +55,19 @@ cd ..
 
 Linux may also need Playwright's documented OS browser dependencies. Configure a compatible visual model in the local Web workbench before executing AI actions. Official Allure HTML generation uses this same engine and the pinned `allure@3.33.0`; it requires no model call or Java server, but still needs the prepared Node dependencies. Downloading a report does not install or prepare the visual-test engine.
 
+
+## Standalone runtime candidates
+
+Build on the target host with Node 24 and pnpm 11.24.0: `python3 scripts/build-runtime.py`. It produces a separate archive and SHA-256 file under `build/runtime`; service archives do not include this engine. Verify the trusted checksum, stop the service, then import locally:
+
+```bash
+python3 scripts/install-runtime.py /absolute/runtime.tar.gz --sha256 TRUSTED_SHA256 --data-dir /absolute/private-data
+```
+
+Start subsequent service commands with `QINAEGIS_DATA_DIR=/absolute/private-data`. The installer verifies paths, host, content and checksum before switching `runtimes/midscene/current`, retaining the old directory as `previous`. It refuses an active service or an existing backup requiring a retention decision. A matching archive marker is insufficient: installed files are checked again. This tool currently requires Python on the importing machine; a complete one-click Web distribution remains pending.
+
+In **Environment**, check runtime/browser facts, explicitly authorize **Install Chromium**, then inspect the actual launch result. Downloads use the selected runtime cache and do not install system libraries with elevated privileges. Browser/model compatibility and clean-machine acceptance remain separate.
+
 ## Data and uninstall
 
 By default, project data stays in `~/.qinAegis/projects`; configuration uses the OS configuration directory. Set `QINAEGIS_DATA_DIR` to an absolute directory before starting to isolate projects, contracts, model registry, service state, default runtimes and `config.toml` under one root. Empty/relative values are rejected. Stop the old service before changing the variable and use the same setting for subsequent commands; existing assets are not automatically migrated. Explicit runtime/state overrides still take precedence. Stop the service first, then remove only the installed `qinaegis` executable to uninstall the base package. Keep project/config directories for future use, or back them up before deliberately deleting data. Do not assume replacing a binary reverses any future data migration.

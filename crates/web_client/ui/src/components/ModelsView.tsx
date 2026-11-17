@@ -1,3 +1,4 @@
+import JobProgress from './JobProgress';
 import { Button, Checkbox, Input, Select } from './ui';
 import { useEffect, useRef, useState } from 'react';
 import { rpc } from '../utils/rpc';
@@ -6,10 +7,14 @@ import type { ModelProfile, ModelRegistry } from '../types/models';
 const emptyProfile = (): ModelProfile => ({id: '', label: '', adapter: 'openai_compatible', base_url: '', model: '', api_key: '', capabilities: ['text'], enabled: true, allow_remote: false, midscene_family: null});
 const tasks = ['generate', 'explore', 'execute', 'correct'];
 
-export default function ModelsView({ onSaved }: { onSaved?: () => void }) {
+export default function ModelsView({ onSaved, projects = [] }: { onSaved?: () => void; projects?: string[] }) {
   const [registry, setRegistry] = useState<ModelRegistry | null>(null);
   const [profile, setProfile] = useState<ModelProfile>(emptyProfile);
   const [clearKey, setClearKey] = useState(false);
+  const [project, setProject] = useState('');
+  const [probeJob, setProbeJob] = useState<string | null>(null);
+  const [probeResult, setProbeResult] = useState<unknown>(null);
+  const [probing, setProbing] = useState(false);
   const [task, setTask] = useState('generate');
   const [primary, setPrimary] = useState('');
   const [fallbacks, setFallbacks] = useState('');
@@ -54,7 +59,16 @@ export default function ModelsView({ onSaved }: { onSaved?: () => void }) {
     catch (e) { if (mounted.current && request === sequence.current) setError(`${(e as Error).message}. Refresh the registry before retrying a revision conflict; your form is preserved.`); }
     finally { if (mounted.current && request === sequence.current) { lock.current = false; setBusy(false); } }
   }
-  function selectTask(value: string) { setTask(value); const route = registry?.routes[value]; setPrimary(route?.primary || ''); setFallbacks(route?.fallbacks.join(', ') || ''); }
+  function selectTask(value: string, scope = project) { setTask(value); const route = (scope ? registry?.project_routes?.[scope]?.[value] : registry?.routes[value]) || registry?.routes[value]; setPrimary(route?.primary || ''); setFallbacks(route?.fallbacks.join(', ') || ''); }
+  async function probeSaved() {
+    if (lock.current || probing || !registry?.profiles.some(p => p.id === profile.id)) return;
+    lock.current = true; setProbing(true); setError(''); setProbeResult(null); setProbeJob(null);
+    const request = ++sequence.current;
+    try { const result = await rpc.probeModel(profile.id);
+      if (mounted.current && request === sequence.current) setProbeJob(result.jobId);
+    } catch (e) { if (mounted.current && request === sequence.current) { setError((e as Error).message); setProbing(false); } }
+    finally { if (mounted.current && request === sequence.current) lock.current = false; }
+  }
   return <div className="view">
     <h2>Models and routing</h2>
     <p>Register compatible endpoints, then choose a model for each role. Running tasks keep their original selection. Remote processing requires explicit authorization per profile.</p>
@@ -82,17 +96,30 @@ export default function ModelsView({ onSaved }: { onSaved?: () => void }) {
         <Button type="submit" className="btn btn-primary" disabled={busy || !registry}>Save profile</Button>
         </fieldset>
       </form>
+      <Button type="button" className="btn" disabled={busy || probing || !registry?.profiles.some(p => p.id === profile.id)} onClick={() => void probeSaved()}>Test saved profile</Button>
+      <p>This sends only synthetic text to the saved endpoint. Unsaved form edits are excluded. Text/JSON observations do not certify vision, tools or Midscene compatibility.</p>
+      <JobProgress jobId={probeJob} onComplete={result => { setProbing(false); setProbeResult(result); }} onError={error => {setProbing(false); setError(error);}} />
+      {probeResult !== null && <pre aria-label="Model probe observations">{JSON.stringify(probeResult, null, 2)}</pre>}
     </section>
     <section className="card">
       <h3>Task routes</h3>
-      <ul>{Object.entries(registry?.routes || {}).map(([name, route]) => <li key={name}>{name}: {route.primary}{route.fallbacks.length ? ` → ${route.fallbacks.join(' → ')}` : ''}</li>)}</ul>
-      <form onSubmit={e => {e.preventDefault(); if (registry) void act(() => rpc.setModelRoute({task, route: {primary, fallbacks: visualTask ? [] : fallbacks.split(',').map(s => s.trim()).filter(Boolean)}, expected_revision: registry.revision}), 'Route saved.');}}>
+      <div className="form-group"><label htmlFor="model-project">Route scope</label><Select id="model-project" value={project} disabled={busy} onValueChange={value => {setProject(value); selectTask(task, value);}}><option value="">Global defaults</option>{projects.map(p => <option key={p} value={p}>{p}</option>)}</Select></div>
+      {project && <p>Project overrides take priority. Without an override this task uses the global default; running tasks keep their frozen route.</p>}
+      <ul>{Object.entries((project ? registry?.project_routes?.[project] : registry?.routes) || {}).map(([name, route]) => <li key={name}>{name}: {route.primary}{route.fallbacks.length ? ` → ${route.fallbacks.join(' → ')}` : ''}</li>)}</ul>
+      <form onSubmit={e => {
+        e.preventDefault();
+        if (!registry) return;
+        const route = {primary, fallbacks: visualTask ? [] : fallbacks.split(',').map(s => s.trim()).filter(Boolean)};
+        const params = {task, route, expected_revision: registry.revision};
+        void act(() => project ? rpc.setProjectModelRoute({...params, project}) : rpc.setModelRoute(params), 'Route saved.');
+      }}>
         <fieldset disabled={busy || !registry} style={{ border: 0, padding: 0 }}>
         <div className="form-group"><label htmlFor="model-task">Task role</label><Select id="model-task" value={task} onValueChange={value => selectTask(value)}>{tasks.map(t => <option key={t}>{t}</option>)}</Select></div>
         <div className="form-group"><label htmlFor="model-primary">Primary profile</label><Select id="model-primary" required value={primary} onValueChange={value => setPrimary(value)}><option value="">Select profile</option>{registry?.profiles.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}</Select></div>
         <div className="form-group"><label htmlFor="model-fallback">Fallback profile IDs, in order (comma separated)</label><Input id="model-fallback" disabled={visualTask} value={visualTask ? '' : fallbacks} onValueChange={value => setFallbacks(value)} /></div>
         {visualTask && <p>Visual explore and execute routes support one primary model only. Automatic fallback is unavailable; the profile must declare text and vision capabilities and an engine-supported Midscene family.</p>}
         <Button type="submit" className="btn btn-primary" disabled={busy || !registry}>Save task route</Button>
+        {project && <Button type="button" className="btn" disabled={busy || !registry?.project_routes?.[project]?.[task]} onClick={() => {if (registry) void act(() => rpc.setProjectModelRoute({project, task, route: null, expected_revision: registry.revision}), 'Override removed; global route will be used.');}}>Use global default</Button>}
         </fieldset>
       </form>
     </section>

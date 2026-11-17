@@ -11,6 +11,7 @@
 | [用户指南](USER_GUIDE.md) | 当前 Web 操作、契约治理、模型、执行证据与 Allure |
 | [产品记忆](../CONTEXT.md) | 用户确认的长期要求、架构约束和提交身份 |
 | [完整产品方案](plans/local-web.md) | 2.0 全量目标、核心分工、交互、安全与 P0–P8 验收；含明确标注的改造前基线 |
+| [验收 checklist](progress/acceptance-checklist-2.0.md) | 有依赖顺序的逐项完成条件、证据及外部条件 |
 | [开发进度](progress/local-web-2.0.md) | 已实现与验证事实、剩余缺口；不能用完整方案代替此证据 |
 | [路线图](../qinAegis-platform-roadmap.md) | 剩余顺序、阶段状态和完成条件 |
 | [CI / 发布 / Pages](CI_INTEGRATION.md) | 四平台候选归档、摘要、草稿 Release、Homebrew 与预览/生产部署 |

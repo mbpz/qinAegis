@@ -123,6 +123,9 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if p.get("project").is_some() {
         project_paths(p)?;
     }
+    if crate::case_asset_api::handles(method) {
+        return crate::case_asset_api::dispatch(method, p).map_err(|e| e.to_string());
+    }
     if crate::contract_api::handles(method) {
         return crate::contract_api::dispatch(method, p).map_err(|e| e.to_string());
     }
@@ -143,11 +146,58 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     }
     let raw = match method {
         "getState" => {
+            let metadata =
+                qin_aegis_core::AppConfig::inspect_at(&qin_aegis_core::AppConfig::global_path())
+                    .map_err(|e| e.to_string())?;
+            app.config = match qin_aegis_core::AppConfig::load_global() {
+                Ok(config) => Some(config),
+                Err(qin_aegis_core::config::app::ConfigError::NotFound(_)) => None,
+                Err(error) => return Err(error.to_string()),
+            };
             return Ok(
-                json!({"ok":true,"config":serde_json::from_str::<Value>(&app.get_config()).map_err(|_|"config serialization failed")?,"currentView":app.current_view}),
+                json!({"ok":true,"config":serde_json::from_str::<Value>(&app.get_config()).map_err(|_|"config serialization failed")?,"config_revision":metadata.revision,"config_backup_available":metadata.backup_available,"currentView":app.current_view}),
+            );
+        }
+        "restoreConfigBackup" => {
+            if p.get("approved").and_then(Value::as_bool) != Some(true) {
+                return Err("explicit restore approval required".into());
+            }
+            let revision = p
+                .get("expected_revision")
+                .and_then(Value::as_u64)
+                .ok_or("expected_revision is required")?;
+            let next = qin_aegis_core::AppConfig::restore_backup_at(
+                &qin_aegis_core::AppConfig::global_path(),
+                revision,
             )
+            .map_err(|e| e.to_string())?;
+            app.config = Some(qin_aegis_core::AppConfig::load_global().map_err(|e| e.to_string())?);
+            return Ok(json!({"ok":true,"revision":next}));
+        }
+        "probeModel" => {
+            let probe = crate::model_api::registry()
+                .map_err(|e| e.to_string())?
+                .prepare_probe(id(p, "profile_id")?)
+                .map_err(|e| e.to_string())?;
+            app.start_maintenance("modelProbe", move |cancel| {
+                let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+                let result = rt.block_on(async {
+                    tokio::select! {
+                        result = probe.run() => Ok(serde_json::to_value(result)?),
+                        _ = crate::environment::cancelled(cancel) => Err(anyhow::anyhow!("Model probe cancelled")),
+                    }
+                });
+                result
+            })
         }
         "setConfig" => app.set_config(&p.to_string()),
+        "diagnoseRuntime" => app.start_maintenance("runtimeCheck", crate::environment::diagnose),
+        "installRuntimeBrowser" => {
+            if p.get("approved").and_then(Value::as_bool) != Some(true) {
+                return Err("explicit browser download approval required".into());
+            }
+            app.start_maintenance("browserInstall", crate::environment::install_browser)
+        }
         "checkConfig" => return Ok(json!({"configured":app.is_configured()})),
         "getVersion" => app.get_version(),
         "checkUpdate" => app.check_update(),
@@ -234,16 +284,13 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
         "getAllureReportHtml" => app.get_allure_report_html(id(p, "project")?, id(p, "run_id")?),
         "exportProject" => app.export_project(id(p, "project")?),
         "getReviewCases" => app.get_review_cases(id(p, "project")?),
-        "updateCaseStatus" => {
-            let status = text(p, "status")?;
-            if !matches!(
-                status,
-                "draft" | "reviewed" | "approved" | "flaky" | "archived"
-            ) {
-                return Err("invalid case status".into());
-            }
-            app.update_case_status(id(p, "project")?, id(p, "case_id")?, status)
-        }
+        "getJobs" => app.get_jobs(),
+        "getJobLog" => app.get_job_log(
+            id(p, "jobId")?,
+            p.get("cursor")
+                .and_then(Value::as_u64)
+                .ok_or("cursor must be non-negative integer")?,
+        ),
         "getJobStatus" => app.get_job_status(id(p, "jobId")?),
         "stopJob" => app.stop_job(id(p, "jobId")?),
         _ => return Err(format!("unknown method: {method}")),

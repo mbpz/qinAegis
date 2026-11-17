@@ -55,6 +55,19 @@ cd ..
 
 Linux 还可能需要 Playwright 文档要求的浏览器系统依赖。执行 AI 动作前在本机 Web 工作台配置兼容视觉模型。官方 Allure HTML 使用同一引擎及固定 `allure@3.33.0`，生成时不调用模型、不需要 Java 服务，但仍需要 Node 依赖准备完成；下载报告不会自动安装视觉引擎。
 
+
+## 独立运行时候选包
+
+构建机准备 Node 24 与 pnpm 11.24.0，运行 `python3 scripts/build-runtime.py`，在 `build/runtime` 生成独立归档与摘要；基础服务归档不包含引擎。核对可信 SHA-256、停止服务后本地导入：
+
+```bash
+python3 scripts/install-runtime.py /绝对路径/runtime.tar.gz --sha256 可信SHA256 --data-dir /绝对路径/私有数据
+```
+
+后续服务命令设置同一 `QINAEGIS_DATA_DIR`。安装器校验归档边界、宿主、内容和摘要，暂存后切换 `runtimes/midscene/current`，旧目录保留为 `previous`。服务活动或已有备份需人工决定保留时明确拒绝；不能只凭摘要标记跳过文件完整性检查。该导入工具当前仍需要本机 Python，完整一键 Web 分发尚待实现。
+
+**Environment** 可检测运行时和浏览器，明确授权 **Install Chromium** 后安装匹配浏览器，并显示实际启动结果。下载使用选定运行时缓存，不提权安装系统库。真实模型兼容与干净机器验收另行完成。
+
 ## 数据与卸载
 
 默认项目保留在 `~/.qinAegis/projects`，全局配置路径由操作系统决定。启动前设置绝对路径 `QINAEGIS_DATA_DIR` 可将项目、契约、模型注册库、服务状态、默认运行时及 `config.toml` 隔离到同一根目录；空值/相对路径会被拒绝。修改前先停止旧服务，后续命令使用相同设置；不会自动迁移已有资产，显式运行时/状态目录仍优先。先停止服务，再移除安装的 `qinaegis` 程序即可卸载基础包，默认保留配置与项目。需要清理数据时先备份；替换程序不等于回滚未来的数据格式迁移。

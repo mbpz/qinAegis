@@ -1,4 +1,4 @@
-import { Button, Checkbox, Input } from './ui';
+import { Button, Checkbox, Input, Loader } from './ui';
 import { useState, useEffect } from 'react';
 import { rpc } from '../utils/rpc';
 import type { AppConfig } from '../types/rpc';
@@ -11,6 +11,9 @@ const defaultConfig: AppConfig = {
 
 export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [revision, setRevision] = useState<number | null>(null);
+  const [backup, setBackup] = useState(false);
+  const [restoreApproved, setRestoreApproved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showSecondary, setShowSecondary] = useState(false);
@@ -25,6 +28,9 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
     try {
       const state = await rpc.getState();
       setConfig(state.config || structuredClone(defaultConfig));
+      setRevision(state.config_revision);
+      setBackup(state.config_backup_available);
+      setRestoreApproved(false);
     } catch (e) {
       setMessage('Failed to load settings: ' + (e as Error).message);
     } finally {
@@ -33,10 +39,10 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
   };
 
   const handleSave = async () => {
-    if (!config) return;
+    if (!config || revision === null || saving) return;
     setSaving(true);
     try {
-      const result = await rpc.setConfig(config);
+      const result = await rpc.setConfig(config, revision);
       if (result.ok) {
         await loadConfig();
         onSaved?.();
@@ -58,7 +64,7 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
       <div className="view">
         <h2 className="view-title">Settings</h2>
         <div className="loading">
-          <div className="spinner"></div>
+          <Loader />
           <span>Loading configuration...</span>
         </div>
       </div>
@@ -228,8 +234,25 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
         </div>
       </div>
 
+      <div className="card">
+        <h3>Configuration recovery</h3>
+        <p>Revision: {revision ?? 'unavailable'}. Saving replaces the configuration atomically and keeps the previous valid copy privately on this computer.</p>
+        <Button disabled={saving} onClick={() => void loadConfig()}>Reload saved settings</Button>
+        {backup && <>
+          <p>Restoring the previous copy also restores its saved credentials. The current copy becomes the recovery backup. Running tasks keep their frozen configuration.</p>
+          <Checkbox label="I reviewed the restore scope and approve restoring the previous configuration" checked={restoreApproved} onCheckedChange={setRestoreApproved} disabled={saving} />
+          <Button className="btn" disabled={saving || !restoreApproved || revision === null} onClick={async () => {
+            if (revision === null || saving || !restoreApproved) return;
+            setSaving(true);
+            try { await rpc.restoreConfigBackup(revision); await loadConfig(); onSaved?.(); setMessage('Configuration restored successfully.'); }
+            catch (error) { setMessage('Restore failed: ' + (error as Error).message); }
+            finally { setSaving(false); }
+          }}>Restore previous configuration</Button>
+        </>}
+        {!backup && <p>No previous configuration is available.</p>}
+      </div>
       <div className="form-actions">
-        <Button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
+        <Button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving || revision === null}>
           {saving ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>

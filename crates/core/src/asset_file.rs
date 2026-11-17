@@ -112,6 +112,14 @@ impl AssetFile {
     }
 }
 
+impl Drop for AssetGuard<'_> {
+    fn drop(&mut self) {
+        // Release at the guard boundary even if a concurrent spawn inherited
+        // this open-file description before exec closed its descriptors.
+        let _ = self._lock.unlock();
+    }
+}
+
 impl AssetGuard<'_> {
     pub(crate) fn read(&self) -> Result<Option<Vec<u8>>> {
         let Some(meta) = regular(&self.asset.path)? else {
@@ -163,5 +171,21 @@ impl AssetGuard<'_> {
             let _ = std::fs::remove_file(&tmp);
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guard_releases_lock_even_when_a_spawn_inherits_a_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let asset = AssetFile::new(dir.path().join("asset.json"), 1024);
+        let guard = asset.lock().unwrap();
+        let inherited = guard._lock.try_clone().unwrap();
+        drop(guard);
+        assert!(asset.lock().is_ok(), "the guard owns the lock lifetime, not inherited descriptors");
+        drop(inherited);
     }
 }

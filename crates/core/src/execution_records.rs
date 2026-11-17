@@ -122,6 +122,61 @@ impl GenerationContext {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct GenerationModelCalls {
+    pub generator: Vec<crate::models::ModelCallAttempt>,
+    pub critic: Vec<crate::models::ModelCallAttempt>,
+}
+impl GenerationModelCalls {
+    fn validate(&self, model: &Value) -> Result<()> {
+        use crate::models::ModelCallOutcome;
+        let candidates = model
+            .get("candidates")
+            .and_then(Value::as_array)
+            .context("model call trace requires registered candidates")?;
+        for (phase, attempts) in [("generator", &self.generator), ("critic", &self.critic)] {
+            ensure!(
+                !attempts.is_empty() && attempts.len() <= candidates.len(),
+                "invalid model phase attempt count"
+            );
+            let call = attempts[0].call;
+            ensure!(call > 0, "invalid model call identity");
+            for (index, attempt) in attempts.iter().enumerate() {
+                ensure!(
+                    attempt.call == call && usize::from(attempt.attempt) == index + 1,
+                    "invalid model attempt ordering"
+                );
+                ensure!(
+                    candidates[index].get("id").and_then(Value::as_str)
+                        == Some(attempt.profile_id.as_str()),
+                    "model call differs from approved candidate order"
+                );
+                if index + 1 < attempts.len() {
+                    ensure!(
+                        matches!(
+                            attempt.outcome,
+                            ModelCallOutcome::TransportFailure | ModelCallOutcome::TimedOut
+                        ),
+                        "model fallback after non-retryable outcome"
+                    );
+                }
+            }
+            if phase == "generator" {
+                ensure!(
+                    attempts.last().unwrap().outcome == ModelCallOutcome::Succeeded,
+                    "generated case has no successful model call"
+                );
+            }
+        }
+        ensure!(
+            self.critic[0].call > self.generator[0].call,
+            "critic call precedes generation"
+        );
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CaseProvenance {
     pub schema_version: u32,
     pub project: String,
@@ -130,6 +185,8 @@ pub struct CaseProvenance {
     pub created_at: String,
     pub contracts: Option<ExecutionSnapshot>,
     pub model: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_calls: Option<GenerationModelCalls>,
 }
 impl CaseProvenance {
     pub fn validate(&self, project: &str, case_id: &str, script: &str) -> Result<()> {
@@ -142,6 +199,9 @@ impl CaseProvenance {
         );
         nonempty(script)?;
         nonempty(&self.created_at)?;
+        if let Some(calls) = &self.model_calls {
+            calls.validate(&self.model)?;
+        }
         GenerationContext {
             contracts: self.contracts.clone(),
             model: self.model.clone(),
@@ -392,8 +452,66 @@ mod tests {
             created_at: "2026-11-16T00:00:00Z".into(),
             contracts: None,
             model: json!({"source":"legacy_config","model":"fixture"}),
+            model_calls: None,
         }
     }
+    #[test]
+    fn model_calls_validate_actual_fallback_and_reject_fabricated_or_misordered_use() {
+        use crate::models::{ModelCallAttempt as Attempt, ModelCallOutcome as Outcome};
+        let mut source = provenance();
+        source.model = json!({"revision":7,"task":"generate","candidates":[
+            {"id":"primary","model":"one","adapter":"openai_compatible","capabilities":["text"],"midscene_family":null},
+            {"id":"fallback","model":"two","adapter":"openai_compatible","capabilities":["text"],"midscene_family":null}]});
+        let calls = GenerationModelCalls {
+            generator: vec![
+                Attempt {
+                    call: 1,
+                    attempt: 1,
+                    profile_id: "primary".into(),
+                    outcome: Outcome::TransportFailure,
+                },
+                Attempt {
+                    call: 1,
+                    attempt: 2,
+                    profile_id: "fallback".into(),
+                    outcome: Outcome::Succeeded,
+                },
+            ],
+            critic: vec![Attempt {
+                call: 2,
+                attempt: 1,
+                profile_id: "primary".into(),
+                outcome: Outcome::Rejected,
+            }],
+        };
+        source.model_calls = Some(calls.clone());
+        source
+            .validate("alpha", "receipt", &source.yaml_script)
+            .unwrap();
+        for mutation in 0..7 {
+            let mut bad = calls.clone();
+            match mutation {
+                0 => bad.generator[1].profile_id = "unauthorized".into(),
+                1 => bad.generator[0].outcome = Outcome::Succeeded,
+                2 => bad.generator[0].outcome = Outcome::Rejected,
+                3 => bad.generator[1].call = 9,
+                4 => bad.generator[1].attempt = 1,
+                5 => bad.critic[0].call = 1,
+                _ => bad.generator[1].outcome = Outcome::TimedOut,
+            }
+            source.model_calls = Some(bad);
+            assert!(source
+                .validate("alpha", "receipt", &source.yaml_script)
+                .is_err());
+        }
+        source.model_calls = None;
+        let mut old = serde_json::to_value(&source).unwrap();
+        old.as_object_mut().unwrap().remove("model_calls");
+        let old: CaseProvenance = serde_json::from_value(old).unwrap();
+        old.validate("alpha", "receipt", &old.yaml_script).unwrap();
+        assert!(old.model_calls.is_none());
+    }
+
     fn run() -> RunRecord {
         let p = provenance();
         RunRecord {

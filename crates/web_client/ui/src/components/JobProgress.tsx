@@ -43,8 +43,8 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
           callbacks.current.onComplete?.(s.result);
           return;
         }
-        if (s.status === 'failed' || s.status === 'stopped') {
-          callbacks.current.onError?.(s.error || (s.status === 'stopped' ? 'Task stopped' : 'Task failed'));
+        if (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted') {
+          callbacks.current.onError?.(s.error || (s.status === 'stopped' ? 'Task stopped' : s.status === 'interrupted' ? 'Task interrupted by service exit' : 'Task failed'));
           return;
         }
       } catch (e) {
@@ -97,6 +97,7 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
           <span className="job-status-badge error">Failed</span>
         </div>
       )}
+      {status === 'interrupted' && <div className="job-failed"><span className="job-status-badge warning">Interrupted — inspect the saved evidence before rerunning.</span></div>}
       {status === 'stopped' && (
         <div className="job-stopped">
           <span className="job-status-badge warning">Stopped</span>

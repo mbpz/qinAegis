@@ -29,7 +29,11 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 归档只含服务和内嵌 UI。Node、Playwright 浏览器和 Midscene 执行器尚需单独准备；不能把网页打开视为自动化引擎安装完成。macOS/Linux 的用户目录安装脚本已有离线回归，Windows 当前为 ZIP 手工安装，尚无一键安装器。候选构建尚不包含签名、公证或全部系统干净机器验收。
 
-矩阵执行 UI 回归、Rust workspace 回归、隔离数据目录的服务启动/认证/契约生成/执行测试；冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。Linux 后续 job 安装锁定引擎，核验官方 Allure 报告通过已打包服务的完整生成和读取链路。验收脚本显式设置临时绝对路径 `QINAEGIS_DATA_DIR` 并核对资产落盘，覆盖项目、契约、模型与配置，避免 Windows Known Folder 忽略 HOME/APPDATA 导致跨脚本污染。确定性模型和协议 fixture 不等于真实业务视觉测试。
+矩阵执行 UI 回归、Rust workspace 回归，以及隔离数据目录的服务启动/认证/契约生成/执行测试。当前工作流还加入 `test-case-assets.py`、`test-environment.py`、`test-task-history.py`，分别检查用例原文编辑与审核冲突、固定运行时环境操作、任务历史及重启中断；它们验证实际服务 RPC，不依赖真实远程模型。冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。
+
+Linux `engine-checks` job 安装锁定引擎，执行独立运行时打包和导入回归（`test-runtime-package.py`、`test-runtime-install.py`），构建并迁移运行时归档，再上传独立的 `standalone-runtime-linux-candidate`。该 artifact 与四平台基础服务候选包分开；其他运行时目标尚不能据此视为已验收。该 job 还核验官方 Allure 报告通过已打包服务的完整生成和读取链路。
+
+验收脚本显式设置临时绝对路径 `QINAEGIS_DATA_DIR` 并核对资产落盘，覆盖项目、契约、模型与配置，避免 Windows Known Folder 忽略 HOME/APPDATA 导致跨脚本污染。确定性模型和协议 fixture 不等于真实业务视觉测试。**截至 2026-11-17，这批工作流改动尚未在远端 Actions 运行；新增步骤与 Linux 运行时候选产物是当前源码定义，不能宣称新 CI 已通过或 artifact 已可下载。**
 
 ## 版本与发布
 
@@ -65,4 +69,4 @@ npm run build:pages
 
 Actions 中按失败步骤查看日志；artifact 缺失、tag 不符、归档混入其他文件、不同提交混包或 Allure 引擎异常均应失败，不能降级成绿色。周检查保留报告与逐项日志，失败也会上传，不自动创建重复 issue。
 
-本轮分发与网站改造的完成证据需要同时包含本地回归、真实平台构建和 Pages 预览结果。完整 2.0 仍需按 `docs/progress/local-web-2.0.md` 验收真实双项目视觉执行、引擎安装与诊断、持久任务/恢复、场景编排及各系统干净安装。生产网站部署、稳定 Release 和 Homebrew 发布需分别核验，不用候选 artifact 替代。
+本轮分发与网站改造的完成证据需要同时包含本地回归、真实平台构建和 Pages 预览结果。当前已有任务持久历史/中断恢复标记、环境探测和显式浏览器安装，仍须按[开发进度](progress/local-web-2.0.md)和[验收 checklist](progress/acceptance-checklist-2.0.md)验收真实双项目视觉执行、运行时跨平台安装、Windows 进程树取消、场景编排及各系统干净安装。任务历史恢复不等于排队或崩溃后继续执行。生产网站部署、稳定 Release 和 Homebrew 发布需分别核验，不用候选 artifact 替代。

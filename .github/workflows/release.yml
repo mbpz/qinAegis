@@ -34,6 +34,24 @@ jobs:
         with:
           name: qinaegis-x86_64-unknown-linux-gnu
           path: build/allure-check
+      - name: Standalone runtime packaging and installer regressions
+        run: |
+          python3 scripts/test-runtime-package.py
+          python3 scripts/test-runtime-install.py
+      - name: Build and relocate standalone runtime
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pnpm-bin"
+          printf '#!/bin/sh\nexec npx --yes pnpm@11.24.0 "$@"\n' > "$RUNNER_TEMP/pnpm-bin/pnpm"
+          chmod +x "$RUNNER_TEMP/pnpm-bin/pnpm"
+          PATH="$RUNNER_TEMP/pnpm-bin:$PATH" python3 scripts/build-runtime.py
+          python3 scripts/test-runtime-package.py --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-runtime-linux-candidate
+          path: build/runtime/*
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate official Allure through the packaged local service
         shell: bash
         run: |
@@ -85,7 +103,8 @@ jobs:
         working-directory: crates/web_client/ui
         run: npm test
       - name: Rust workspace regressions
-        run: cargo test --workspace --locked
+        shell: bash
+        run: QINAEGIS_DATA_DIR="$(python -c 'import tempfile; print(tempfile.mkdtemp(prefix="qinaegis-ci-tests-"))')" cargo test --workspace --locked
       - name: Local Web release smoke
         timeout-minutes: 5
         shell: bash
@@ -104,6 +123,9 @@ jobs:
           echo "::group::Contract execution smoke"
           python scripts/test-contract-execution.py "$BINARY"
           echo "::endgroup::"
+          python scripts/test-case-assets.py "$BINARY"
+          python scripts/test-environment.py "$BINARY"
+          python scripts/test-task-history.py "$BINARY"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py

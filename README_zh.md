@@ -4,7 +4,7 @@
 
 产品核心是可复用契约：业务意图、输入、前置条件、断言与证据要求独立于项目绑定、模型和执行器。契约可维护、修改、纠正与版本追溯；模型接入可扩展、可切换；能力按真实场景组合并校验执行时序。详见[项目记忆](CONTEXT.md)和 [2.0 实现计划](docs/plans/local-web.md)。
 
-当前分支正在分阶段实施 2.0，并非所有规划已交付。本地 Web、契约生命周期与执行追溯、模型注册/路由及官方 Allure 报告已实现；真实业务视觉执行、自动引擎安装、持久任务恢复和干净机器安装仍待验收。无障碍电脑控制属于后续可选能力，需要用户明确授权，不会随安装自动启用。
+当前分支正在分阶段实施 2.0，并非所有规划已交付。本地 Web、契约生命周期与执行追溯、模型注册/路由及官方 Allure 报告已实现；项目模型路由、合成检测、配置恢复和持久任务/重启中断恢复已接入；真实业务视觉执行、完整运行时在线交付和干净机器安装仍待验收。无障碍电脑控制属于后续可选能力，需要用户明确授权，不会随安装自动启用。
 
 ## 核心分工与当前范围
 
@@ -49,7 +49,7 @@ qinaegis start --port 19877
 
 ## 安装与测试引擎
 
-见[安装说明](INSTALL_zh.md)。基础包包含已构建 UI，最终用户不需要 Rust 或前端开发环境；源码构建需要相应工具。**实际视觉测试仍需要已准备好的 Playwright + Midscene.js 引擎**、兼容 Node 和自动化浏览器。自动引擎安装与完整 Web 环境管理按后续阶段实现。
+见[安装说明](INSTALL_zh.md)。基础包包含已构建 UI，最终用户不需要 Rust 或前端开发环境；源码构建需要相应工具。**实际视觉测试仍需要已准备好的 Playwright + Midscene.js 引擎**、兼容 Node 和自动化浏览器。Environment 页面检测版本及真实浏览器启动，可明确授权安装 Chromium；完整运行时在线交付与 Web 升级仍待实现。
 
 - `QINAEGIS_RUNTIME_DIR`：安装后的运行时绝对目录，包含 `runtime.json`、编译后的执行器及依赖。
 - `QINAEGIS_DEV_SANDBOX`：显式指定已安装依赖的 sandbox 源码绝对目录，仅用于开发。
@@ -70,6 +70,6 @@ GitHub Pages 官网用于公开产品说明，本机工作台运行在自己的�
 
 ## 文档入口
 
-从[文档索引](docs/README.md)和[用户指南](docs/USER_GUIDE.md)开始。[产品方案](docs/plans/local-web.md)定义完整目标，[开发进度](docs/progress/local-web-2.0.md)记录实现及验收缺口，[路线图](qinAegis-platform-roadmap.md)说明后续顺序。历史方案与评审均标为归档，不覆盖当前 2.0 定义。
+从[文档索引](docs/README.md)和[用户指南](docs/USER_GUIDE.md)开始。[产品方案](docs/plans/local-web.md)定义完整目标，[开发进度](docs/progress/local-web-2.0.md)记录实现事实，[验收 checklist](docs/progress/acceptance-checklist-2.0.md)列出逐项完成条件和顺序，[路线图](qinAegis-platform-roadmap.md)说明后续顺序。历史方案与评审均标为归档，不覆盖当前 2.0 定义。
 
 [English](README.md) · [License](LICENSE)

@@ -11,6 +11,27 @@ pub struct RuntimeCommand {
     pub version: String,
 }
 
+impl RuntimeCommand {
+    /// Installed runtimes own their browser cache; explicit developer mode keeps
+    /// Playwright's existing developer cache for compatibility.
+    pub fn browser_directory(&self) -> Result<Option<PathBuf>> {
+        if self.version == "developer" {
+            return Ok(None);
+        }
+        let path = self.directory.join("browsers");
+        if path.exists() {
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                bail!("runtime browser cache must be a real directory");
+            }
+            if !path.canonicalize()?.starts_with(&self.directory) {
+                bail!("runtime browser cache escapes installation");
+            }
+        }
+        Ok(Some(path))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {

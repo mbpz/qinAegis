@@ -35,7 +35,8 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
           cdp_port: parseInt(cdpPort, 10) || 9222,
         },
       };
-      const result = await rpc.setConfig(config);
+      const state = await rpc.getState();
+      const result = await rpc.setConfig(config, state.config_revision);
       if (result.ok) {
         onComplete();
       } else {

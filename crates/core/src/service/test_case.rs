@@ -9,11 +9,31 @@ use crate::storage::{CaseStatus, LocalStorageInstance, Storage, TestCase as Stor
 pub struct TestCaseService {
     llm: ArcLlmClient,
     storage: LocalStorageInstance,
+    model_trace: Option<std::sync::Arc<crate::models::ModelCallTrace>>,
 }
 
 impl TestCaseService {
     pub fn new(llm: ArcLlmClient, storage: LocalStorageInstance) -> Self {
-        Self { llm, storage }
+        Self {
+            llm,
+            storage,
+            model_trace: None,
+        }
+    }
+
+    pub fn with_model_trace(
+        mut self,
+        trace: std::sync::Arc<crate::models::ModelCallTrace>,
+    ) -> Self {
+        self.model_trace = Some(trace);
+        self
+    }
+    fn trace_snapshot(&self) -> anyhow::Result<Vec<crate::models::ModelCallAttempt>> {
+        self.model_trace
+            .as_ref()
+            .map(|t| t.snapshot())
+            .transpose()
+            .map(|v| v.unwrap_or_default())
     }
 
     pub async fn generate_and_save(
@@ -39,7 +59,13 @@ impl TestCaseService {
         let generator = TestCaseGenerator::new(self.llm.clone());
         let critic = Critic::new(self.llm.clone());
 
+        anyhow::ensure!(
+            self.model_trace.is_none() || context.is_some(),
+            "model trace requires generation context"
+        );
+        let generation_start = self.trace_snapshot()?.len();
         let cases = generator.generate(spec_markdown, requirement_text).await?;
+        let generation_calls = self.trace_snapshot()?[generation_start..].to_vec();
         validate_generated_cases(&cases)?;
         for case in &cases {
             anyhow::ensure!(
@@ -50,6 +76,7 @@ impl TestCaseService {
         let mut results = Vec::with_capacity(cases.len());
 
         for tc in &cases {
+            let critic_start = self.trace_snapshot()?.len();
             let review = critic
                 .review(&tc.yaml_script, spec_markdown, requirement_text)
                 .await;
@@ -83,7 +110,18 @@ impl TestCaseService {
                     created_at: storage_case.created_at.clone(),
                     contracts: context.contracts.clone(),
                     model: context.model.clone(),
+                    model_calls: self
+                        .model_trace
+                        .as_ref()
+                        .map(|_| -> anyhow::Result<_> {
+                            Ok(crate::execution_records::GenerationModelCalls {
+                                generator: generation_calls.clone(),
+                                critic: self.trace_snapshot()?[critic_start..].to_vec(),
+                            })
+                        })
+                        .transpose()?,
                 };
+                provenance.validate(project_name, &tc.id, &tc.yaml_script)?;
                 storage_case.provenance = Some(provenance);
             }
             self.storage.save_case(project_name, &storage_case).await?;

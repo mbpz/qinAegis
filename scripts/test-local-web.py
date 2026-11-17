@@ -326,7 +326,7 @@ class Smoke:
         self.request("POST", "/api/v2/rpc", body=rpc_body,
             headers={**authorized, "x-qinaegis-csrf": "incorrect"}, expected=401)
         print("PASS one-use bootstrap, cookie refresh, config RPC and Origin/CSRF boundaries")
-        self.rpc("setConfig", {"llm": {"model": "isolated-config-fixture"}})
+        self.rpc("setConfig", {"llm": {"model": "isolated-config-fixture"}, "expected_revision": self.rpc("getState", {})["config_revision"]})
         require((self.data / "config.toml").is_file(),
                 "configuration escaped explicit isolated data root")
 

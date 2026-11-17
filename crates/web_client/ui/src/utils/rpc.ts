@@ -3,7 +3,7 @@ import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapsh
 import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
 
 import type {
-  AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence,
+  AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence, CaseAsset,
   ConfigStatusResponse,
   StateResponse,
   VersionResponse,
@@ -16,7 +16,7 @@ import type {
   ReportHtmlResponse,
   ExportResponse,
   AppConfig,
-  JobStatus,
+  JobStatus, TaskSummary,
 } from '../types/rpc';
 
 const DEFAULT_TIMEOUT = 60000;
@@ -106,6 +106,15 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  getCaseAsset(project: string, case_id: string): Promise<CaseAsset> { return call('getCaseAsset', {project, case_id}); },
+  saveCaseAsset(params: {project: string; case_id: string; expected_digest: string; name: string; yaml_script: string; expected_result: string; approved: true}): Promise<CaseAsset> { return call('saveCaseAsset', params); },
+  diagnoseRuntime(): Promise<JobStartResult> { return call('diagnoseRuntime'); },
+  installRuntimeBrowser(): Promise<JobStartResult> { return call('installRuntimeBrowser', {approved: true}); },
+  getJobs(): Promise<{jobs: TaskSummary[]; history_error: string | null}> { return call('getJobs'); },
+  getJobLog(jobId: string, cursor: number): Promise<{output: string; cursor: number; truncated: boolean}> { return call('getJobLog', {jobId, cursor}); },
+  probeModel(profile_id: string): Promise<JobStartResult> { return call('probeModel', {profile_id}); },
+  setProjectModelRoute(params: {project: string; task: string; route: TaskModelRoute | null; expected_revision: number}): Promise<ModelRegistry> { return call('setProjectModelRoute', params); },
+  restoreConfigBackup(expected_revision: number): Promise<{ok: boolean; revision: number}> { return call('restoreConfigBackup', {expected_revision, approved: true}); },
   getModels(): Promise<ModelRegistry> { return call('getModels'); },
   saveModel(params: { profile: ModelProfile; expected_revision: number; clear_api_key: boolean }): Promise<ModelRegistry> { return call('saveModel', params); },
   setModelRoute(params: { task: string; route: TaskModelRoute; expected_revision: number }): Promise<ModelRegistry> { return call('setModelRoute', params); },
@@ -150,8 +159,8 @@ export const rpc = {
     return call<StateResponse>('getState');
   },
 
-  async setConfig(config: AppConfig): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('setConfig', { config });
+  async setConfig(config: AppConfig, expected_revision: number): Promise<{ ok: boolean }> {
+    return call<{ ok: boolean }>('setConfig', { config, expected_revision });
   },
 
   // Version & Updates
@@ -226,8 +235,8 @@ export const rpc = {
     return call<TestCase[]>('getReviewCases', { project });
   },
 
-  async updateCaseStatus(project: string, case_id: string, status: string): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('updateCaseStatus', { project, case_id, status });
+  async updateCaseStatus(project: string, case_id: string, status: string, expected_digest?: string): Promise<{ ok: boolean }> {
+    return call<{ ok: boolean }>('updateCaseStatus', { project, case_id, status, expected_digest });
   },
 
   // Job control

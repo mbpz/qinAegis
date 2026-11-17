@@ -369,7 +369,7 @@ async fn serve(options: &Options, dir: &Path) -> Result<()> {
     };
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let state = ServerState::new(
-        AppState::new(),
+        AppState::new()?,
         origin.clone(),
         instance.instance_id.clone(),
         instance.owner_secret.clone(),

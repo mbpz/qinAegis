@@ -1,9 +1,40 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
+use crate::asset_file::AssetFile;
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+const MAX_CONFIG_BYTES: usize = 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+pub struct ConfigInspection {
+    pub revision: u64,
+    pub backup_available: bool,
+}
+
+fn config_error() -> ConfigError {
+    ConfigError::Internal("configuration storage operation failed".into())
+}
+fn parse_config(bytes: &[u8]) -> Result<(AppConfig, u64), ConfigError> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| ConfigError::Parse("invalid configuration".into()))?;
+    let config =
+        toml::from_str(text).map_err(|_| ConfigError::Parse("invalid configuration".into()))?;
+    let value: toml::Value =
+        toml::from_str(text).map_err(|_| ConfigError::Parse("invalid configuration".into()))?;
+    let revision = match value.get("qinaegis_revision") {
+        None => 0,
+        Some(v) => v
+            .as_integer()
+            .filter(|v| *v >= 0)
+            .ok_or_else(config_error)? as u64,
+    };
+    Ok((config, revision))
+}
+
 use thiserror::Error;
 
 // ============================================================================
@@ -62,9 +93,7 @@ pub struct SandboxConfigSection {
 
 impl Default for SandboxConfigSection {
     fn default() -> Self {
-        Self {
-            cdp_port: 9222,
-        }
+        Self { cdp_port: 9222 }
     }
 }
 
@@ -76,8 +105,12 @@ pub struct ExplorationConfigSection {
     pub max_pages_per_seed: u32,
 }
 
-fn default_max_depth() -> u32 { 3 }
-fn default_max_pages_per_seed() -> u32 { 20 }
+fn default_max_depth() -> u32 {
+    3
+}
+fn default_max_pages_per_seed() -> u32 {
+    20
+}
 
 impl Default for ExplorationConfigSection {
     fn default() -> Self {
@@ -131,16 +164,31 @@ impl AppConfig {
 
     /// Load config from a specific path.
     pub fn load_from(path: &std::path::Path) -> Result<Self, ConfigError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ConfigError::Internal(e.to_string()))?;
-        toml::from_str(&content)
-            .map_err(|e| ConfigError::Parse(e.to_string()))
+        let meta = std::fs::symlink_metadata(path).map_err(|_| config_error())?;
+        if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > MAX_CONFIG_BYTES as u64
+        {
+            return Err(config_error());
+        }
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .map_err(|_| config_error())?
+            .take(MAX_CONFIG_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| config_error())?;
+        if bytes.len() > MAX_CONFIG_BYTES {
+            return Err(config_error());
+        }
+        parse_config(&bytes).map(|(config, _)| config)
     }
 
     /// Load from multiple sources, with project config taking precedence.
     /// Order: global defaults → per-project overrides
     pub fn load_multi_source(project_dir: Option<&std::path::Path>) -> Result<Self, ConfigError> {
-        let mut config = Self::load_global().unwrap_or_default();
+        let mut config = match Self::load_global() {
+            Ok(config) => config,
+            Err(ConfigError::NotFound(_)) => Self::default(),
+            Err(error) => return Err(error),
+        };
 
         if let Some(dir) = project_dir {
             let project_path = Self::project_path(dir);
@@ -203,18 +251,103 @@ impl AppConfig {
         self.llm.secondary_base_url = resolve_env_var(&self.llm.secondary_base_url);
     }
 
-    /// Save to global config path.
+    /// Existing callers retain compatibility; UI callers should use save_to_checked.
     pub fn save_global(&self) -> Result<(), ConfigError> {
         let path = Self::global_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ConfigError::Internal(e.to_string()))?;
+        let revision = Self::inspect_at(&path)?.revision;
+        self.save_to_checked(&path, revision).map(|_| ())
+    }
+
+    pub fn backup_path(path: &Path) -> PathBuf {
+        path.with_file_name(format!(
+            "{}.backup",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ))
+    }
+
+    /// Returns only revision/backup metadata, never credentials or configuration values.
+    pub fn inspect_at(path: &Path) -> Result<ConfigInspection, ConfigError> {
+        let file = AssetFile::new(path.to_owned(), MAX_CONFIG_BYTES);
+        let guard = file.lock().map_err(|_| config_error())?;
+        let revision = guard
+            .read()
+            .map_err(|_| config_error())?
+            .as_deref()
+            .map(parse_config)
+            .transpose()?
+            .map(|(_, r)| r)
+            .unwrap_or(0);
+        let backup = AssetFile::new(Self::backup_path(path), MAX_CONFIG_BYTES);
+        let backup_guard = backup.lock().map_err(|_| config_error())?;
+        let backup_available = backup_guard
+            .read()
+            .map_err(|_| config_error())?
+            .as_deref()
+            .map(parse_config)
+            .transpose()?
+            .is_some();
+        Ok(ConfigInspection {
+            revision,
+            backup_available,
+        })
+    }
+
+    pub fn save_to_checked(&self, path: &Path, expected_revision: u64) -> Result<u64, ConfigError> {
+        let file = AssetFile::new(path.to_owned(), MAX_CONFIG_BYTES);
+        let guard = file.lock().map_err(|_| config_error())?;
+        let previous = guard.read().map_err(|_| config_error())?;
+        let revision = previous
+            .as_deref()
+            .map(parse_config)
+            .transpose()?
+            .map(|(_, r)| r)
+            .unwrap_or(0);
+        if revision != expected_revision {
+            return Err(ConfigError::Internal(
+                "configuration revision conflict".into(),
+            ));
         }
-        let content = toml::to_string_pretty(self)
-            .map_err(|e| ConfigError::Parse(e.to_string()))?;
-        std::fs::write(&path, content)
-            .map_err(|e| ConfigError::Internal(e.to_string()))?;
-        Ok(())
+        let next = revision
+            .checked_add(1)
+            .filter(|v| *v <= i64::MAX as u64)
+            .ok_or_else(config_error)?;
+        let mut value = toml::Value::try_from(self).map_err(|_| config_error())?;
+        value.as_table_mut().ok_or_else(config_error)?.insert(
+            "qinaegis_revision".into(),
+            toml::Value::Integer(next as i64),
+        );
+        let bytes = toml::to_string_pretty(&value)
+            .map_err(|_| config_error())?
+            .into_bytes();
+        if bytes.len() > MAX_CONFIG_BYTES {
+            return Err(config_error());
+        }
+        let backup = AssetFile::new(Self::backup_path(path), MAX_CONFIG_BYTES);
+        let backup_guard = backup.lock().map_err(|_| config_error())?;
+        // Refuse to silently overwrite a damaged recovery copy.
+        if let Some(existing) = backup_guard.read().map_err(|_| config_error())? {
+            parse_config(&existing)?;
+        }
+        if let Some(previous) = previous {
+            backup_guard.write(&previous).map_err(|_| config_error())?;
+        }
+        guard.write(&bytes).map_err(|_| config_error())?;
+        Ok(next)
+    }
+
+    /// Explicit restore of a valid backup. Invalid primary files remain untouched:
+    /// recovery from corruption requires retaining that file before operator repair.
+    pub fn restore_backup_at(path: &Path, expected_revision: u64) -> Result<u64, ConfigError> {
+        let backup = AssetFile::new(Self::backup_path(path), MAX_CONFIG_BYTES);
+        let bytes = {
+            let guard = backup.lock().map_err(|_| config_error())?;
+            guard
+                .read()
+                .map_err(|_| config_error())?
+                .ok_or_else(config_error)?
+        };
+        let (config, _) = parse_config(&bytes)?;
+        config.save_to_checked(path, expected_revision)
     }
 }
 

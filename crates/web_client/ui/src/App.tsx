@@ -11,10 +11,12 @@ import ReviewView from './components/ReviewView';
 import SettingsView from './components/SettingsView';
 import ContractsView from './components/ContractsView';
 import ModelsView from './components/ModelsView';
+import EnvironmentView from './components/EnvironmentView';
+import TasksView from './components/TasksView';
 import { rpc } from './utils/rpc';
 import './styles.css';
 
-type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings' | 'contracts' | 'models';
+type View = 'dashboard' | 'explore' | 'generate' | 'run' | 'review' | 'reports' | 'settings' | 'contracts' | 'models' | 'environment' | 'tasks';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -102,8 +104,12 @@ function App() {
         return <SettingsView onSaved={checkConfig} />;
       case 'contracts':
         return <ContractsView projects={projects} />;
+      case 'environment':
+        return <EnvironmentView />;
+      case 'tasks':
+        return <TasksView />;
       case 'models':
-        return <ModelsView onSaved={checkConfig} />;
+        return <ModelsView projects={projects} onSaved={checkConfig} />;
       default:
         return <Dashboard projects={projects} onNavigate={setCurrentView} onProjectsChanged={loadProjects} />;
     }

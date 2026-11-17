@@ -5,6 +5,7 @@ pub mod contracts;
 pub mod contract_store;
 pub mod contract_execution;
 pub mod models;
+pub mod jobs;
 pub(crate) mod asset_file;
 pub mod scenario;
 pub mod explorer;

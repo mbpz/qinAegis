@@ -49,10 +49,11 @@ Use the executable's full path if it is not on PATH. Closing the browser does no
 
 ## Installation and engines
 
-See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and frontend build tools are needed only for source builds. **Actual visual tests still require a prepared Playwright + Midscene.js engine**, including compatible Node and automation browser dependencies. Automatic engine installation and complete Web engine management are subsequent phases.
+See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and frontend build tools are needed only for source builds. **Actual visual tests still require a prepared Playwright + Midscene.js engine**, including compatible Node and automation browser dependencies. The Environment page checks installed versions and actually launches Chromium; its download requires explicit consent. Full online engine distribution and Web runtime upgrades remain subsequent phases.
 
 - Installed runtime: `QINAEGIS_RUNTIME_DIR` points to an absolute directory containing a validated `runtime.json`, compiled executor and dependencies.
 - Development runtime: `QINAEGIS_DEV_SANDBOX` explicitly points to an absolute prepared `sandbox` source directory.
+- Host-native standalone runtime builds and verified local archive imports are available; see [installation](INSTALL.md).
 - Runtime discovery does not rely on the compiler's source directory or current working directory.
 - Performance and stress adapters require their own verified Lighthouse/Locust environments.
 
@@ -70,6 +71,6 @@ The public GitHub Pages site describes the product; the private workbench runs o
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md) and [user guide](docs/USER_GUIDE.md). The [product plan](docs/plans/local-web.md) defines the target; [progress](docs/progress/local-web-2.0.md) records implemented behavior and acceptance gaps; the [roadmap](qinAegis-platform-roadmap.md) sets the next order. Historical designs and reviews are labeled as archives and do not override 2.0 scope.
+Start with the [documentation index](docs/README.md) and [user guide](docs/USER_GUIDE.md). The [product plan](docs/plans/local-web.md) defines the target; [progress](docs/progress/local-web-2.0.md) records implemented behavior and the [acceptance checklist](docs/progress/acceptance-checklist-2.0.md) orders remaining work; the [roadmap](qinAegis-platform-roadmap.md) sets the next order. Historical designs and reviews are labeled as archives and do not override 2.0 scope.
 
 [中文说明](README_zh.md) · [安装说明](INSTALL_zh.md) · [License](LICENSE)

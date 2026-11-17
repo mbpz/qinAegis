@@ -1,8 +1,8 @@
-import { Button, Select } from './ui';
+import { Button, Checkbox, Input, Select, TextArea } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './motion/collapsible';
-import type { CaseProvenance, TestCase } from '../types/rpc';
+import type { CaseAsset, TestCase } from '../types/rpc';
 
 const statusLabels: Record<string, string> = {
   draft: 'Draft',
@@ -27,8 +27,12 @@ const statusColors: Record<string, string> = {
 
 
 export default function ReviewView() {
-  const [provenance, setProvenance] = useState<CaseProvenance | null>(null);
-  const [inspected, setInspected] = useState('');
+  const [editing, setEditing] = useState<CaseAsset | null>(null);
+  const [editApproved, setEditApproved] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const editLock = useRef(false);
+  const [reviewAsset, setReviewAsset] = useState<CaseAsset | null>(null);
+  const [originalEdit, setOriginalEdit] = useState<CaseAsset | null>(null);
   const [error, setError] = useState('');
   const request = useRef(0);
   const inspection = useRef(0);
@@ -44,12 +48,13 @@ export default function ReviewView() {
   }, []);
 
   useEffect(() => {
-    ++inspection.current; setInspected(''); setProvenance(null); setError(''); setUpdating(null);
+    ++inspection.current; setEditing(null); setEditApproved(false); setReviewAsset(null); setError(''); setUpdating(null);
     loadCases();
     return () => { ++request.current; ++inspection.current; };
   }, [selectedProject]);
 
   const loadCases = async () => {
+    ++inspection.current; setReviewAsset(null); setEditApproved(false);
     const token = ++request.current;
     if (!selectedProject) { setCases([]); setLoading(false); return; }
     setLoading(true);
@@ -67,17 +72,40 @@ export default function ReviewView() {
     const current = cases.find(item => item.id === caseId);
     if (!current || current.status === newStatus) return;
     if (!transitions[current.status].includes(newStatus as TestCase['status'])) { setError('This status transition is not allowed. Review draft cases before approval.'); return; }
+    if ((newStatus === 'reviewed' || newStatus === 'approved') && reviewAsset?.case_id !== caseId) {
+      setError('Inspect the complete current case before review or approval.'); return;
+    }
     const token = request.current;
     setUpdating(caseId);
     try {
-      await rpc.updateCaseStatus(selectedProject, caseId, newStatus);
-      if (token === request.current) await loadCases();
+      await rpc.updateCaseStatus(selectedProject, caseId, newStatus, reviewAsset?.case_id === caseId ? reviewAsset.digest : undefined);
+      if (token === request.current) { setUpdating(null); await loadCases(); }
     } catch (e) {
-      if (token === request.current) setError('Failed to update case status: ' + e);
+      if (token === request.current) { setReviewAsset(null); setError('Failed to update case status: ' + e + '. Inspect the current case again.'); }
     } finally {
-      setUpdating(null);
+      if (token === request.current) setUpdating(null);
     }
   };
+
+  async function openEditor(caseId: string) {
+    if (editLock.current) return;
+    const token = ++inspection.current; setError(''); setEditing(null); setOriginalEdit(null); setReviewAsset(null); setEditApproved(false);
+    try { const asset = await rpc.getCaseAsset(selectedProject, caseId);
+      if (token === inspection.current) {setEditing(asset); setOriginalEdit(asset);}
+    } catch (e) { if (token === inspection.current) setError(String(e)); }
+  }
+  async function saveEdit() {
+    if (!editing || !editApproved || editLock.current) return;
+    editLock.current = true; setEditSaving(true); setError('');
+    const token = inspection.current;
+    try {
+      const saved = await rpc.saveCaseAsset({project:selectedProject, case_id:editing.case_id,
+        expected_digest:editing.digest, name:editing.name, yaml_script:editing.yaml_script,
+        expected_result:editing.expected_result, approved:true});
+      if (token === inspection.current) {setEditing(saved); setOriginalEdit(saved); setEditApproved(false); setReviewAsset(null); await loadCases();}
+    } catch (e) {if (token === inspection.current) setError(`${String(e)}. Your edit is preserved. On a content revision conflict, reload the case and reconcile your changes.`);}
+    finally {editLock.current = false; setEditSaving(false);}
+  }
 
   const filteredCases = filterStatus === 'all'
     ? cases
@@ -96,7 +124,33 @@ export default function ReviewView() {
     <div className="view">
       <h2 className="view-title">Review Test Cases</h2>
       {error && <p role="alert">{error}</p>}
-      {inspected && <div className="card"><h3>Generation source: {inspected}</h3><p>Source snapshots record generator inputs. Contract semantics are not independently verified by a successful script.</p>{provenance ? <Collapsible defaultOpen><CollapsibleTrigger>Original script, contract inputs and model</CollapsibleTrigger><CollapsibleContent><pre style={{whiteSpace: 'pre-wrap', overflowWrap: 'anywhere'}}>{JSON.stringify(provenance, null, 2)}</pre></CollapsibleContent></Collapsible> : <p>No recorded generation source (legacy or independently authored case). No current contract has been assigned retroactively.</p>}</div>}
+      {reviewAsset && <section className="card" aria-label="Inspected case version"><h3>Inspected case: {reviewAsset.case_id}</h3>
+        <p>Name: {reviewAsset.name}. Status: {statusLabels[reviewAsset.status]}. Review and approval apply only to this loaded content revision. Inspect again after any status change or refresh.</p>
+        <h4>Complete script and assertions</h4><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{reviewAsset.yaml_script}</pre>
+        <h4>Expected result</h4><pre style={{whiteSpace:'pre-wrap'}}>{reviewAsset.expected_result || '(No separate expected result recorded)'}</pre>
+        <Collapsible><CollapsibleTrigger>Generation source, contract inputs and model</CollapsibleTrigger><CollapsibleContent><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{reviewAsset.provenance ? JSON.stringify(reviewAsset.provenance,null,2) : 'No recorded generation source. No current contract has been assigned retroactively.'}</pre></CollapsibleContent></Collapsible>
+        <p>Source snapshots record generator inputs. Successful execution alone does not independently verify contract semantics.</p>
+      </section>}
+
+      {editing && <section className="card" aria-label="Case editor">
+        <h3>Edit case: {editing.case_id}</h3>
+        <p>Current status: {statusLabels[editing.status]}. Save creates a Draft requiring fresh human review and approval. Previous generated provenance is removed; historical runs retain their original facts.</p>
+        <p>Content revision was captured when this case was loaded. Concurrent edits or status changes will reject this save.</p>
+        {originalEdit && <Collapsible defaultOpen><CollapsibleTrigger>Original content for comparison</CollapsibleTrigger><CollapsibleContent>
+          <p>Original name: {originalEdit.name}</p><h4>Original complete script and assertions</h4><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{originalEdit.yaml_script}</pre>
+          <h4>Original expected result</h4><pre style={{whiteSpace:'pre-wrap'}}>{originalEdit.expected_result || '(No separate expected result recorded)'}</pre>
+        </CollapsibleContent></Collapsible>}
+        <form onSubmit={event => {event.preventDefault(); void saveEdit();}}>
+          <fieldset disabled={editSaving} style={{border:0,padding:0}}>
+            <label htmlFor="edit-case-name">Name</label><Input id="edit-case-name" required value={editing.name} onValueChange={name => {setEditing({...editing,name}); setEditApproved(false); setReviewAsset(null);}} />
+            <label htmlFor="edit-case-script">Complete YAML script and assertions</label><TextArea id="edit-case-script" value={editing.yaml_script} rows={10} onValueChange={yaml_script => {setEditing({...editing,yaml_script}); setEditApproved(false); setReviewAsset(null);}} />
+            <label htmlFor="edit-case-expected">Expected result (legacy assets may have no separate text)</label><TextArea id="edit-case-expected" value={editing.expected_result} rows={3} onValueChange={expected_result => {setEditing({...editing,expected_result}); setEditApproved(false); setReviewAsset(null);}} />
+            <Checkbox label="I reviewed these actions and business assertions; save as Draft and discard the old generation attribution." checked={editApproved} onCheckedChange={setEditApproved} />
+            <Button type="submit" disabled={!editApproved || editSaving}>Save as Draft</Button>
+            <Button type="button" disabled={editSaving} onClick={() => {++inspection.current; setEditing(null); setEditApproved(false);}}>Close editor</Button>
+          </fieldset>
+        </form>
+      </section>}
 
       <div className="card">
         <div className="card-title">Project</div>
@@ -160,21 +214,22 @@ export default function ReviewView() {
                   <td>{tc.priority}</td>
                   <td>{tc.type}</td>
                   <td>
-                    <Button onClick={async () => {
-                      const token = ++inspection.current; setError(''); setInspected(''); setProvenance(null);
-                      try { const data = await rpc.getCaseProvenance(selectedProject, tc.id); if (token === inspection.current) { setProvenance(data); setInspected(tc.id); } }
+                    <Button disabled={editSaving || updating !== null} onClick={() => void openEditor(tc.id)}>Edit case</Button>
+                    <Button disabled={editSaving || updating !== null} onClick={async () => {
+                      const token = ++inspection.current; setError(''); setReviewAsset(null); setEditing(null); setOriginalEdit(null); setEditApproved(false);
+                      try { const asset = await rpc.getCaseAsset(selectedProject, tc.id); if (token === inspection.current) setReviewAsset(asset); }
                       catch (e) { if (token === inspection.current) setError(String(e)); }
                     }}>Inspect source</Button>
                     <Select aria-label={`Status for ${tc.id}`}
                       className="input"
                       value={tc.status}
                       onValueChange={(value) => handleStatusChange(tc.id, value)}
-                      disabled={updating === tc.id}
+                      disabled={updating !== null || editSaving}
                       style={{ width: 'auto', padding: '4px 8px' }}
                     >
                       <option value="draft" disabled={tc.status !== 'draft' && !transitions[tc.status].includes('draft')}>Draft</option>
-                      <option value="reviewed" disabled={tc.status !== 'reviewed' && !transitions[tc.status].includes('reviewed')}>Reviewed</option>
-                      <option value="approved" disabled={tc.status !== 'approved' && !transitions[tc.status].includes('approved')}>Approved</option>
+                      <option value="reviewed" disabled={tc.status !== 'reviewed' && (!transitions[tc.status].includes('reviewed') || reviewAsset?.case_id !== tc.id)}>Reviewed</option>
+                      <option value="approved" disabled={tc.status !== 'approved' && (!transitions[tc.status].includes('approved') || reviewAsset?.case_id !== tc.id)}>Approved</option>
                       <option value="flaky" disabled={tc.status !== 'flaky' && !transitions[tc.status].includes('flaky')}>Flaky</option>
                       <option value="archived" disabled={tc.status !== 'archived' && !transitions[tc.status].includes('archived')}>Archived</option>
                     </Select>

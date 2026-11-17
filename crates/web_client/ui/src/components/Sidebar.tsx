@@ -15,6 +15,8 @@ const items: { view: View; icon: string; label: string }[] = [
   { view: 'review', icon: '🔎', label: 'Review' },
   { view: 'run', icon: '▶️', label: 'Run Tests' },
   { view: 'reports', icon: '📊', label: 'Reports' },
+  { view: 'tasks', icon: '📋', label: 'Tasks' },
+  { view: 'environment', icon: '🔧', label: 'Environment' },
   { view: 'settings', icon: '⚙️', label: 'Settings' },
 ];
 
