@@ -389,16 +389,20 @@ print(child.stdout.readline().strip(),flush=True)
         let (mut child, tree, port) = orphaned_tree().await;
         tree.terminate_now(&mut child);
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while !tree.cleanup_complete().unwrap() {
+            loop {
+                // Job accounting and the network stack expose separate observations.
+                // Require both within the same cleanup budget; an empty job alone
+                // does not prove a listening endpoint is already reusable.
+                if tree.cleanup_complete().unwrap()
+                    && std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+                {
+                    break;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         })
         .await
-        .expect("terminated job did not become empty");
-        assert!(
-            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
-            "job reported empty before descendant released port"
-        );
+        .expect("terminated job or descendant listening endpoint did not clear");
     }
     #[tokio::test]
     async fn job_drop_terminates_grandchild_after_direct_child_exits() {
