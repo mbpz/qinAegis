@@ -33,7 +33,7 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 Linux `engine-checks` job 安装锁定引擎，执行独立运行时打包和导入回归（`test-runtime-package.py`、`test-runtime-install.py`），构建并迁移运行时归档，再上传独立的 `standalone-runtime-linux-candidate`。该 artifact 与四平台基础服务候选包分开；其他运行时目标尚不能据此视为已验收。该 job 还核验官方 Allure 报告通过已打包服务的完整生成和读取链路。
 
-验收脚本显式设置临时绝对路径 `QINAEGIS_DATA_DIR` 并核对资产落盘，覆盖项目、契约、模型与配置，避免 Windows Known Folder 忽略 HOME/APPDATA 导致跨脚本污染。确定性模型和协议 fixture 不等于真实业务视觉测试。截至 2026-11-17，提交 `97180aa` 的四平台、engine-checks 与 assemble 已通过远端运行 `44037923373`；Pages 预览 `44037923348` 通过，生产部署跳过。下载的候选 13 项摘要与四份清单已独立核对，清单源码为 PR 合并提交 `a8e85d46336b16024542794f87fcb53a694609e8`。后续配置迁移、报告维护及 Windows Job Object 这批新增改动尚待各自远端结果，不能沿用该基线作为新批次证明。
+验收脚本显式设置临时绝对路径 `QINAEGIS_DATA_DIR` 并核对资产落盘，覆盖项目、契约、模型与配置，避免 Windows Known Folder 忽略 HOME/APPDATA 导致跨脚本污染。确定性模型和协议 fixture 不等于真实业务视觉测试。截至 2026-11-17，提交 `97180aa` 的四平台、engine-checks 与 assemble 已通过远端运行 `44037923373`；Pages 预览 `44037923348` 通过，生产部署跳过。下载的候选 13 项摘要与四份清单已独立核对，清单源码为 PR 合并提交 `a8e85d46336b16024542794f87fcb53a694609e8`。配置迁移、报告维护及 Windows Job Object 修订 `0627ea3` 随后通过远端 `44074838212` 四平台、engine-checks 与 assemble；Pages `44074838319` 预览通过/部署跳过。候选 13 项 SHA 与四平台归档内外清单一致，源码为本次 PR 合并提交 `01b42cf1998575cb8d755e200b02fcbe66356be4`。
 
 ## 版本与发布
 
@@ -69,6 +69,8 @@ npm run build:pages
 
 Actions 中按失败步骤查看日志；artifact 缺失、tag 不符、归档混入其他文件、不同提交混包或 Allure 引擎异常均应失败，不能降级成绿色。周检查保留报告与逐项日志，失败也会上传，不自动创建重复 issue。
 
-本轮分发与网站改造的完成证据需要同时包含本地回归、真实平台构建和 Pages 预览结果。当前已有任务持久历史/中断恢复标记、环境探测和显式浏览器安装，仍须按[开发进度](progress/local-web-2.0.md)和[验收 checklist](progress/acceptance-checklist-2.0.md)验收真实双项目视觉执行、运行时跨平台安装、Windows Job Object 实机回归与逐引擎取消时限、场景编排及各系统干净安装。任务历史恢复不等于排队或崩溃后继续执行。生产网站部署、稳定 Release 和 Homebrew 发布需分别核验，不用候选 artifact 替代。
+本轮分发与网站改造的完成证据需要同时包含本地回归、真实平台构建和 Pages 预览结果。当前已有任务持久历史/中断恢复标记、环境探测和显式浏览器安装，仍须按[开发进度](progress/local-web-2.0.md)和[验收 checklist](progress/acceptance-checklist-2.0.md)验收真实双项目视觉执行、运行时跨平台安装、逐引擎取消时限、场景编排及各系统干净安装。任务使用单执行槽及最多八个 FIFO 等待项；任务摘要持久化，重启不重放执行。生产网站部署、稳定 Release 和 Homebrew 发布需分别核验，不用候选 artifact 替代。
 
 运行时验收 job 固定 Python 3.12，真实归档通过正式导入器完成摘要、路径和符号链接校验后，再以捆绑 Node 验证重定位执行和官方 Allure。避免使用各系统不同补丁版本的 `tarfile` 抽取行为代替产品安装验证。
+
+当前待验收批次在 engine-checks 增加实际 Chromium 双执行器隔离，以及导入归档后用捆绑 Node/执行器运行同项浏览器检查。运行时增加 locustfile.py 和支持文件来源摘要校验。相关本机测试已通过，本批远端运行待确认；先前 0627ea3 证据不能替代本批 CI。

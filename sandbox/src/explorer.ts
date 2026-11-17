@@ -1,6 +1,5 @@
 import { chromium, Page } from 'playwright';
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 
 export interface PageInfo {
   url: string;
@@ -149,22 +148,8 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
   const results: PageInfo[] = [];
   const queue: { url: string; depth: number }[] = seedUrls.map(u => ({ url: u, depth: 0 }));
 
-  console.error(`[explorer] Launching Chromium on port ${CDP_PORT}...`);
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      `--remote-debugging-port=${CDP_PORT}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-extensions',
-      '--disable-popup-blocking',
-      '--disable-translate',
-      '--disable-gpu',
-      '--disable-dev-shm-usage',
-    ],
-  });
-
+  const browser = await chromium.launch({ headless: true });
+  try {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
   let page: Page;
   try {
@@ -231,8 +216,10 @@ export async function exploreProject(seedUrls: string[], maxDepth: number): Prom
     }
   }
 
-  await browser.close();
   return results;
+  } finally {
+    await browser.close();
+  }
 }
 
 export function toMarkdown(pages: PageInfo[]): string {

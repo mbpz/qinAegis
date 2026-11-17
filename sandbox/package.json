@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test": "tsx --test src/yaml_spec.test.ts src/allure_report.test.ts",
+    "test": "tsx --test src/yaml_spec.test.ts src/allure_report.test.ts src/runner_boundaries.test.ts",
+    "test:browser": "node --test dist/browser_isolation.test.js",
     "test:live": "tsx src/midscene_test.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit"

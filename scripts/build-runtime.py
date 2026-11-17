@@ -93,7 +93,7 @@ def build(output_dir, offline=False):
     with tempfile.TemporaryDirectory(prefix='.runtime-build-', dir=output_dir) as temporary:
         stage = Path(temporary) / 'runtime'
         stage.mkdir(mode=0o700)
-        for name in ('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'):
+        for name in ('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'locustfile.py'):
             shutil.copy2(sandbox / name, stage / name)
         run(pnpm_command + ['exec', 'tsc', '--outDir', stage / 'dist'], sandbox)
         for test in (stage / 'dist').rglob('*.test.js'):
@@ -130,7 +130,8 @@ def build(output_dir, offline=False):
                       'source_dirty': source_dirty, 'target': target, 'node_version': node_version, 'node_sha256': sha256(bundled),
                       'lock_sha256': sha256(stage / 'pnpm-lock.yaml'), 'packages': packages,
                       'compiled_sha256': {p.relative_to(stage).as_posix(): sha256(p) for p in sorted((stage / 'dist').glob('*.js'))},
-                      'browser_included': False, 'install_scripts_executed': False}
+                      'browser_included': False, 'install_scripts_executed': False,
+                      'support_sha256': {'locustfile.py': sha256(stage / 'locustfile.py')}}
         (stage / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
         validate_tree(stage)
         if (stage / 'node_modules/tsx').exists() or (stage / 'src').exists():

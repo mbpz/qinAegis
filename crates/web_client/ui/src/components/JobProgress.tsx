@@ -66,14 +66,14 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
 
   return (
     <div className="job-progress">
-      {status === 'running' && (
+      {(status === 'running' || status === 'queued') && (
         <div className="job-running">
           <Loader />
-          <span>Running...</span>
+          <span>{status === 'queued' ? 'Queued — waiting for owned resources.' : 'Running...'}</span>
           <Button className="btn btn-danger" onClick={async () => {
             try {
               await rpc.stopJob(jobId);
-              setStatus(current => current === 'running' ? 'cancelling' : current);
+              setStatus(current => (current === 'running' || current === 'queued') ? 'cancelling' : current);
               setError(null);
             } catch (e) {
               setError('Failed to stop task: ' + (e as Error).message);

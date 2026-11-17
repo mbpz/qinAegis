@@ -74,7 +74,7 @@ class RuntimePackageTests(unittest.TestCase):
                 builder.validate_tree(root)
 
 
-def smoke_archive(archive_path):
+def smoke_archive(archive_path, browser_test=False):
     """Import through the verified installer, then exclude global Node/pnpm."""
     with tempfile.TemporaryDirectory(prefix='qinaegis-runtime-proof-') as temporary:
         # Resolve macOS /var aliases before the installer's ancestor checks.
@@ -106,17 +106,29 @@ def smoke_archive(archive_path):
         assert (root / 'report/index.html').stat().st_size > 0
         provenance = json.loads((root / 'provenance.json').read_text())
         assert builder.sha256(node) == provenance['node_sha256']
+        assert (root / 'locustfile.py').is_file()
+        assert 'locustfile.py' in provenance['support_sha256']
+        for relative, digest in provenance['support_sha256'].items():
+            assert builder.sha256(root / relative) == digest
         for relative, digest in provenance['compiled_sha256'].items():
             assert builder.sha256(root / relative) == digest
+        if browser_test:
+            browser_environment = dict(environment, QINAEGIS_TEST_EXECUTOR_ENTRY=str(root / 'dist/executor.js'),
+                                       QINAEGIS_TEST_NODE=str(node))
+            subprocess.run([str(node), '--test', str(builder.REPO / 'sandbox/dist/browser_isolation.test.js')],
+                           cwd=root.parent, env=browser_environment, timeout=90, check=True)
         print('Verified archive import + relocated compiled executor + official Allure passed with bundled Node and system-only PATH.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path, help='also verify a real runtime archive after relocation')
+    parser.add_argument('--browser-test', action='store_true', help='also verify actual browser ownership using the relocated executor')
     args = parser.parse_args()
+    if args.browser_test and not args.archive:
+        parser.error('--browser-test requires --archive')
     result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(RuntimePackageTests))
     if not result.wasSuccessful():
         raise SystemExit(1)
     if args.archive:
-        smoke_archive(args.archive.resolve())
+        smoke_archive(args.archive.resolve(), args.browser_test)

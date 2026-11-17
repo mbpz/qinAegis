@@ -140,6 +140,34 @@ class RuntimeInstallTests(unittest.TestCase):
             self.install()
         self.assertFalse(self.data.exists())
 
+    def test_support_digest_cannot_override_core_hashes_or_hide_tampering(self):
+        for support, message in [
+            ({'bin/node': '0' * 64}, 'support digests'),
+            ({'locustfile.py': '0' * 64}, 'content digest'),
+            (['locustfile.py'], 'support digests'),
+        ]:
+            with self.subTest(support=support):
+                fixture(self.archive)
+                with tarfile.open(self.archive) as archive:
+                    entries = [(item, archive.extractfile(item).read()) for item in archive.getmembers()]
+                with tarfile.open(self.archive, 'w:gz') as archive:
+                    for item, content in entries:
+                        if item.name == 'provenance.json':
+                            record = json.loads(content)
+                            record['support_sha256'] = support
+                            content = json.dumps(record).encode()
+                            item.size = len(content)
+                        archive.addfile(item, io.BytesIO(content))
+                    content = b'controlled support fixture'
+                    item = tarfile.TarInfo('locustfile.py')
+                    item.size = len(content)
+                    item.mode = 0o644
+                    archive.addfile(item, io.BytesIO(content))
+                self.digest = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+                with self.assertRaisesRegex(ValueError, message):
+                    self.install()
+                self.assertFalse(self.data.exists())
+
     def test_refuses_active_service_lock(self):
         installer.private_dir(self.data / 'state')
         with installer.locked(self.data / 'state/instance.lock'):

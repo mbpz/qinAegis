@@ -6,7 +6,9 @@ The product's central asset is the reusable test contract: business intent, inpu
 
 This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, automatic engine installation, durable task queuing/replay and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
 
-Settings now offers reviewed migration from known configuration sources with an explicit credential choice, exact-content conflict checks and backup. Reports can inspect and explicitly clean verified owned staging residue while preserving execution evidence and completed reports. Windows managed processes use Job Objects; actual Windows CI for this batch and per-engine cancellation timing remain pending.
+Settings now offers reviewed migration from known configuration sources with an explicit credential choice, exact-content conflict checks and backup. Reports can inspect and explicitly clean verified owned staging residue while preserving execution evidence and completed reports. Windows managed processes use Job Objects and have passed Windows CI; per-engine cancellation timing remains pending.
+
+Tasks use one execution slot and up to eight FIFO waiting tasks, with frozen submission inputs, visible queue positions and cancellation before execution. Restart marks unfinished tasks interrupted without replay. Browser executors own separate Chromium profiles and private work directories; Windows directory cleanup remains under acceptance.
 
 ## Product structure and current scope
 
@@ -57,7 +59,7 @@ See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and 
 - Development runtime: `QINAEGIS_DEV_SANDBOX` explicitly points to an absolute prepared `sandbox` source directory.
 - Host-native standalone runtime builds and verified local archive imports are available; see [installation](INSTALL.md).
 - Runtime discovery does not rely on the compiler's source directory or current working directory.
-- Performance and stress adapters require their own verified Lighthouse/Locust environments.
+- Performance and stress adapters require installed, verified Lighthouse/Locust environments; missing metrics fail explicitly. ZAP is unavailable until managed container cancellation is implemented.
 
 By default, projects remain under `~/.qinAegis/projects`. Global configuration follows the OS-specific configuration directory; consult service diagnostics rather than assuming a fixed macOS path. For an isolated workspace, set `QINAEGIS_DATA_DIR` to an absolute directory before starting; it covers private data and configuration without migrating existing assets. See the installation guide for restart and path rules. Models may receive test-page content during AI operations; credentials and private project data should not be included in shared contract packages.
 

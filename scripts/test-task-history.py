@@ -21,8 +21,8 @@ def main():
     class Model(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
         def do_POST(self):
-            self.rfile.read(int(self.headers['Content-Length']))
-            calls.append(True)
+            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            calls.append(request)
             arrived.set()
             release.wait(15)
             data=json.dumps({'choices':[{'message':{'role':'assistant','content':'{"ok":true}'}}]}).encode()
@@ -43,6 +43,16 @@ def main():
             history=smoke.data/'jobs/history.json'
             require(any(r['id']==job and r['status']=='running' for r in json.loads(history.read_text())['records']),'running not saved before worker')
             require(job in [j['jobId'] for j in smoke.rpc('getJobs')['jobs']],'task list omitted active worker')
+            queued=[]
+            started=time.monotonic()
+            for _ in range(8):
+                queued.append(smoke.rpc('probeModel',{'profile_id':'local'})['jobId'])
+            require(time.monotonic()-started < 2, 'queue submissions blocked on running provider')
+            require(all(smoke.rpc('getJobStatus',{'jobId':q})['status']=='queued' for q in queued),'waiting jobs not queued')
+            require('queue full' in smoke.rpc('probeModel',{'profile_id':'local'},success=False)['message'].lower(),'capacity not enforced')
+            smoke.rpc('stopJob',{'jobId':queued[3]})
+            require(smoke.rpc('getJobStatus',{'jobId':queued[3]})['status']=='stopped','queued cancellation failed')
+            require(len(calls)==1,'queued task performed provider side effects')
             # PID comes from this freshly started, owner-authenticated isolated instance.
             os.kill(smoke.instance['pid'],signal.SIGTERM if os.name=='nt' else signal.SIGKILL)
             time.sleep(.5)
@@ -52,6 +62,7 @@ def main():
             require(recovered['status']=='interrupted','unfinished task not recovered as interrupted')
             require(smoke.rpc('getJobLog',{'jobId':job,'cursor':0})['cursor']==0,'empty recovered cursor invalid')
             require(len(calls)==1,'interrupted operation was replayed')
+            require(all(smoke.rpc('getJobStatus',{'jobId':q})['status']==('stopped' if i==3 else 'interrupted') for i,q in enumerate(queued)), 'queued recovery replayed or lost tasks')
             release.set()
             next_job=smoke.rpc('probeModel',{'profile_id':'local'})['jobId']
             require(next_job!=job,'task identity reused after restart')
@@ -73,6 +84,22 @@ def main():
             smoke.cli('stop');smoke.cli('start','--no-open','--port',str(smoke.port))
             smoke.instance=smoke.read_instance();smoke.authenticate()
             require(smoke.rpc('getJobStatus',{'jobId':next_job})['status']=='completed','terminal state lost on restart')
+            # Accepted probes own their model configuration even while waiting.
+            release.clear();arrived.clear()
+            blocker=smoke.rpc('probeModel',{'profile_id':'local'})['jobId']
+            require(arrived.wait(5),'snapshot blocker did not start')
+            frozen=smoke.rpc('probeModel',{'profile_id':'local'})['jobId']
+            require(smoke.rpc('getJobStatus',{'jobId':frozen})['status']=='queued','snapshot task did not wait')
+            profile['model']='new-after-submission'
+            smoke.rpc('saveModel',{'profile':profile,'expected_revision':1})
+            release.set()
+            deadline=time.monotonic()+15
+            while time.monotonic()<deadline:
+                frozen_state=smoke.rpc('getJobStatus',{'jobId':frozen})
+                if frozen_state['status'] in ('completed','failed','stopped'): break
+                time.sleep(.05)
+            require(frozen_state['status']=='completed','frozen probe did not finish')
+            require(calls[-1]['model']=='fixture','queued task adopted a later model edit')
             release.clear();arrived.clear()
             cancelled=smoke.rpc('probeModel',{'profile_id':'local'})['jobId']
             require(arrived.wait(5),'cancel fixture never entered provider')
@@ -93,7 +120,7 @@ def main():
             history.write_text('corrupt-history-fixture')
             smoke.cli('start','--no-open','--port',str(smoke.port),success=False)
             require(history.read_text()=='corrupt-history-fixture','startup overwrote damaged history')
-            print('PASS durable admission, crash interrupted recovery, no replay, random IDs, terminal restart, cancellation, corrupt-history refusal and key redaction')
+            print('PASS bounded queue/capacity, queued cancellation, frozen model, durable admission, crash recovery without replay, terminal restart, cancellation and key redaction')
         finally:
             release.set();smoke.cleanup();server.shutdown();server.server_close()
 if __name__=='__main__':main()

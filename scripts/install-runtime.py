@@ -121,6 +121,10 @@ def validate_archive(archive):
     if not isinstance(compiled, dict) or manifest['entry'] not in compiled:
         raise ValueError('runtime compiled digests missing')
     hashes = {**compiled, manifest['node']: provenance.get('node_sha256'), 'pnpm-lock.yaml': provenance.get('lock_sha256')}
+    support = provenance.get('support_sha256', {})
+    if not isinstance(support, dict) or set(support) & set(hashes):
+        raise ValueError('invalid runtime support digests')
+    hashes.update(support)
     for name, expected in hashes.items():
         safe_path(name)
         item = members.get(name)

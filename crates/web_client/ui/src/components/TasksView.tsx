@@ -48,8 +48,9 @@ export default function TasksView() {
       {!tasks.length && <p>No saved tasks.</p>}
       {current && <>
         <p role="status">{current.jobType}: {current.status}</p>
+        {current.status === 'queued' && <p>Waiting for the single execution slot. Position: {current.queue_position ?? 'pending'}. No actions have started.</p>}
         {current.error && <p role="alert">{current.error}</p>}
-        {['running', 'cancelling'].includes(current.status) && <Button disabled={stopping || current.status === 'cancelling'} onClick={async () => {
+        {['queued', 'running', 'cancelling'].includes(current.status) && <Button disabled={stopping || current.status === 'cancelling'} onClick={async () => {
           setStopping(true);
           try { await rpc.stopJob(current.jobId); }
           catch (error) { setError((error as Error).message); }

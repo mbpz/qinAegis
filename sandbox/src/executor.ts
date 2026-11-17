@@ -30,8 +30,6 @@ let context: BrowserContext | null = null;
 let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
-const CDP_WS_URL = process.env.CDP_WS_URL;
 const DEBUG = process.env.DEBUG === '1';
 
 // Debug log that writes to stderr via native syscall
@@ -43,38 +41,18 @@ function debug(...args: any[]) {
 }
 
 async function ensureBrowser() {
-  if (!browser) {
-    if (CDP_WS_URL) {
-      debug(`[executor] Connecting to existing Chrome via CDP: ${CDP_WS_URL}`);
-      browser = await chromium.connectOverCDP(CDP_WS_URL);
-      context = await browser.newContext({
-        ignoreHTTPSErrors: true,
-      });
-      page = await context.newPage();
-      agent = new PlaywrightAgent(page);
-      debug(`[executor] Connected to Chrome successfully`);
-    } else {
-      debug(`[executor] Launching fresh Chromium on port ${CDP_PORT}...`);
-      browser = await chromium.launch({
-        headless: true,
-        args: [
-          `--remote-debugging-port=${CDP_PORT}`,
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-extensions',
-          '--disable-popup-blocking',
-          '--disable-translate',
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-        ],
-      });
-      context = await browser.newContext({
-        ignoreHTTPSErrors: true,
-      });
-      page = await context.newPage();
-      agent = new PlaywrightAgent(page);
-      debug(`[executor] Browser launched successfully`);
-    }
+  if (browser) return;
+  // Always own the launched browser. Inherited CDP settings must never attach
+  // to (or close) a user's existing browser. Playwright uses its private pipe.
+  browser = await chromium.launch({ headless: true });
+  try {
+    context = await browser.newContext({ ignoreHTTPSErrors: true });
+    page = await context.newPage();
+    agent = new PlaywrightAgent(page);
+  } catch (error) {
+    await browser.close();
+    browser = null;
+    throw error;
   }
 }
 
@@ -99,8 +77,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
     }
     if (!['explore', 'lighthouse', 'stress', 'zap_scan'].includes(req.method)) {
       await ensureConnected();
-    } else {
-      await ensureBrowser();
     }
 
     switch (req.method) {
@@ -166,7 +142,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         } catch (e) {
           return { id: req.id || '0', ok: false, error: `Invalid URL: ${url}` };
         }
-        const outputPath = `/tmp/lighthouse_${Date.now()}.json`;
+        const outputPath = `${process.cwd()}/lighthouse.json`;
         const { runLighthouse } = await import('./lighthouse_runner.js');
         const result = await runLighthouse(url, outputPath);
         return { id: req.id || '0', ok: true, data: result };
@@ -187,7 +163,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         } catch (e) {
           return { id: req.id || '0', ok: false, error: `Invalid URL: ${target_url}` };
         }
-        const outputPath = `/tmp/zap_report_${Date.now()}.json`;
+        const outputPath = `${process.cwd()}/zap-report.json`;
         const { runZapScan } = await import('./zap_runner.js');
         const result = await runZapScan(target_url, outputPath);
         return { id: req.id || '0', ok: true, data: result };

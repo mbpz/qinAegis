@@ -160,17 +160,15 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if crate::model_api::handles(method) {
         return crate::model_api::dispatch(method, p).map_err(|e| e.to_string());
     }
-    // Browser tasks share ports and resources. Keep one worker until the
-    // persistent per-resource scheduler replaces this conservative admission rule.
     if matches!(
         method,
         "runExplore" | "runGenerate" | "runTests" | "generateAllureReport"
     ) && app
         .active_workers
         .load(std::sync::atomic::Ordering::Acquire)
-        != 0
+        >= 9
     {
-        return Err("Another task is running or cancelling; wait for it to finish".into());
+        return Err("Task queue full: one execution slot and eight waiting tasks".into());
     }
     let raw = match method {
         "getState" => {
@@ -360,17 +358,17 @@ mod tests {
         assert!(web_url("https://example.com").is_ok());
     }
     #[test]
-    fn busy_workers_reject_new_tasks_before_starting_another() {
+    fn full_queue_rejects_before_starting_another() {
         let mut app = AppState::default();
         app.active_workers
-            .store(1, std::sync::atomic::Ordering::Release);
+            .store(9, std::sync::atomic::Ordering::Release);
         let response = dispatch(
             &mut app,
             "runExplore",
             json!({"url":"https://example.com","depth":1}),
         );
         assert_eq!(response["ok"], false);
-        assert!(response["error"].as_str().unwrap().contains("Another task"));
+        assert!(response["error"].as_str().unwrap().contains("queue full"));
         assert!(app.jobs.lock().unwrap().is_empty());
     }
     #[test]

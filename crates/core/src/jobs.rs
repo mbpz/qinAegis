@@ -36,7 +36,7 @@ pub struct JobStore {
 }
 
 fn active(status: &str) -> bool {
-    matches!(status, "running" | "cancelling")
+    matches!(status, "queued" | "running" | "cancelling")
 }
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
@@ -52,7 +52,13 @@ fn validate(record: &JobRecord) -> Result<()> {
     ensure!(
         matches!(
             record.status.as_str(),
-            "running" | "cancelling" | "completed" | "failed" | "stopped" | "interrupted"
+            "queued"
+                | "running"
+                | "cancelling"
+                | "completed"
+                | "failed"
+                | "stopped"
+                | "interrupted"
         ),
         "invalid task state"
     );
@@ -170,6 +176,10 @@ impl JobStore {
                 "stale task checkpoint"
             );
             ensure!(
+                previous.status == "queued" || record.status != "queued",
+                "task execution cannot return to queue"
+            );
+            ensure!(
                 previous.status != "cancelling" || record.status != "running",
                 "task cancellation cannot regress"
             );
@@ -215,6 +225,7 @@ mod tests {
         let path = dir.path().join("history.json");
         let store = JobStore::new(&path);
         store.checkpoint(record("one", "running")).unwrap();
+        store.checkpoint(record("waiting", "queued")).unwrap();
         let recovered = store.load_and_recover().unwrap();
         assert_eq!(recovered[0].status, "interrupted");
         let before = std::fs::read(&path).unwrap();
