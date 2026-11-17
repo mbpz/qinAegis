@@ -73,3 +73,5 @@ python3 scripts/install-runtime.py /绝对路径/runtime.tar.gz --sha256 可信S
 默认项目保留在 `~/.qinAegis/projects`，全局配置路径由操作系统决定。启动前设置绝对路径 `QINAEGIS_DATA_DIR` 可将项目、契约、模型注册库、服务状态、默认运行时及 `config.toml` 隔离到同一根目录；空值/相对路径会被拒绝。修改前先停止旧服务，后续命令使用相同设置；不会自动迁移已有资产，显式运行时/状态目录仍优先。先停止服务，再移除安装的 `qinaegis` 程序即可卸载基础包，默认保留配置与项目。需要清理数据时先备份；替换程序不等于回滚未来的数据格式迁移。
 
 日常操作见[用户指南](docs/USER_GUIDE.md)，完整入口见[文档索引](docs/README.md)，候选包与正式发布边界见 [CI 交付说明](docs/CI_INTEGRATION.md)。
+
+配置迁移在 Settings 中显式执行：选择已知来源、预览结果端点、选择两组凭据策略并确认后应用。迁移备份旧目标并保留源文件，不迁移项目或模型注册库。Allure 生成中断可在 Reports 检查并确认清理临时文件；未知残留与已完成报告保留，详见[用户指南](docs/USER_GUIDE.md)。

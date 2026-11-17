@@ -1,6 +1,28 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,rm,realpath,symlink,lstat} from 'node:fs/promises';import {tmpdir}from'node:os';import {join}from'node:path';
+import {mkdtemp,mkdir,writeFile,readFile,rm,realpath,symlink,lstat,readdir} from 'node:fs/promises';import {tmpdir}from'node:os';import {join}from'node:path';
 import {generateAllure}from './allure_report.js';
+test('owned interrupted-report identity is present during generation and removed on successful publish',async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'qinaegis-allure-ownership-')));
+ try {
+  const results=join(root,'allure-results'),report=join(root,'allure-report');await mkdir(results);
+  await writeFile(join(results,'qinaegis-run.json'),JSON.stringify({schema_version:1,project:'project',run_id:'run-1',status:'failed'}));
+  await writeFile(join(results,'case-result.json'),JSON.stringify({uuid:'owned',name:'Owned report fixture',status:'passed',stage:'finished',steps:[],attachments:[]}));
+  const generation=generateAllure(results,report);
+  let owner:Record<string,unknown>|undefined;
+  for(let attempt=0;attempt<200&&!owner;attempt++){
+   for(const stage of (await readdir(root)).filter(name=>name.startsWith('.allure-stage-'))){
+    try{owner=JSON.parse(await readFile(join(root,stage,'.qinaegis-report-stage.json'),'utf8'));assert.equal(owner?.stage,stage);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+   }
+   if(!owner)await new Promise(accept=>setTimeout(accept,5));
+  }
+  assert.ok(owner,'owned staging marker was not observable before report publication');
+  assert.equal(owner.schema_version,1);assert.equal(owner.kind,'allure_report_stage');assert.equal(owner.project,'project');assert.equal(owner.run_id,'run-1');
+  await generation;
+  await assert.rejects(lstat(join(report,'.qinaegis-report-stage.json')),{code:'ENOENT'});
+  assert.equal((await readdir(root)).some(name=>name.startsWith('.allure-stage-')),false);
+  assert.ok((await lstat(join(report,'index.html'))).isFile());
+ }finally{await rm(root,{recursive:true,force:true})}
+});
 test('official pinned Allure produces standalone report and refuses overwrite or unsafe input',async()=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'qinaegis-allure-')));
  try{

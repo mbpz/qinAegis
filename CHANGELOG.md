@@ -23,6 +23,10 @@ Development branch, not a published stable release. Current scope and remaining 
 - Atomic configuration CAS, private backup and explicit recovery; bounded durable task history, incremental logs and interrupted recovery without replay.
 - Full case editing with original-content comparison, approval reset, exact-content review/approval and recoverable case transitions.
 
+- Reviewed migration from fixed configuration sources with explicit dual-credential policy, exact-content conflict checks, idempotence and backup.
+- Explicit cleanup of verified owned Allure staging residue with expiring previews; execution facts and completed reports remain intact.
+- Windows managed Job Objects bound before child execution, owned-tree cancellation and cleanup error propagation; actual Windows CI for this batch remains pending.
+
 ### Changed
 
 - Replaced the tao/wry desktop shell with an embedded Web UI and a loopback-only HTTP service: background start, browser opening, status and safe stop, private sessions and CSRF checks.
@@ -39,7 +43,7 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Pending acceptance
 
-- Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; durable queue/resource policies, Windows whole-tree cancellation and runnable scenario orchestration.
+- Real dual-project visual execution with authorized compatible models; complete Web runtime preparation/upgrade; durable queue/resource policies, Windows Job Object CI/per-engine timing acceptance and runnable scenario orchestration.
 - Clean-machine installation, Windows one-command installer, signing, upgrade/rollback and formal release.
 - Optional OS accessibility assistance remains planned and requires separate permission/platform acceptance. Independent model protocols and step routing remain future work; synthetic text/JSON probing does not certify visual compatibility.
 

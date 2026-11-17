@@ -1,12 +1,14 @@
 //! QinAegis local Web service and user-session launcher.
 mod app;
-mod case_asset_api;
 mod assets;
+mod case_asset_api;
+mod config_migration_api;
 mod contract_api;
 mod dispatch;
 mod environment;
 mod lifecycle;
 mod model_api;
+mod report_maintenance;
 mod server;
 
 #[tokio::main]

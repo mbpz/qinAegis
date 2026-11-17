@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 
 pub use app::{
-    AppConfig, ConfigError, ExplorationConfigSection, LlmConfigSection,
-    SandboxConfigSection, resolve_env_var,
+    resolve_env_var, AppConfig, ConfigError, ExplorationConfigSection, LlmConfigSection,
+    SandboxConfigSection,
 };
 
 pub mod app;
+pub mod migration;
 
 #[cfg(test)]
 mod app_test;

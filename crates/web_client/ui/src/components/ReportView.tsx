@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './motion/collapsible';
 import type { RunEvidence, RunReport, GateStatus } from '../types/rpc';
+import ReportMaintenance from './ReportMaintenance';
 
 
 export default function ReportView() {
@@ -255,6 +256,7 @@ export default function ReportView() {
               <iframe title={`Allure ${selectedRun}`} sandbox="allow-scripts" referrerPolicy="no-referrer" src={`/api/v2/allure/${encodeURIComponent(selectedProject)}/${encodeURIComponent(selectedRun)}`} style={{width: '100%', height: '700px', border: '1px solid var(--border-color)', marginTop: '12px'}} />
             </>}
           </section>
+          <ReportMaintenance key={`${selectedProject}/${selectedRun}`} project={selectedProject} runId={selectedRun} />
           {loadingHtml ? (
             <p style={{ color: 'var(--text-secondary)' }}>Loading report...</p>
           ) : reportError && evidence && /report\.html.*not found|report\.html.*missing/i.test(reportError) ? (

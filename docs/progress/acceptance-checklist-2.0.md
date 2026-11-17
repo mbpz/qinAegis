@@ -89,10 +89,12 @@
 | 2026-11-17 | checklist | 将七类缺口拆成独立完成条件，依赖 R/D/T → F → I；外部视觉与无障碍授权分列 |
 | 2026-11-17 | M01/M02 | 项目覆盖/回退全局、CAS/能力/授权与冻结路由回归；真实浏览器对本机合成端点检测 text/JSON，未保存改动不参与，vision/tools 保持未观测 |
 | 2026-11-17 | R01/R02 | 本机 ARM64 独立归档实际构建、重定位、导入；捆绑 Node 运行执行器/官方 Allure，Environment 实际启动 Chromium。已在提交 `bec9bae` 无修改工作区重建：88,704,598 bytes，来源 `source_dirty=false`，重定位/官方 Allure/离线导入及重复导入通过；仍为开发候选，不能作正式发布声明 |
-| 2026-11-17 | R03/R04/R05（部分） | 已有离线归档 + 可信 SHA 导入、逐文件/权限/符号链接校验、暂存切换/备份/活动实例拒绝；Web 明确确认后装浏览器。真实下载曾超时，重试 CLI 下载成功，Web 缓存安装和实际启动通过。尚缺 Web 运行时下载/导入、完整升级/回滚及 Windows 清理实测，保持未勾选 |
+| 2026-11-17 | R03/R04/R05（部分） | 已有离线归档 + 可信 SHA 导入、逐文件/权限/符号链接校验、暂存切换/备份/活动实例拒绝；Web 明确确认后装浏览器。真实下载曾超时，重试 CLI 下载成功，Web 缓存安装和实际启动通过。尚缺 Web 运行时下载/导入、完整升级/回滚与逐平台干净环境验收，保持未勾选 |
 | 2026-11-17 | D01/D02/D03 | 配置原子写/私有备份/显式恢复/CAS/密钥保留通过真实 HTTP；浏览器保存两次并确认恢复旧值，未确认恢复禁用；坏文件和冲突不静默覆盖 |
 | 2026-11-17 | T01/T02/T03 | 真实服务重启保留终态，崩溃活动任务转 interrupted；字节 cursor、64 KiB 日志/100 条任务/16 MiB 历史上限；日志先脱敏后截断，未变化任务不重复落盘 |
-| 2026-11-17 | T04/T05（部分） | Unix 受管进程组取消/超时/重入竞争有真实子进程回归；业务终态等持久化和 worker 退出后才展示。Windows 整树、目标时延和有界排队仍待完成，单工作线程直接拒绝忙请求 |
+| 2026-11-17 | T04/T05（部分） | Unix 受管进程组取消/超时/重入竞争有真实子进程回归；业务终态等持久化和 worker 退出后才展示。Windows 现已实现启动前绑定 Job、精确句柄终止并等待 Job 清空，新增 Windows 专用回归待远端实际执行；目标引擎时延和有界排队仍待验收，单工作线程直接拒绝忙请求 |
+| 2026-11-17 | D04 | 固定当前/系统/旧全局/受管项目配置来源；摘要与差异预览、10 分钟一次待审计划、明确 keep_target/use_source、源/目标精确字节 CAS、私有备份与幂等；29 项配置测试、真实 HTTP 和浏览器迁移/确认失效通过。来源端点与凭据策略分开说明，未知字段拒绝，不静默合并秘密 |
+| 2026-11-17 | D06 | 仅清理有效终态运行中有本服务所有权标记的残留，5 分钟预览/文件快照/明确确认；run.json、allure-results、任何已有 index 报告保持不变。未知/坏标记/外来内容转人工检查；6 项服务测试、官方 Allure 3 项 Node 测试、真实 HTTP 与浏览器清理/重新检查清确认通过 |
 | 2026-11-17 | D05 | 编辑/状态日志显式区分，写入前校验；恢复三种落盘边界并兼容旧歧义日志，连续原样保存不再阻塞；独立复核回归通过 |
 | 2026-11-17 | I04（本机基线） | Apple M1 / 16 GiB / macOS 27.2.1，优化版、10 项目/100 草稿，5 次新工作区启动最大 124.2 ms；空闲 60 秒 RSS 最大 8.54 MiB；300 次普通 RPC p95 1.47 ms；10 次无引擎诊断提交最大 12.85 ms。OS 磁盘缓存未清，不含浏览器/引擎/模型，其他平台与大数据量未测，保留完整交付项未勾选 |
 | 2026-11-17 | F02 | 实际浏览器完整检查 → Reviewed → 再检查 → Approved；编辑对照原文、字段改变清确认、保存重置 Draft、重新审核批准；HTTP 拒绝缺失/过期批准版本并保留旧 run |
@@ -103,10 +105,11 @@
 
 - `cargo test --workspace --offline`、`cargo clippy --workspace --all-targets --offline`。
 - `cd crates/web_client/ui` 后运行 `npm test`、`npm run build`、`npm run build:pages`。
-- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py` 接受相同二进制参数。
+- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py`、`test-config-migration.py`、`test-report-maintenance.py` 接受相同二进制参数。
 - `python3 scripts/test-environment.py /绝对路径/qinaegis --runtime /绝对路径/已安装运行时 --install-browser`：配置恢复、运行时版本、显式浏览器安装和实际启动；不提供运行时则验证缺失诊断。
 - `python3 scripts/test-runtime-package.py`、`python3 scripts/test-runtime-install.py`：归档与导入边界；`python3 scripts/test-allure.py /绝对路径/qinaegis` 验证已构建 sandbox 中的官方 Allure（使用明确标记的运行证据 fixture）。
 - `python3 scripts/test-local-performance.py /绝对路径/优化版/qinaegis --output /绝对路径/performance.json`：macOS/Linux 基础服务指标；记录二进制 SHA、设备、样本量和范围，执行含 60 秒空闲测量。
-- `bec9bae` 四平台服务回归与 Pages 预览已通过；首轮 Linux 运行时抽取被系统 Python 3.10 的过滤器阻断，修正为正式安全导入器并锁定 Python 3.12，候选汇总待重跑。不能沿用 B05 的旧提交结果。
+- 修订 `97180aa` 的远端运行 `44037923373` 已通过四平台服务、engine-checks 和 assemble；Pages 预览 `44037923348` 通过，生产部署跳过。下载 distribution-candidate 独立核对全部 13 项 SHA 和四份清单，源码均为该次 PR 合并提交 `a8e85d46336b16024542794f87fcb53a694609e8`。本批新增迁移/清理/Windows Job 改动的远端结果另行记录，不沿用旧提交证明。
+- 本批本机 Rust 202 项（web 33、core 167、集成 2）、Clippy、UI 14 项/TypeScript/工作台及 Pages 构建、九个 HTTP 脚本与 actionlint 通过；独立复核通过。Clippy 仍报告既有警告，工作台构建仍有单 chunk 大小提示。
 
-后续先补 D04/D06、Windows 进程树与资源准入，再推进 F01/F03/F04/F05；M04 依赖流程快照。M05 独立协议可并行设计，M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。
+后续先验证本批 Windows Job 真实 CI，再补 T05/T06 资源准入与浏览器隔离、R03/R05 Web 运行时维护，然后推进 F01/F03/F04/F05；M04 依赖流程快照。M05 独立协议可并行设计，M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。

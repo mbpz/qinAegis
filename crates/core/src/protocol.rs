@@ -120,7 +120,7 @@ impl JsonRpcResponse {
 
 struct ProcessOwner {
     child: std::sync::Mutex<Child>,
-    pid: u32,
+    tree: crate::process_owner::ProcessTree,
     poisoned: AtomicBool,
     tasks: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
@@ -131,21 +131,7 @@ impl ProcessOwner {
             return;
         }
         if let Ok(mut child) = self.child.lock() {
-            // Only signal while this unreaped child owns its PID/group identity.
-            // A dedicated group is set before spawn; unrelated applications are excluded.
-            #[cfg(unix)]
-            unsafe {
-                unsafe extern "C" {
-                    fn kill(pid: i32, signal: i32) -> i32;
-                }
-                match i32::try_from(self.pid) {
-                    Ok(pid) if child.id() == Some(self.pid) && pid > 1 => {
-                        let _ = kill(-pid, 9);
-                    }
-                    _ => {}
-                }
-            }
-            let _ = child.start_kill();
+            self.tree.terminate_now(&mut child);
         }
         if let Ok(tasks) = self.tasks.lock() {
             for task in tasks.iter() {
@@ -163,6 +149,7 @@ impl ProcessOwner {
                     .map_err(|_| anyhow::anyhow!("engine owner unavailable"))?
                     .try_wait()?
                     .is_some()
+                    && self.tree.cleanup_complete()?
                 {
                     return Ok(());
                 }
@@ -267,12 +254,7 @@ impl MidsceneProcess {
     }
 
     async fn launch(mut cmd: Command) -> anyhow::Result<Self> {
-        #[cfg(unix)]
-        cmd.process_group(0);
-        let mut child = cmd.spawn()?;
-        let pid = child
-            .id()
-            .ok_or_else(|| anyhow::anyhow!("engine PID unavailable"))?;
+        let (mut child, tree) = crate::process_owner::ProcessTree::spawn(&mut cmd)?;
         let mut tasks = Vec::new();
 
         let stdin = child.stdin.take().unwrap();
@@ -345,7 +327,7 @@ impl MidsceneProcess {
         Ok(Self {
             owner: Arc::new(ProcessOwner {
                 child: std::sync::Mutex::new(child),
-                pid,
+                tree,
                 poisoned: AtomicBool::new(false),
                 tasks: std::sync::Mutex::new(tasks),
             }),
@@ -450,7 +432,7 @@ impl MidsceneProcess {
 mod tests {
     use super::{append_stderr_tail, STDERR_TAIL_LIMIT};
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     async fn blocking_process() -> (super::MidsceneProcess, u16) {
         use std::process::Stdio;
         let script = r#"
@@ -465,7 +447,8 @@ for line in sys.stdin:
   print('blocked',file=sys.stderr,flush=True)
   time.sleep(120)
 "#;
-        let mut command = tokio::process::Command::new("python3");
+        let mut command =
+            tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
         command
             .args(["-u", "-c", script])
             .stdin(Stdio::piped())
@@ -482,7 +465,7 @@ for line in sys.stdin:
         (process, port)
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     async fn wait_for_blocked(process: &super::MidsceneProcess) {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -496,7 +479,7 @@ for line in sys.stdin:
         .unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     async fn assert_port_released(port: u16) {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
@@ -510,7 +493,7 @@ for line in sys.stdin:
         .expect("owned grandchild retained its listening socket");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[tokio::test]
     async fn cancellation_reaps_owned_engine_group_and_poisons_reuse() {
         use std::sync::{
@@ -530,6 +513,7 @@ for line in sys.stdin:
         cancel.store(true, Ordering::Release);
         let error = task.await.unwrap().unwrap_err();
         assert!(error.to_string().contains("cancelled"));
+        assert!(process.owner.tree.cleanup_complete().unwrap());
         assert_port_released(port).await;
         assert!(process
             .owner
@@ -547,7 +531,26 @@ for line in sys.stdin:
             .contains("terminated"));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
+    #[tokio::test]
+    async fn cancelling_one_tree_preserves_other_owned_engine() {
+        let (first, first_port) = blocking_process().await;
+        let (second, second_port) = blocking_process().await;
+        first.owner.terminate().await.unwrap();
+        assert_port_released(first_port).await;
+        assert!(std::net::TcpListener::bind(("127.0.0.1", second_port)).is_err());
+        assert!(
+            second
+                .call(super::JsonRpcRequest::CurrentUrl)
+                .await
+                .unwrap()
+                .ok
+        );
+        drop(second);
+        assert_port_released(second_port).await;
+    }
+
+    #[cfg(any(unix, windows))]
     #[tokio::test]
     async fn last_owner_drop_releases_owned_grandchild_port() {
         let (process, port) = blocking_process().await;
@@ -558,7 +561,7 @@ for line in sys.stdin:
         assert_port_released(port).await;
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[tokio::test]
     async fn concurrent_calls_serialize_wire_exchange() {
         use std::process::Stdio;
@@ -571,7 +574,8 @@ def reply(req):
 for line in sys.stdin:
  threading.Thread(target=reply,args=(json.loads(line),)).start()
 "#;
-        let mut command = tokio::process::Command::new("python3");
+        let mut command =
+            tokio::process::Command::new(if cfg!(windows) { "python" } else { "python3" });
         command
             .args(["-u", "-c", script])
             .stdin(Stdio::piped())
@@ -587,7 +591,7 @@ for line in sys.stdin:
         assert_eq!(two.unwrap().data.unwrap(), serde_json::json!("two"));
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[tokio::test]
     async fn timed_out_request_kills_owned_grandchild() {
         let (process, port) = blocking_process().await;
@@ -603,7 +607,7 @@ for line in sys.stdin:
         assert_port_released(port).await;
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[tokio::test]
     async fn dropping_in_flight_future_kills_group_and_prevents_stale_response() {
         let (process, port) = blocking_process().await;

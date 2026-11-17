@@ -7,7 +7,7 @@ use std::env;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const MAX_CONFIG_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_CONFIG_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub struct ConfigInspection {
@@ -18,7 +18,7 @@ pub struct ConfigInspection {
 fn config_error() -> ConfigError {
     ConfigError::Internal("configuration storage operation failed".into())
 }
-fn parse_config(bytes: &[u8]) -> Result<(AppConfig, u64), ConfigError> {
+pub(super) fn parse_config(bytes: &[u8]) -> Result<(AppConfig, u64), ConfigError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| ConfigError::Parse("invalid configuration".into()))?;
     let config =
@@ -293,16 +293,42 @@ impl AppConfig {
     }
 
     pub fn save_to_checked(&self, path: &Path, expected_revision: u64) -> Result<u64, ConfigError> {
+        self.save_checked_inner(path, expected_revision, None)
+            .map(|(revision, _)| revision)
+    }
+
+    /// Migration also compares the exact previewed bytes, including legacy files
+    /// whose editors do not advance our revision. Equal migrated content is a no-op.
+    pub(super) fn save_migration_checked(
+        &self,
+        path: &Path,
+        expected_revision: u64,
+        expected_bytes: &Option<Vec<u8>>,
+    ) -> Result<(u64, bool), ConfigError> {
+        self.save_checked_inner(path, expected_revision, Some(expected_bytes))
+    }
+
+    fn save_checked_inner(
+        &self,
+        path: &Path,
+        expected_revision: u64,
+        expected_bytes: Option<&Option<Vec<u8>>>,
+    ) -> Result<(u64, bool), ConfigError> {
         let file = AssetFile::new(path.to_owned(), MAX_CONFIG_BYTES);
         let guard = file.lock().map_err(|_| config_error())?;
         let previous = guard.read().map_err(|_| config_error())?;
-        let revision = previous
-            .as_deref()
-            .map(parse_config)
-            .transpose()?
-            .map(|(_, r)| r)
-            .unwrap_or(0);
-        if revision != expected_revision {
+        let parsed = previous.as_deref().map(parse_config).transpose()?;
+        let revision = parsed.as_ref().map(|(_, r)| *r).unwrap_or(0);
+        if expected_bytes.is_some() && revision > 0 {
+            if let Some((config, _)) = &parsed {
+                if toml::Value::try_from(config).map_err(|_| config_error())?
+                    == toml::Value::try_from(self).map_err(|_| config_error())?
+                {
+                    return Ok((revision, true));
+                }
+            }
+        }
+        if revision != expected_revision || expected_bytes.is_some_and(|bytes| bytes != &previous) {
             return Err(ConfigError::Internal(
                 "configuration revision conflict".into(),
             ));
@@ -332,7 +358,7 @@ impl AppConfig {
             backup_guard.write(&previous).map_err(|_| config_error())?;
         }
         guard.write(&bytes).map_err(|_| config_error())?;
-        Ok(next)
+        Ok((next, false))
     }
 
     /// Explicit restore of a valid backup. Invalid primary files remain untouched:

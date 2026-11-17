@@ -8,7 +8,7 @@
 |---|---|
 | [README 中文](../README_zh.md) / [English](../README.md) | 产品定位、模块分工、源码启动、当前能力和限制 |
 | [安装 中文](../INSTALL_zh.md) / [English](../INSTALL.md) | 候选包/正式包区别、用户级安装、运行时准备、卸载 |
-| [用户指南](USER_GUIDE.md) | 当前 Web 操作、契约治理、模型、执行证据与 Allure |
+| [用户指南](USER_GUIDE.md) | 当前 Web 操作、契约治理、模型、配置迁移、执行证据、Allure 与中断残留维护 |
 | [产品记忆](../CONTEXT.md) | 用户确认的长期要求、架构约束和提交身份 |
 | [完整产品方案](plans/local-web.md) | 2.0 全量目标、核心分工、交互、安全与 P0–P8 验收；含明确标注的改造前基线 |
 | [验收 checklist](progress/acceptance-checklist-2.0.md) | 有依赖顺序的逐项完成条件、证据及外部条件 |

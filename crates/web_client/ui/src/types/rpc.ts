@@ -155,3 +155,16 @@ export interface CaseAsset {
   case_id: string; name: string; yaml_script: string; expected_result: string;
   status: TestCase['status']; provenance: CaseProvenance | null; digest: string;
 }
+
+export interface ReportCleanupPreview {
+  project: string;
+  run_id: string;
+  run_status: string;
+  completed_report_preserved: boolean;
+  cleanup_available: boolean;
+  preview_token: string | null;
+  expires_in_seconds: number;
+  candidates: { name: string; kind: string; files: number; bytes: number }[];
+  manual_review: { name: string; reason: string }[];
+  preserved: string[];
+}

@@ -129,6 +129,8 @@ jobs:
           python scripts/test-case-assets.py "$BINARY"
           python scripts/test-environment.py "$BINARY"
           python scripts/test-task-history.py "$BINARY"
+          python scripts/test-report-maintenance.py "$BINARY"
+          python scripts/test-config-migration.py "$BINARY"
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py

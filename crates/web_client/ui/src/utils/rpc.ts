@@ -1,10 +1,11 @@
 // Shared RPC client — single source of truth
 import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapshot } from '../types/contracts';
 import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
+import type { ConfigMigrationSources, ConfigMigrationPreview, ConfigMigrationResult, ConfigSecretPolicy } from '../types/config_migration';
 
 import type {
   AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence, CaseAsset,
-  ConfigStatusResponse,
+  ReportCleanupPreview, ConfigStatusResponse,
   StateResponse,
   VersionResponse,
   UpdateCheckResponse,
@@ -106,6 +107,11 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  listConfigMigrationSources(params: {project?: string} = {}): Promise<ConfigMigrationSources> { return call('listConfigMigrationSources', params); },
+  previewConfigMigration(params: {source_id: string; project?: string}): Promise<ConfigMigrationPreview> { return call('previewConfigMigration', params); },
+  applyConfigMigration(params: {preview_token: string; secret_policy: ConfigSecretPolicy; approved: true}): Promise<ConfigMigrationResult> { return call('applyConfigMigration', params); },
+  previewReportCleanup(project: string, run_id: string): Promise<ReportCleanupPreview> { return call('previewReportCleanup', {project, run_id}); },
+  cleanupReportResidue(project: string, run_id: string, preview_token: string): Promise<{ok: boolean; removed: string[]; removed_files: number; removed_bytes: number}> { return call('cleanupReportResidue', {project, run_id, preview_token, approved: true}); },
   getCaseAsset(project: string, case_id: string): Promise<CaseAsset> { return call('getCaseAsset', {project, case_id}); },
   saveCaseAsset(params: {project: string; case_id: string; expected_digest: string; name: string; yaml_script: string; expected_result: string; approved: true}): Promise<CaseAsset> { return call('saveCaseAsset', params); },
   diagnoseRuntime(): Promise<JobStartResult> { return call('diagnoseRuntime'); },

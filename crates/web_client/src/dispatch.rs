@@ -123,6 +123,34 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if p.get("project").is_some() {
         project_paths(p)?;
     }
+    if crate::report_maintenance::handles(method) {
+        return crate::report_maintenance::dispatch(
+            method,
+            p,
+            app.active_workers
+                .load(std::sync::atomic::Ordering::Acquire),
+        )
+        .map_err(|error| error.to_string());
+    }
+    if crate::config_migration_api::handles(method) {
+        if method == "applyConfigMigration"
+            && app
+                .active_workers
+                .load(std::sync::atomic::Ordering::Acquire)
+                != 0
+        {
+            return Err(
+                "Wait for all active or cancelling tasks before configuration migration".into(),
+            );
+        }
+        let result =
+            crate::config_migration_api::dispatch(method, p).map_err(|error| error.to_string())?;
+        if method == "applyConfigMigration" {
+            app.config =
+                Some(qin_aegis_core::AppConfig::load_global().map_err(|error| error.to_string())?);
+        }
+        return Ok(result);
+    }
     if crate::case_asset_api::handles(method) {
         return crate::case_asset_api::dispatch(method, p).map_err(|e| e.to_string());
     }

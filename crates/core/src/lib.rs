@@ -13,6 +13,7 @@ pub mod generator;
 pub mod critic;
 pub mod llm;
 pub mod protocol;
+pub mod process_owner;
 pub mod quarantine;
 pub mod events;
 pub mod flaky;

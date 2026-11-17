@@ -197,6 +197,16 @@ pub fn export_run(record: &RunRecord, directory: &Path) -> Result<()> {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&staging, fs::Permissions::from_mode(0o700))?;
         }
+        let marker = staging.join(".qinaegis-report-stage.json");
+        let mut marker_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&marker)?;
+        marker_file.write_all(&serde_json::to_vec(&json!({
+            "schema_version":1,"kind":"allure_results_stage","project":record.project,
+            "run_id":record.run_id,"stage":staging.file_name().and_then(|v|v.to_str()).context("invalid staging name")?
+        }))?)?;
+        marker_file.sync_all()?;
         for (name, bytes) in files {
             let mut options = fs::OpenOptions::new();
             options.write(true).create_new(true);
@@ -211,6 +221,7 @@ pub fn export_run(record: &RunRecord, directory: &Path) -> Result<()> {
         }
         #[cfg(unix)]
         fs::File::open(&staging)?.sync_all()?;
+        fs::remove_file(marker)?;
         fs::rename(&staging, directory)?;
         #[cfg(unix)]
         fs::File::open(parent)?.sync_all()?;
@@ -220,6 +231,33 @@ pub fn export_run(record: &RunRecord, directory: &Path) -> Result<()> {
         let _ = fs::remove_dir_all(staging);
     }
     publish
+}
+
+/// A marked interrupted export may contain complete frozen files or their
+/// prefixes when the process stopped in the middle of write_all.
+pub fn validate_results_residue(record: &RunRecord, directory: &Path) -> Result<()> {
+    let expected = results(record)?;
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("invalid residue name"))?;
+        if name == ".qinaegis-report-stage.json" {
+            continue;
+        }
+        let bytes = expected.get(&name).context("unrecognized export residue")?;
+        let meta = fs::symlink_metadata(entry.path())?;
+        ensure!(
+            meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= bytes.len() as u64,
+            "invalid export residue"
+        );
+        ensure!(
+            bytes.starts_with(&fs::read(entry.path())?),
+            "export residue differs from frozen run"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

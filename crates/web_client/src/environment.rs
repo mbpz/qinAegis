@@ -34,7 +34,7 @@ const MAX_PROBE_OUTPUT: usize = 16 * 1024;
 
 struct ManagedChild {
     child: Child,
-    pid: u32,
+    tree: qin_aegis_core::process_owner::ProcessTree,
     stopped: bool,
 }
 
@@ -44,28 +44,27 @@ impl ManagedChild {
             return;
         }
         self.stopped = true;
-        #[cfg(unix)]
-        unsafe {
-            unsafe extern "C" {
-                fn kill(pid: i32, signal: i32) -> i32;
-            }
-            match i32::try_from(self.pid) {
-                Ok(pid) if self.child.id() == Some(self.pid) && pid > 1 => {
-                    let _ = kill(-pid, 9);
-                }
-                _ => {}
-            }
-        }
-        let _ = self.child.start_kill();
+        self.tree.terminate_now(&mut self.child);
     }
 
     async fn stop(&mut self) -> Result<()> {
         self.stop_now();
-        tokio::time::timeout(Duration::from_secs(5), self.child.wait())
-            .await
-            .map_err(|_| anyhow::anyhow!("Environment process cleanup timed out"))?
-            .map_err(|_| anyhow::anyhow!("Environment process cleanup failed"))?;
-        Ok(())
+        tokio::time::timeout(Duration::from_secs(5), async {
+            self.child
+                .wait()
+                .await
+                .map_err(|_| anyhow::anyhow!("Environment process cleanup failed"))?;
+            while !self
+                .tree
+                .cleanup_complete()
+                .map_err(|_| anyhow::anyhow!("Environment process tree cleanup failed"))?
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("Environment process tree cleanup timed out"))?
     }
 }
 
@@ -108,18 +107,12 @@ async fn run_managed(
     } else {
         Stdio::null()
     });
-    #[cfg(unix)]
-    cmd.process_group(0);
-    let mut child = cmd
-        .spawn()
-        .map_err(|_| anyhow::anyhow!("Environment process could not start"))?;
-    let pid = child
-        .id()
-        .context("Environment process identity unavailable")?;
+    let (mut child, tree) = qin_aegis_core::process_owner::ProcessTree::spawn(cmd)
+        .map_err(|_| anyhow::anyhow!("Environment process could not start with owned tree"))?;
     let stdout = child.stdout.take();
     let mut owned = ManagedChild {
         child,
-        pid,
+        tree,
         stopped: false,
     };
     let operation = async {
@@ -248,7 +241,7 @@ pub fn install_browser(cancel: Arc<AtomicBool>) -> Result<Value> {
     diagnose(cancel)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, any(unix, windows)))]
 mod tests {
     use super::*;
 
@@ -281,7 +274,7 @@ with open(sys.argv[1]+'.pid','w') as output: output.write(str(os.getpid()))
 with open(sys.argv[1],'w') as output: output.write(port)
 time.sleep(120)
 "#;
-        let mut cmd = Command::new("python3");
+        let mut cmd = Command::new(if cfg!(windows) { "python" } else { "python3" });
         cmd.args(["-u", "-c", script]).arg(marker);
         cmd
     }
@@ -377,20 +370,23 @@ time.sleep(120)
         let port = fixture_port(&marker).await;
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
-        let pid: i32 = std::fs::read_to_string(marker.with_extension("pid"))
-            .unwrap()
-            .parse()
-            .unwrap();
-        unsafe extern "C" {
-            fn kill(pid: i32, signal: i32) -> i32;
+        #[cfg(unix)]
+        {
+            let pid: i32 = std::fs::read_to_string(marker.with_extension("pid"))
+                .unwrap()
+                .parse()
+                .unwrap();
+            unsafe extern "C" {
+                fn kill(pid: i32, signal: i32) -> i32;
+            }
+            assert_eq!(unsafe { kill(pid, 0) }, -1, "direct child was not reaped");
         }
-        assert_eq!(unsafe { kill(pid, 0) }, -1, "direct child was not reaped");
         released(port).await;
     }
 
     #[tokio::test]
     async fn output_limit_stops_process_without_echoing_untrusted_content() {
-        let mut cmd = Command::new("python3");
+        let mut cmd = Command::new(if cfg!(windows) { "python" } else { "python3" });
         cmd.args(["-u", "-c", "import sys,time; sys.stdout.write('secret-url-token'*2000); sys.stdout.flush(); time.sleep(120)"]);
         let error = run_managed(
             &mut cmd,

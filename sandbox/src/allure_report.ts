@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
 import { lstat, mkdir, readFile, readdir, realpath, chmod, mkdtemp, writeFile, rename, rm } from 'node:fs/promises';
-import { isAbsolute, dirname, join, parse, resolve } from 'node:path';
+import { isAbsolute, dirname, basename, join, parse, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // Awesome's pinned template always enables optional analytics. Keep its report payload
 // unchanged while removing those exact tracking and document-base bootstraps.
@@ -64,6 +64,17 @@ async function generateAllureInternal(resultsDir:string,reportDir:string):Promis
   const staging=await mkdtemp(join(dirname(reportDir),'.allure-stage-'));
   let reservedOutput=false;
   try {
+  // Only application-owned runs receive a cleanup identity. Generic Allure inputs
+  // remain supported, but any interrupted unmarked output needs manual review.
+  let ownership:string|undefined;
+  try {
+    const run=JSON.parse(await readFile(join(resultsDir,'qinaegis-run.json'),'utf8'));
+    const identity=(value:unknown):value is string=>typeof value==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(value);
+    if(run.schema_version===1&&identity(run.project)&&identity(run.run_id)&&['completed','failed','stopped'].includes(run.status)) {
+      ownership=JSON.stringify({schema_version:1,kind:'allure_report_stage',project:run.project,run_id:run.run_id,stage:basename(staging)});
+      await writeFile(join(staging,'.qinaegis-report-stage.json'),ownership,{mode:0o600,flag:'wx'});
+    }
+  } catch(error) { if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error; }
   const require=createRequire(import.meta.url),allureEntry=require.resolve('allure');
   const core=pathToFileURL(createRequire(allureEntry).resolve('@allurereport/core')).href;
   const pkg=JSON.parse(await readFile(join(dirname(dirname(allureEntry)),'package.json'),'utf8'));
@@ -94,8 +105,10 @@ async function generateAllureInternal(resultsDir:string,reportDir:string):Promis
   for(const entry of await readdir(staging)){const path=join(staging,entry);const info=await lstat(path);if(!info.isFile()||info.isSymbolicLink())throw new Error('Unexpected report artifact');await chmod(path,0o600)}
   // Reserve the destination exclusively; publish index last so readers never see a partial HTML.
   await mkdir(reportDir,{mode:0o700});reservedOutput=true;
-  for(const entry of (await readdir(staging)).filter(name=>name!=='index.html'))await rename(join(staging,entry),join(reportDir,entry));
+  if(ownership)await writeFile(join(reportDir,'.qinaegis-report-stage.json'),ownership,{mode:0o600,flag:'wx'});
+  for(const entry of (await readdir(staging)).filter(name=>name!=='index.html'&&name!=='.qinaegis-report-stage.json'))await rename(join(staging,entry),join(reportDir,entry));
   await rename(index,join(reportDir,'index.html'));
+  if(ownership)await rm(join(reportDir,'.qinaegis-report-stage.json'));
   return{version:pkg.version,report_file:'index.html'};
   } catch(error) {
     if(reservedOutput)await rm(reportDir,{recursive:true,force:true});
