@@ -70,3 +70,5 @@ npm run build:pages
 Actions 中按失败步骤查看日志；artifact 缺失、tag 不符、归档混入其他文件、不同提交混包或 Allure 引擎异常均应失败，不能降级成绿色。周检查保留报告与逐项日志，失败也会上传，不自动创建重复 issue。
 
 本轮分发与网站改造的完成证据需要同时包含本地回归、真实平台构建和 Pages 预览结果。当前已有任务持久历史/中断恢复标记、环境探测和显式浏览器安装，仍须按[开发进度](progress/local-web-2.0.md)和[验收 checklist](progress/acceptance-checklist-2.0.md)验收真实双项目视觉执行、运行时跨平台安装、Windows 进程树取消、场景编排及各系统干净安装。任务历史恢复不等于排队或崩溃后继续执行。生产网站部署、稳定 Release 和 Homebrew 发布需分别核验，不用候选 artifact 替代。
+
+运行时验收 job 固定 Python 3.12，真实归档通过正式导入器完成摘要、路径和符号链接校验后，再以捆绑 Node 验证重定位执行和官方 Allure。避免使用各系统不同补丁版本的 `tarfile` 抽取行为代替产品安装验证。

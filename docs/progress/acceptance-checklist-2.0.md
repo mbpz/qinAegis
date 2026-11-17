@@ -88,7 +88,7 @@
 |---|---|---|
 | 2026-11-17 | checklist | 将七类缺口拆成独立完成条件，依赖 R/D/T → F → I；外部视觉与无障碍授权分列 |
 | 2026-11-17 | M01/M02 | 项目覆盖/回退全局、CAS/能力/授权与冻结路由回归；真实浏览器对本机合成端点检测 text/JSON，未保存改动不参与，vision/tools 保持未观测 |
-| 2026-11-17 | R01/R02 | 本机 ARM64 独立归档实际构建、重定位、导入；捆绑 Node 运行执行器/官方 Allure，Environment 实际启动 Chromium。当前本机包来自开发工作树，不能作正式发行来源 |
+| 2026-11-17 | R01/R02 | 本机 ARM64 独立归档实际构建、重定位、导入；捆绑 Node 运行执行器/官方 Allure，Environment 实际启动 Chromium。已在提交 `bec9bae` 无修改工作区重建：88,704,598 bytes，来源 `source_dirty=false`，重定位/官方 Allure/离线导入及重复导入通过；仍为开发候选，不能作正式发布声明 |
 | 2026-11-17 | R03/R04/R05（部分） | 已有离线归档 + 可信 SHA 导入、逐文件/权限/符号链接校验、暂存切换/备份/活动实例拒绝；Web 明确确认后装浏览器。真实下载曾超时，重试 CLI 下载成功，Web 缓存安装和实际启动通过。尚缺 Web 运行时下载/导入、完整升级/回滚及 Windows 清理实测，保持未勾选 |
 | 2026-11-17 | D01/D02/D03 | 配置原子写/私有备份/显式恢复/CAS/密钥保留通过真实 HTTP；浏览器保存两次并确认恢复旧值，未确认恢复禁用；坏文件和冲突不静默覆盖 |
 | 2026-11-17 | T01/T02/T03 | 真实服务重启保留终态，崩溃活动任务转 interrupted；字节 cursor、64 KiB 日志/100 条任务/16 MiB 历史上限；日志先脱敏后截断，未变化任务不重复落盘 |
@@ -107,6 +107,6 @@
 - `python3 scripts/test-environment.py /绝对路径/qinaegis --runtime /绝对路径/已安装运行时 --install-browser`：配置恢复、运行时版本、显式浏览器安装和实际启动；不提供运行时则验证缺失诊断。
 - `python3 scripts/test-runtime-package.py`、`python3 scripts/test-runtime-install.py`：归档与导入边界；`python3 scripts/test-allure.py /绝对路径/qinaegis` 验证已构建 sandbox 中的官方 Allure（使用明确标记的运行证据 fixture）。
 - `python3 scripts/test-local-performance.py /绝对路径/优化版/qinaegis --output /绝对路径/performance.json`：macOS/Linux 基础服务指标；记录二进制 SHA、设备、样本量和范围，执行含 60 秒空闲测量。
-- 当前提交的远端四平台 Actions/Pages 需另行复核，不沿用 B05 的旧提交结果。
+- `bec9bae` 四平台服务回归与 Pages 预览已通过；首轮 Linux 运行时抽取被系统 Python 3.10 的过滤器阻断，修正为正式安全导入器并锁定 Python 3.12，候选汇总待重跑。不能沿用 B05 的旧提交结果。
 
 后续先补 D04/D06、Windows 进程树与资源准入，再推进 F01/F03/F04/F05；M04 依赖流程快照。M05 独立协议可并行设计，M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。

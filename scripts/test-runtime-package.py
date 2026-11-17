@@ -13,6 +13,9 @@ import unittest
 spec = importlib.util.spec_from_file_location('runtime_builder', Path(__file__).with_name('build-runtime.py'))
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
+install_spec = importlib.util.spec_from_file_location('runtime_install', Path(__file__).with_name('install-runtime.py'))
+installer = importlib.util.module_from_spec(install_spec)
+install_spec.loader.exec_module(installer)
 
 
 class RuntimePackageTests(unittest.TestCase):
@@ -72,11 +75,16 @@ class RuntimePackageTests(unittest.TestCase):
 
 
 def smoke_archive(archive_path):
-    """Relocate to a clean directory and exclude global Node/pnpm from PATH."""
+    """Import through the verified installer, then exclude global Node/pnpm."""
     with tempfile.TemporaryDirectory(prefix='qinaegis-runtime-proof-') as temporary:
-        root = Path(temporary).resolve()
-        with tarfile.open(archive_path) as archive:
-            archive.extractall(root, filter='data')
+        # Resolve macOS /var aliases before the installer's ancestor checks.
+        temporary_root = Path(temporary).resolve()
+        data = temporary_root / 'data'
+        state = temporary_root / 'state'
+        expected_sha256 = builder.sha256(archive_path)
+        root = installer.install(archive_path, expected_sha256, data, state)
+        assert root == data / 'runtimes/midscene/current'
+        assert (root / '.archive-sha256').read_text().strip() == expected_sha256
         node = root / 'bin' / ('node.exe' if os.name == 'nt' else 'node')
         system_path = str(Path(os.environ.get('SystemRoot', 'C:/Windows')) / 'System32') if os.name == 'nt' else '/usr/bin:/bin'
         environment = dict(os.environ, PATH=system_path)
@@ -100,7 +108,7 @@ def smoke_archive(archive_path):
         assert builder.sha256(node) == provenance['node_sha256']
         for relative, digest in provenance['compiled_sha256'].items():
             assert builder.sha256(root / relative) == digest
-        print('Relocated compiled executor + official Allure passed with bundled Node and system-only PATH.')
+        print('Verified archive import + relocated compiled executor + official Allure passed with bundled Node and system-only PATH.')
 
 
 if __name__ == '__main__':
