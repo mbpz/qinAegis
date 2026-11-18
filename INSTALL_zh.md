@@ -25,7 +25,17 @@ sh install.sh --version 2.0.0
 
 ## Windows
 
-下载 `qinaegis-x86_64-pc-windows-msvc.zip`，通过 `Get-FileHash` 与发布 `SHA256SUMS` 核对，解压到当前用户目录并运行 `qinaegis.exe`。本阶段尚无一键 PowerShell 安装器。签名及干净系统验收是发布前条件，不通过关闭系统安全机制解决未签名产物问题。
+从同一可信 2.0 发布或核验后的候选包下载并审阅 `install.ps1`，在 PowerShell 执行：
+
+```powershell
+& .\install.ps1 -Version 2.0.0
+```
+
+默认安装至 `%LOCALAPPDATA%\QinAegis`，随后启动服务并打开本地 Web 工作台。仅使用 Windows PowerShell 5.1 与系统 .NET，无需管理员权限、Node 或 Python，不修改执行策略及 PATH。遵循本机脚本执行策略，不通过关闭系统安全机制运行候选包。
+
+离线候选安装使用 `-Archive 'C:\含空格路径\service.zip' -Checksum 可信SHA256 -NoStart`；`-Prefix` 可指定绝对用户目录。替换前核验摘要、ZIP 固定普通成员、平台/版本清单及已有安装收据。运行中服务或未知目录内容会被拒绝。维护前运行 `& "$env:LOCALAPPDATA\QinAegis\qinaegis.exe" stop`。
+
+升级保留 `qinaegis.previous.exe`，`-Rollback -NoStart` 交换两个已核验版本；再次升级如有旧备份，需明确 `-DiscardPrevious`。`-Uninstall` 只卸载经核验的程序和收据，保留项目、配置、运行时及报告数据。维护时使用同一 `-Prefix`。强杀留下的 stage/swap 文件必须核对后再继续维护，见 [Windows 验收计划](docs/plans/windows-user-installation.md)。签名、干净桌面、默认浏览器自动打开及稳定在线分发仍分别验收。
 
 ## Playwright + Midscene.js 引擎
 
@@ -77,7 +87,7 @@ python3 scripts/install-runtime.py /绝对路径/runtime.tar.gz --sha256 可信S
 
 后续服务命令设置同一 `QINAEGIS_DATA_DIR`。安装器校验归档边界、宿主、内容和摘要，暂存后切换 `runtimes/midscene/current`，旧目录保留为 `previous`。服务活动或已有备份需人工决定保留时明确拒绝；不能只凭摘要标记跳过文件完整性检查。该备用导入工具需要本机 Python 且必须停止服务；上述 Web 原生导入无需 Python。完整逐平台交付仍待验收。
 
-**Environment** 可检测运行时和浏览器，明确授权 **Install Chromium** 后安装匹配浏览器，并显示实际启动结果。下载使用选定运行时缓存，不提权安装系统库。真实模型兼容与干净机器验收另行完成。
+**Environment** 可检测运行时和浏览器，明确授权 **Install Chromium** 后安装匹配浏览器，并显示实际启动结果。下载使用选定运行时缓存，显示每个组件的安全进度及真实 Chromium 启动检查。停止会等待受管进程清理，重试须重新授权下载；刷新恢复最近环境任务，不重放安装。原始安装输出和下载 URL 不进入页面，不提权安装系统库。真实模型兼容与干净机器验收另行完成。
 
 ## 数据与卸载
 

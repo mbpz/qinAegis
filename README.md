@@ -14,6 +14,9 @@ Generate now supports a managed project spec.md with a 128 KiB limit, original-c
 
 Flows now supports JSON drafts, library-revision CAS, validation, explicitly approved immutable publication and typed project plan snapshots. All registered capabilities have runner_available=false and plans have executable=false; there is no Run action. Core, actual HTTP, real Chromium and independent review passed for this planning scope.
 
+
+Windows candidates now include a user-local PowerShell installer with verified archives, running-service protection, previous-version rollback and data-preserving uninstall. Environment shows safe browser download progress and restores installation tasks after refresh. Version 2 flow execution definitions and reviewed case snapshots are being accepted separately from immutable planning-only v1 flows; full Web orchestration is still pending. See [installation](INSTALL.md) and the [acceptance checklist](docs/progress/acceptance-checklist-2.0.md).
+
 ## Product structure and current scope
 
 The same published contract can be bound to two projects with different parameters. A correction creates a reviewed revision; existing executions retain their original inputs and evidence. Models may propose changes but cannot approve a weaker business assertion merely to obtain a pass.

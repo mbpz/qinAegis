@@ -25,7 +25,17 @@ Options: `--prefix /absolute/bin/directory`, `--no-start`, and offline `--archiv
 
 ## Windows
 
-Download the matching `qinaegis-x86_64-pc-windows-msvc.zip`, compare its hash with `SHA256SUMS` using `Get-FileHash`, extract to a user-owned directory, and run `qinaegis.exe`. A one-command PowerShell installer is not provided in this phase. Do not disable system security mechanisms to work around unsigned artifacts; platform signing and clean-machine acceptance remain release gates.
+Download and review `install.ps1` from the same trusted 2.0 release or verified candidate. In PowerShell, run:
+
+```powershell
+& .\install.ps1 -Version 2.0.0
+```
+
+The script installs to `%LOCALAPPDATA%\QinAegis`, then starts the service and opens its local Web workbench. It uses Windows PowerShell 5.1 and system .NET; no administrator rights, Node or Python are required. It does not change execution policy or PATH. Follow your machine's script execution policy; do not disable system security protections.
+
+Offline candidates use `-Archive 'C:\path with spaces\service.zip' -Checksum TRUSTED_SHA256 -NoStart`. `-Prefix` selects an absolute user-owned installation directory. SHA-256, exact ZIP members, platform/version metadata and existing installation receipts are checked before replacement. A running service or unknown installation contents are refused. Stop it with `& "$env:LOCALAPPDATA\QinAegis\qinaegis.exe" stop` before maintenance.
+
+Upgrades preserve `qinaegis.previous.exe`. Use `-Rollback -NoStart` to exchange the two verified versions; an existing older backup requires explicit `-DiscardPrevious` for another upgrade. `-Uninstall` removes verified executables and their receipt while preserving project/configuration/runtime/report data. Use the same `-Prefix` for maintenance. After a forced interruption, retained stage/swap files require inspection before further maintenance. See the [Windows acceptance plan](docs/plans/windows-user-installation.md). Signing, clean desktop installation, default browser opening and stable online distribution remain separate acceptance gates.
 
 ## Playwright + Midscene.js runtime
 
@@ -77,7 +87,7 @@ python3 scripts/install-runtime.py /absolute/runtime.tar.gz --sha256 TRUSTED_SHA
 
 Start subsequent service commands with `QINAEGIS_DATA_DIR=/absolute/private-data`. The installer verifies paths, host, content and checksum before switching `runtimes/midscene/current`, retaining the old directory as `previous`. It refuses an active service or an existing backup requiring a retention decision. A matching archive marker is insufficient: installed files are checked again. This fallback requires Python on the importing machine and a stopped service. The Web import above runs inside the Rust service and has no Python prerequisite. Complete platform distribution acceptance remains open.
 
-In **Environment**, check runtime/browser facts, explicitly authorize **Install Chromium**, then inspect the actual launch result. Downloads use the selected runtime cache and do not install system libraries with elevated privileges. Browser/model compatibility and clean-machine acceptance remain separate.
+In **Environment**, check runtime/browser facts, explicitly authorize **Install Chromium**, then inspect the actual launch result. Downloads use the selected runtime cache and show safe per-component progress, followed by an actual Chromium launch check. Stop waits for owned process cleanup; retry requires a new download approval. Refresh restores the latest environment task without replay. Raw installer URLs and output are not exposed, and system libraries are not installed with elevated privileges. Browser/model compatibility and clean-machine acceptance remain separate.
 
 ## Data and uninstall
 

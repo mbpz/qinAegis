@@ -69,7 +69,8 @@ class ReleaseTests(unittest.TestCase):
                 release.bundle(root)
             checks=(root/'SHA256SUMS').read_text()
             self.assertIn('  install.sh\n',checks)
-            self.assertEqual(len(checks.splitlines()),13)
+            self.assertIn('  install.ps1\n',checks)
+            self.assertEqual(len(checks.splitlines()),14)
             for line in checks.splitlines():
                 digest,name=line.split()
                 self.assertEqual(digest,hashlib.sha256((root/name).read_bytes()).hexdigest())
@@ -93,7 +94,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIsNotNone(bash,'Bash is required for release script tests')
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            for name in ['Cargo.toml','Cargo.lock','scripts/install.sh','scripts/bump-version.sh','scripts/release-assets.py','crates/web_client/ui/package.json','crates/web_client/ui/package-lock.json']:
+            for name in ['Cargo.toml','Cargo.lock','scripts/install.sh','scripts/install.ps1','scripts/bump-version.sh','scripts/release-assets.py','crates/web_client/ui/package.json','crates/web_client/ui/package-lock.json']:
                 destination=root/name;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(release.ROOT/name,destination)
             result=subprocess.run([bash,'scripts/bump-version.sh','2.1.0-rc.1'],cwd=root,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,f'{result.args}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}')

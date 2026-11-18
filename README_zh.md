@@ -14,6 +14,9 @@ Generate 已接入受控项目规格：固定项目 spec.md、128 KiB 上限、�
 
 Flows 已接入流程 JSON 草稿、整库修订 CAS、校验、明确确认的不可变发布及项目类型化计划快照。所有登记能力 runner_available=false，计划 executable=false，页面没有运行入口；核心、真实 HTTP、实际 Chromium 与独立复核通过，按治理与计划边界验收。
 
+
+Windows 候选包现加入用户级 PowerShell 安装器，支持归档核验、运行保护、上一版回滚及保留数据卸载。Environment 显示安全浏览器下载进度，刷新恢复安装任务。schema 2 执行定义和受审用例快照与仅规划的 v1 流程分别验收，完整 Web 编排仍待接入。安装入口见[安装说明](INSTALL_zh.md)，状态见[验收 checklist](docs/progress/acceptance-checklist-2.0.md)。
+
 ## 核心分工与当前范围
 
 同一发布契约可以绑定到两个项目，通过参数承接环境差异。纠正产生经审核的新修订，已有运行仍保留原输入与证据。模型可以建议修订，不能为了通过而自行批准放宽业务断言。

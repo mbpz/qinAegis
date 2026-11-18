@@ -228,7 +228,7 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
             if p.get("approved").and_then(Value::as_bool) != Some(true) {
                 return Err("explicit browser download approval required".into());
             }
-            app.start_maintenance("browserInstall", crate::environment::install_browser)
+            app.start_maintenance_reported("browserInstall", crate::environment::install_browser)
         }
         "checkConfig" => return Ok(json!({"configured":app.is_configured()})),
         "getVersion" => app.get_version(),

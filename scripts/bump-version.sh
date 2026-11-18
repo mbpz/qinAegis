@@ -19,6 +19,7 @@ for name in ['package.json','package-lock.json']:
     if name=='package-lock.json': data['packages']['']['version']=version
     p.write_text(json.dumps(data,indent=2)+'\n')
 p=root/'scripts/install.sh';p.write_text(re.sub(r'(?m)^VERSION=\S+',f'VERSION={version}',p.read_text()))
+p=root/'scripts/install.ps1';p.write_text(re.sub(r"(?m)^(    \[string\]\$Version = ')[^']+",lambda m:m[1]+version,p.read_text()))
 PY
 "$PYTHON" "$ROOT/scripts/release-assets.py" check
 printf 'Prepared version changes. Review, test and commit before creating a release tag.\n'

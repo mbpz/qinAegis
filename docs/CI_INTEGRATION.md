@@ -27,7 +27,7 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 每个归档只包含 `qinaegis`（Windows 为 `qinaegis.exe`）、LICENSE、release.json。清单记录版本、目标、源码提交和 `engine_included: false`。归档旁另附目标 JSON 和 `qinaegis-TARGET.sha256`（归档、JSON 两项），便于从 Actions 下载候选包后核对。每次 CI 的 assemble job 还汇总并复核四平台完整候选包，上传 `distribution-candidate`，内含安装脚本和总 `SHA256SUMS`。
 
-归档只含服务和内嵌 UI。Node、Playwright 浏览器和 Midscene 执行器尚需单独准备；不能把网页打开视为自动化引擎安装完成。macOS/Linux 的用户目录安装脚本已有离线回归，Windows 当前为 ZIP 手工安装，尚无一键安装器。候选构建尚不包含签名、公证或全部系统干净机器验收。
+归档只含服务和内嵌 UI。Node、Playwright 浏览器和 Midscene 执行器尚需单独准备；不能把网页打开视为自动化引擎安装完成。macOS/Linux 用户目录安装脚本已有离线回归；Windows 新增 PowerShell 用户级安装器与真实二进制验收脚本，覆盖空格路径、SHA/ZIP 边界、运行保护、升级/回滚及卸载数据保留。该脚本只在 Windows job 执行，不能用本机静态检查代替通过证据。候选构建尚不包含签名、公证或全部系统干净机器验收。
 
 矩阵执行 UI 回归、Rust workspace 回归，以及隔离数据目录的服务启动/认证/契约生成/执行测试。新增 `test-native-runtime.py` 覆盖原生上传的会话/CSRF/Origin、分块边界、重启偏移/预览、摘要拒绝、批准/修订及健康失败恢复；默认使用明确标记的不可执行 fixture，不代表实际引擎或干净安装通过。另有 `test-case-assets.py`、`test-environment.py`、`test-task-history.py`，分别检查用例编辑与审核冲突、固定运行时环境操作、任务历史及重启中断；本批新增 `test-config-migration.py`、`test-report-maintenance.py` 检查迁移确认/秘密策略/原文冲突及报告残留归属/过期确认/证据保留。它们验证实际服务 RPC，不依赖真实远程模型。冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。
 
@@ -47,7 +47,7 @@ bash scripts/build-release.sh aarch64-apple-darwin
 
 准备下一版本使用 `bash scripts/bump-version.sh 2.1.0-rc.1`。脚本仅修改产品版本，保留引擎独立版本；不会提交、打 tag 或推送。修改仍需 review 和回归。
 
-Cargo workspace、Cargo.lock 中产品包、UI package/lock、安装器默认版本必须一致。tag 必须与源码完全相同（例如 `v2.0.0`），不接受版本不符或宽泛 `v2`。assemble job 汇总四平台归档，核对所有清单来自同一源码提交，tag 发布复用该已验证候选包；`SHA256SUMS` 覆盖归档、清单和安装脚本。`install.sh` 的默认下载指向明确版本，避免取到旧桌面版 latest。
+Cargo workspace、Cargo.lock 中产品包、UI package/lock、安装器默认版本必须一致。tag 必须与源码完全相同（例如 `v2.0.0`），不接受版本不符或宽泛 `v2`。assemble job 汇总四平台归档，核对所有清单来自同一源码提交，tag 发布复用该已验证候选包；`SHA256SUMS` 覆盖归档、清单及 `install.sh`/`install.ps1` 两个安装脚本；当前完整候选为 14 项摘要。两个安装器的默认下载均指向明确版本，避免取到旧桌面版 latest。
 
 tag 仅生成草稿，外部可见稳定发布为独立发布动作。Homebrew 仅处理已公开、非预发布的稳定 v2；需要仓库配置 `HOMEBREW_TAP_TOKEN` 并拥有目标 tap 写权限。没有 token 不影响候选包、草稿 Release 或 Pages 构建。不能在正式发布前把 tap 安装标为可用。
 

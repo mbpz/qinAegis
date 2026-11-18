@@ -95,6 +95,16 @@ async fn run_managed(
     budget: Duration,
     capture: bool,
 ) -> Result<Vec<u8>> {
+    run_managed_reported(cmd, cancel, budget, capture, None).await
+}
+
+async fn run_managed_reported(
+    cmd: &mut Command,
+    cancel: Arc<AtomicBool>,
+    budget: Duration,
+    capture: bool,
+    progress: Option<crate::app::JobReporter>,
+) -> Result<Vec<u8>> {
     ensure!(
         !cancel.load(Ordering::Acquire),
         "Environment operation cancelled"
@@ -102,7 +112,7 @@ async fn run_managed(
     cmd.stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    cmd.stdout(if capture {
+    cmd.stdout(if capture || progress.is_some() {
         Stdio::piped()
     } else {
         Stdio::null()
@@ -117,16 +127,37 @@ async fn run_managed(
     };
     let operation = async {
         let mut bytes = Vec::new();
-        if let Some(stdout) = stdout {
-            stdout
-                .take((MAX_PROBE_OUTPUT + 1) as u64)
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(|_| anyhow::anyhow!("Environment output unavailable"))?;
-            ensure!(
-                bytes.len() <= MAX_PROBE_OUTPUT,
-                "Environment output exceeds limit"
-            );
+        if let Some(mut stdout) = stdout {
+            if let Some(report) = progress {
+                let mut parser = InstallProgress::default();
+                let mut buffer = [0u8; 1024];
+                let mut total = 0usize;
+                loop {
+                    let count = stdout
+                        .read(&mut buffer)
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Environment output unavailable"))?;
+                    if count == 0 {
+                        break;
+                    }
+                    total += count;
+                    ensure!(
+                        total <= 4 * 1024 * 1024,
+                        "Browser installation output exceeds limit"
+                    );
+                    parser.feed(&buffer[..count], report.as_ref());
+                }
+            } else {
+                stdout
+                    .take((MAX_PROBE_OUTPUT + 1) as u64)
+                    .read_to_end(&mut bytes)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Environment output unavailable"))?;
+                ensure!(
+                    bytes.len() <= MAX_PROBE_OUTPUT,
+                    "Environment output exceeds limit"
+                );
+            }
         }
         let status = owned
             .child
@@ -153,6 +184,56 @@ async fn run_managed(
     }
 }
 
+/// Recognize only the locked Playwright non-TTY progress format. Never echo
+/// installer text: download URLs and paths may carry private information.
+#[derive(Default)]
+struct InstallProgress {
+    line: Vec<u8>,
+    oversized: bool,
+    percentage: Option<u8>,
+}
+
+impl InstallProgress {
+    fn feed(&mut self, bytes: &[u8], report: &dyn Fn(&str)) {
+        for byte in bytes {
+            if matches!(byte, b'\r' | b'\n') {
+                if !self.oversized {
+                    self.emit(report);
+                }
+                self.line.clear();
+                self.oversized = false;
+            } else if self.line.len() < 4096 && !self.oversized {
+                self.line.push(*byte);
+            } else {
+                self.line.clear();
+                self.oversized = true;
+            }
+        }
+    }
+
+    fn emit(&mut self, report: &dyn Fn(&str)) {
+        let Ok(line) = std::str::from_utf8(&self.line) else {
+            return;
+        };
+        if line.starts_with("Downloading ") {
+            self.percentage = None;
+            report("Downloading a matching Playwright browser component.\n");
+        } else if let Some(bar) = line.strip_prefix('|').and_then(|s| s.split_once('|')) {
+            if !bar.0.chars().all(|c| c == ' ' || c == '\u{25a0}') {
+                return;
+            }
+            if let Some((number, _)) = bar.1.trim_start().split_once("% of ") {
+                if let Ok(value) = number.parse::<u8>() {
+                    if value <= 100 && self.percentage.is_none_or(|last| value > last) {
+                        self.percentage = Some(value);
+                        report(&format!("Current browser component download: {value}%.\n"));
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn healthcheck_at(root: &std::path::Path, cancel: Arc<AtomicBool>) -> Result<()> {
     let runtime = RuntimeResolver::installed(root)?;
     let mut cmd = command(&runtime)?;
@@ -171,10 +252,14 @@ const fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('n
  process.stdout.write(JSON.stringify({healthy:true}));
 })().catch(()=>process.exit(1));
 "#]);
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let bytes = rt.block_on(run_managed(&mut cmd, cancel, Duration::from_secs(30), true))?;
-    ensure!(serde_json::from_slice::<Value>(&bytes)?["healthy"] == true,
-        "Runtime health check failed; previous runtime retained");
+    ensure!(
+        serde_json::from_slice::<Value>(&bytes)?["healthy"] == true,
+        "Runtime health check failed; previous runtime retained"
+    );
     Ok(())
 }
 
@@ -241,7 +326,8 @@ pub fn diagnose(cancel: Arc<AtomicBool>) -> Result<Value> {
     Ok(value)
 }
 
-pub fn install_browser(cancel: Arc<AtomicBool>) -> Result<Value> {
+pub fn install_browser(cancel: Arc<AtomicBool>, report: crate::app::JobReporter) -> Result<Value> {
+    report("Checking the selected runtime and matching Chromium installer.\n");
     let runtime = RuntimeResolver::resolve()?;
     let cli = runtime
         .directory
@@ -254,17 +340,32 @@ pub fn install_browser(cancel: Arc<AtomicBool>) -> Result<Value> {
     );
     let mut cmd = command(&runtime)?;
     cmd.arg(cli).args(["install", "chromium"]);
-    // Child output can contain remote URLs; no installation stdout/stderr is persisted.
+    // Only finite progress facts are emitted; raw child text is never persisted.
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    rt.block_on(run_managed(
+    report("Installing Chromium in the selected runtime cache; cancellation waits for owned processes to exit.\n");
+    let result = rt.block_on(run_managed_reported(
         &mut cmd,
         cancel.clone(),
         Duration::from_secs(600),
         false,
-    ))?;
-    diagnose(cancel)
+        Some(report.clone()),
+    ));
+    if let Err(error) = result {
+        report("Browser installation ended; owned process cleanup has finished or its failure is recorded. Check the task error, then retry with download approval.\n");
+        return Err(error);
+    }
+    report(
+        "Installer exited. Verifying package versions and launching an actual headless Chromium.\n",
+    );
+    let facts = diagnose(cancel)?;
+    report(if facts["ready"] == true {
+        "Chromium launch verification passed.\n"
+    } else {
+        "Chromium needs attention. Inspect the launch diagnostic and required operating system libraries before retrying.\n"
+    });
+    Ok(facts)
 }
 
 #[cfg(all(test, any(unix, windows)))]
@@ -298,6 +399,8 @@ child=subprocess.Popen([sys.executable,'-u','-c','import socket,time; s=socket.s
 port=child.stdout.readline().strip()
 with open(sys.argv[1]+'.pid','w') as output: output.write(str(os.getpid()))
 with open(sys.argv[1],'w') as output: output.write(port)
+print('Downloading secret-url-token',flush=True)
+print('|    | 10% of secret-url-token',flush=True)
 time.sleep(120)
 "#;
         let mut cmd = Command::new(if cfg!(windows) { "python" } else { "python3" });
@@ -439,5 +542,89 @@ time.sleep(120)
         .await
         .unwrap_err();
         assert!(error.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn installer_progress_is_bounded_chunk_safe_and_never_echoes_private_text() {
+        let messages = std::sync::Mutex::new(String::new());
+        let report = |value: &str| messages.lock().unwrap().push_str(value);
+        let mut parser = InstallProgress::default();
+        for chunk in b"Downloading Chromium from https://private.example/key\n|    | 10% of 2 MiB\n|    | 10% of secret\n|    | 5% of secret\n|    | 110% of secret\n".chunks(3) {
+            parser.feed(chunk, &report);
+        }
+        parser.feed(&vec![b'x'; 4097], &report);
+        parser.feed(b"Downloading secret\n", &report);
+        parser.feed(
+            b"Downloading another private component\n|    | 0% of secret\n|    | 100% of secret\n",
+            &report,
+        );
+        let result = messages.lock().unwrap();
+        assert_eq!(result.matches("Downloading a matching").count(), 2);
+        assert_eq!(result.matches("10%.").count(), 1);
+        assert!(result.contains("0%.\n") && result.contains("100%.\n"));
+        assert!(
+            !result.contains("private") && !result.contains("secret") && !result.contains("110%")
+        );
+        assert!(parser.line.len() <= 4096);
+    }
+
+    #[tokio::test]
+    async fn installer_reports_live_progress_then_cleans_up_on_cancel_and_allows_retry() {
+        let temporary = TestDir::new();
+        let marker = temporary.path().join("port");
+        let mut cmd = fixture(&marker);
+        // The fixture's child still owns a real socket. Its parent writes a
+        // locked-format progress line before sleeping, so progress must arrive
+        // before cancellation, rather than being buffered until process exit.
+        cmd.env("PYTHONINSPECT", "");
+        let messages = Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = messages.clone();
+        let report: crate::app::JobReporter = Arc::new(move |s| sink.lock().unwrap().push_str(s));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let token = cancel.clone();
+        let task = tokio::spawn(async move {
+            run_managed_reported(
+                &mut cmd,
+                token,
+                Duration::from_secs(30),
+                false,
+                Some(report),
+            )
+            .await
+        });
+        let port = fixture_port(&marker).await;
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !messages.lock().unwrap().contains("10%.") {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("progress was not visible while the installer ran");
+        cancel.store(true, Ordering::Release);
+        assert!(task
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("cancelled"));
+        released(port).await;
+        assert!(!messages.lock().unwrap().contains("secret"));
+        let mut retry = Command::new(if cfg!(windows) { "python" } else { "python3" });
+        retry.args([
+            "-c",
+            "print('Downloading secret'); print('|    | 100% of secret')",
+        ]);
+        let sink = messages.clone();
+        let report: crate::app::JobReporter = Arc::new(move |s| sink.lock().unwrap().push_str(s));
+        run_managed_reported(
+            &mut retry,
+            Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(5),
+            false,
+            Some(report),
+        )
+        .await
+        .unwrap();
+        assert!(messages.lock().unwrap().contains("100%."));
     }
 }

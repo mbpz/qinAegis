@@ -16,15 +16,19 @@ loader.loader.exec_module(module)
 require = module.require
 
 
-def finish(smoke, job, timeout=30):
+def terminal(smoke, job, timeout=30, expected='completed'):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         status = smoke.rpc('getJobStatus', {'jobId': job['jobId']})
         if status['status'] in ('completed', 'failed', 'stopped', 'interrupted'):
-            require(status['status'] == 'completed', 'environment task failed: ' + str(status.get('error')))
-            return status['result']
+            require(status['status'] == expected, 'environment task ended unexpectedly: ' + str(status.get('error')))
+            return status
         time.sleep(0.1)
     raise module.SmokeFailure('environment task exceeded acceptance deadline')
+
+
+def finish(smoke, job, timeout=30):
+    return terminal(smoke, job, timeout)['result']
 
 
 def main():
@@ -66,13 +70,30 @@ def main():
                 require(facts['mode'] == 'installed' and facts['node_supported'], 'standalone Node check failed')
                 require(all(facts['packages'].get(name) for name in ('playwright', '@midscene/web', 'allure')), 'production package version missing')
                 if args.install_browser:
-                    facts = finish(smoke, smoke.rpc('installRuntimeBrowser', {'approved': True}), 640)
+                    installed = terminal(smoke, smoke.rpc('installRuntimeBrowser', {'approved': True}), 640)
+                    facts = installed['result']
                     require(facts['ready'] and facts['browser']['launched'], 'installed Chromium did not actually launch')
                     require((args.runtime / 'browsers').is_dir(), 'browser cache escaped selected runtime')
+                    require('Installer exited.' in installed['output'] and 'Chromium launch verification passed.' in installed['output'], 'browser installation omitted actual verification phases')
                 print('PASS standalone runtime versions and actual browser check: ' + str(facts['browser']['launched']), flush=True)
             else:
                 require(not facts['ready'] and facts.get('repair'), 'missing runtime incorrectly healthy')
                 print('PASS missing runtime is diagnosable without blocking asset management', flush=True)
+                failed_job = smoke.rpc('installRuntimeBrowser', {'approved': True})
+                failed = terminal(smoke, failed_job, expected='failed')
+                require('Checking the selected runtime' in failed['output'], 'failed install lost its preparation phase')
+                smoke.rpc('installRuntimeBrowser', {}, success=False)
+                # A terminal response includes completed worker cleanup. Restart
+                # must restore the failed facts, and never replay a download.
+                smoke.cli('stop')
+                smoke.instance = None
+                smoke.cli('start', '--no-open', '--port', str(smoke.port))
+                smoke.instance = smoke.read_instance()
+                smoke.authenticate()
+                restored_job = smoke.rpc('getJobStatus', {'jobId': failed_job['jobId']})
+                require(restored_job['status'] == 'failed' and restored_job['output'] == failed['output'], 'restart lost or replayed the failed browser installation')
+                require(all(job['status'] not in ('running', 'queued') for job in smoke.rpc('getJobs')['jobs']), 'restart replayed a browser operation')
+                print('PASS explicit install failure, saved progress, approval renewal and restart without replay', flush=True)
         finally:
             # A visible result can precede the worker guard's final durable write.
             # Wait for real cleanup before asking the owned service to stop.

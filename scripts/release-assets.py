@@ -26,7 +26,8 @@ def check(root=ROOT, tag=None):
     cargo = tomllib.loads((root/'Cargo.lock').read_text())
     versions += [p['version'] for p in cargo['package'] if p['name'] in ('qinAegis-web','qin_aegis_core')]
     versions += re.findall(r'^VERSION=(\S+)$', (root/'scripts/install.sh').read_text(), re.M)
-    if len(versions) != 6 or any(v != version for v in versions):
+    versions += re.findall(r"^    \[string\]\$Version = '([^']+)',", (root/'scripts/install.ps1').read_text(), re.M)
+    if len(versions) != 7 or any(v != version for v in versions):
         raise ValueError('Cargo, UI, lockfiles and installer versions must agree')
     if tag is not None and tag != 'v'+version:
         raise ValueError('Release tag must exactly match workspace version')
@@ -94,6 +95,7 @@ def bundle(directory):
     if len(commits)!=1 or commits!={subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()}:
         raise ValueError('Release artifacts must come from the checked-out commit')
     (directory/'install.sh').write_bytes((ROOT/'scripts/install.sh').read_bytes())
+    (directory/'install.ps1').write_bytes((ROOT/'scripts/install.ps1').read_bytes())
     files=sorted(p for p in directory.iterdir() if p.is_file() and p.name!='SHA256SUMS')
     (directory/'SHA256SUMS').write_text(checksum_text(files))
 

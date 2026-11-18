@@ -851,7 +851,7 @@ impl AppState {
         self.start_maintenance_reported(job_type, move |cancel, _| work(cancel))
     }
 
-    fn start_maintenance_reported<F>(&mut self, job_type: &str, work: F) -> String
+    pub(crate) fn start_maintenance_reported<F>(&mut self, job_type: &str, work: F) -> String
     where
         F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
     {

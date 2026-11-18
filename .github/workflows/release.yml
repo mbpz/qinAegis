@@ -66,6 +66,7 @@ jobs:
           tar -xzf build/allure-check/qinaegis-x86_64-unknown-linux-gnu.tar.gz -C build/allure-check
           python3 scripts/test-native-runtime.py "$PWD/build/allure-check/qinaegis" --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz --exercise-switches
           python3 scripts/test-allure.py "$PWD/build/allure-check/qinaegis"
+          python3 scripts/test-browser-install.py "$PWD/build/allure-check/qinaegis" --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz --browser-cache "$HOME/.cache/ms-playwright"
   build:
     timeout-minutes: 60
     strategy:
@@ -143,6 +144,10 @@ jobs:
       - name: Offline user-local installer regressions
         if: runner.os != 'Windows'
         run: python scripts/test-install.py
+      - name: Windows user-local installer acceptance with actual service
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python scripts/test-windows-install.py "$PWD/target/${{ matrix.target }}/release/qinaegis.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: qinaegis-${{ matrix.target }}

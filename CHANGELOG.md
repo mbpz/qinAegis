@@ -36,6 +36,10 @@ Development branch, not a published stable release. Current scope and remaining 
 - Versioned JSON flow drafts with CAS, server-owned capability/type/dependency validation, explicitly approved immutable publication and frozen project plan history. Planning only: all runners unavailable and plans non-executable; core/HTTP, real Chromium and independent review passed for this planning scope.
 - Native Messages authentication, system/content blocks and structured output requests, bounded responses/deadlines, explicit rejection and approved cross-protocol fallback; Web protocol selection and saved-profile probe identity. Loopback protocol and actual browser acceptance do not certify paid models or visual business execution.
 
+- Safe per-component browser installation progress, explicit retry approval, durable refresh recovery and real bundled Playwright failure/cancel/retry acceptance.
+- Windows user-local PowerShell installer with retained-stream SHA/ZIP validation, atomic service replacement, explicit previous-version rollback and data-preserving uninstall; Windows CI acceptance is separate from signing/clean desktop certification.
+- Separate schema 2 typed execution definitions and immutable approved-case snapshots; v1 plans remain planning-only and full Web execution stays gated.
+
 ### Changed
 
 - Replaced the tao/wry desktop shell with an embedded Web UI and a loopback-only HTTP service: background start, browser opening, status and safe stop, private sessions and CSRF checks.
