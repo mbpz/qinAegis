@@ -340,6 +340,17 @@ impl ModelRegistry {
         })
     }
 
+    /// Freeze one explicitly selected visual profile. This authorizes no
+    /// fallback and performs no network calls. Credentials stay in memory.
+    pub fn resolve_execution_profile(&self, profile_id: &str, expected_revision: u64) -> Result<ResolvedModelRoute> {
+        let guard = self.file.lock()?;
+        let doc = self.read(&guard)?;
+        ensure!(doc.revision == expected_revision, "model registry revision conflict");
+        let route = TaskModelRoute { primary: profile_id.into(), fallbacks: vec![] };
+        let (profiles, capabilities) = resolve_profiles("execute", &route, &doc.profiles, &["text", "vision"])?;
+        Ok(ResolvedModelRoute { revision: doc.revision, task: "execute".into(), profiles, capabilities, adapters: self.adapters.clone() })
+    }
+
     /// Capture one approved destination, never a fallback chain. No network I/O under the file lock.
     pub fn prepare_probe(&self, profile_id: &str) -> Result<ModelProbe> {
         let guard = self.file.lock()?;
@@ -892,6 +903,20 @@ mod tests {
             primary: primary.to_owned(),
             fallbacks: fallbacks.iter().map(|s| (*s).to_owned()).collect(),
         }
+    }
+
+    #[test]
+    fn explicit_execution_profile_requires_current_visual_authorized_registration() {
+        let dir=tempfile::tempdir().unwrap();let registry=ModelRegistry::new(dir.path().join("models.json"));
+        let mut selected=profile("chosen");selected.capabilities.push("vision".into());selected.midscene_family=Some("qwen2.5-vl".into());
+        registry.upsert(0,selected.clone(),false).unwrap();
+        let frozen=registry.resolve_execution_profile("chosen",1).unwrap();assert_eq!(frozen.candidates().len(),1);assert_eq!(frozen.candidates()[0].model,"model-chosen");
+        assert!(registry.resolve_execution_profile("chosen",0).is_err());assert!(registry.resolve_execution_profile("missing",1).is_err());
+        selected.enabled=false;registry.upsert(1,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",2).is_err());
+        selected.enabled=true;selected.allow_remote=false;registry.upsert(2,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",3).is_err());
+        selected.allow_remote=true;selected.midscene_family=None;registry.upsert(3,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",4).is_err());
+        selected.midscene_family=Some("qwen2.5-vl".into());selected.capabilities=vec!["text".into()];registry.upsert(4,selected,false).unwrap();assert!(registry.resolve_execution_profile("chosen",5).is_err());
+        assert_eq!(frozen.candidates()[0].model,"model-chosen");assert_eq!(frozen.candidates()[0].api_key,"private-test-key");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Version 2 execution definitions. These validate intent; they neither upgrade
 //! immutable v1 plans nor claim that a browser runner has been prepared.
 pub mod runtime;
+pub mod store;
 
 use crate::{
     contracts::ValueType,
@@ -356,6 +357,15 @@ pub struct PreparedCase {
     contracts: crate::contract_execution::ExecutionSnapshot,
 }
 impl PreparedCase {
+    pub fn run_case(&self) -> crate::execution_records::RunCase {
+        crate::execution_records::RunCase {
+            case_id: self.reference.case_id.clone(),
+            name: self.name.clone(),
+            yaml_script: self.yaml_script.clone(),
+            target_url: self.target_url.clone(),
+            provenance: Some(self.provenance.clone()),
+        }
+    }
     pub fn reference(&self) -> &ReviewedCaseRef {
         &self.reference
     }

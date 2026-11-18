@@ -111,6 +111,9 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     if !p.is_object() {
         return Err("params must be an object".into());
     }
+    if crate::flow_execution_api::handles(method) {
+        return crate::flow_execution_api::dispatch(app, method, p).map_err(|e| e.to_string());
+    }
     if crate::runtime_api::handles(method) {
         return crate::runtime_api::dispatch(app, method, p).map_err(|e| e.to_string());
     }

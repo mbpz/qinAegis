@@ -362,6 +362,8 @@ pub struct AppState {
     pub(crate) queue: Arc<Mutex<TaskQueue>>,
     pub(crate) history: Option<History>,
     pub(crate) session_id: String,
+    pub(crate) flow_preparations: HashMap<String, crate::flow_execution_api::Prepared>,
+    pub(crate) resource_blocked: Arc<AtomicBool>,
 }
 
 impl Default for AppState {
@@ -377,6 +379,8 @@ impl Default for AppState {
             queue: Arc::new(Mutex::new(TaskQueue::default())),
             history: None,
             session_id: "test".into(),
+            flow_preparations: HashMap::new(),
+            resource_blocked: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -414,6 +418,9 @@ impl AppState {
             app.jobs.lock().unwrap().insert(r.id, e);
         }
         app.history = Some(history);
+        let executions = qin_aegis_core::flow_execution::store::ExecutionStore::new(LocalStorage::base_path());
+        executions.recover()?;
+        app.resource_blocked.store(executions.quarantine()?, Ordering::Release);
         if let Err(error) = crate::runtime_api::recover() {
             eprintln!("Runtime recovery requires attention: {error}");
         }
@@ -421,6 +428,7 @@ impl AppState {
     }
 
     fn register_job(&self, id: &str, mut entry: JobEntry) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.resource_blocked.load(Ordering::Acquire), "Execution safety is blocked: owned resource cleanup or terminal evidence persistence is unconfirmed; further tasks and runtime maintenance are blocked");
         anyhow::ensure!(
             !self.jobs.lock().unwrap().values().any(|e| e.job_type == "runtimeMaintenance" && !e.worker_done),
             "Runtime maintenance owns the execution slot; wait for cleanup to finish"
@@ -498,7 +506,7 @@ impl AppState {
         serde_json::json!({"jobId":id,"output":output.text[offset..],"cursor":end,"truncated":cursor<output.start||cursor>end}).to_string()
     }
 
-    fn job_id(&self) -> String {
+    pub(crate) fn job_id(&self) -> String {
         format!(
             "job-{}-{}",
             self.session_id,
@@ -800,6 +808,7 @@ impl AppState {
         queue.running = true;
         let state = self.queue.clone();
         let jobs = self.jobs.clone();
+        let blocked = self.resource_blocked.clone();
         thread::spawn(move || loop {
             let (item, entry) = {
                 let mut queue = state.lock().unwrap();
@@ -821,6 +830,13 @@ impl AppState {
                 (item, entry)
             };
             let mut cancelled = entry.cancel_flag.load(Ordering::Acquire);
+            if blocked.load(Ordering::Acquire) {
+                let mut entries = jobs.lock().unwrap();
+                let e = entries.get_mut(&item.0).unwrap();
+                e.status = "failed".into();
+                e.error = Some("Task not started: owned resource cleanup or terminal evidence persistence is unconfirmed".into());
+                cancelled = true;
+            }
             if !cancelled {
                 if let Some(history) = &entry.history {
                     let _serial = history.serial.lock().unwrap();
@@ -855,8 +871,15 @@ impl AppState {
     where
         F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
     {
-        let id = self.job_id();
-        let entry = JobEntry::new(job_type);
+        self.start_private_work(self.job_id(), job_type, Vec::new(), None, work)
+    }
+
+    pub(crate) fn start_private_work<F>(&mut self, id: String, job_type: &str, secrets: Vec<String>, snapshot: Option<serde_json::Value>, work: F) -> String
+    where F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
+    {
+        let mut entry = JobEntry::new(job_type);
+        entry.secrets = secrets;
+        entry.snapshot = snapshot;
         let cancel = entry.cancel_flag.clone();
         let output = entry.output.clone();
         if let Err(error) = self.register_job(&id, entry) {
@@ -2225,6 +2248,8 @@ mod boundary_tests {
             queue: Arc::new(Mutex::new(TaskQueue::default())),
             history: None,
             session_id: "test".into(),
+            flow_preparations: HashMap::new(),
+            resource_blocked: Arc::new(AtomicBool::new(false)),
         };
         let value: serde_json::Value = serde_json::from_str(&app.get_config()).unwrap();
         assert_eq!(value["llm"]["api_key"], "");
@@ -2242,6 +2267,8 @@ mod boundary_tests {
             queue: Arc::new(Mutex::new(TaskQueue::default())),
             history: None,
             session_id: "test".into(),
+            flow_preparations: HashMap::new(),
+            resource_blocked: Arc::new(AtomicBool::new(false)),
         }
     }
 

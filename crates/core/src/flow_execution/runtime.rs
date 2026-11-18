@@ -7,7 +7,7 @@
 use super::{ExecutionDefinition, Operation, PreparedCase};
 use crate::executor::{TestCaseRef, TestExecutor, TestResult};
 use anyhow::{ensure, Context, Result};
-use async_trait::async_trait;
+pub use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -23,6 +23,9 @@ use tokio::time::Instant;
 #[async_trait]
 pub trait CaseRunner: Send {
     async fn run_case(&mut self, case: &PreparedCase) -> Result<TestResult>;
+    async fn run_step(&mut self, _step_id: &str, case: &PreparedCase) -> Result<TestResult> {
+        self.run_case(case).await
+    }
     /// Must terminate owned resources and await exit, independently of whether
     /// the run future completed, failed, or was dropped by a deadline.
     async fn cleanup(&mut self) -> Result<()>;
@@ -86,7 +89,7 @@ impl std::io::Write for ResultBudget {
         Ok(())
     }
 }
-fn validate_case_result_budget(result: &TestResult) -> Result<()> {
+pub fn validate_case_result_budget(result: &TestResult) -> Result<()> {
     ensure!(
         serde_json::to_writer(ResultBudget(0), result).is_ok(),
         "case result exceeds 128 KiB evidence limit; raw result omitted"
@@ -97,6 +100,7 @@ fn validate_case_result_budget(result: &TestResult) -> Result<()> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
+    Running,
     Succeeded,
     Failed,
     Cancelled,
@@ -148,12 +152,31 @@ async fn cancelled(flag: Arc<AtomicBool>) {
 }
 /// Prepared snapshots are keyed by step, so two case steps can deliberately
 /// reuse one publication while keeping each approved case reference explicit.
+pub trait ExecutionObserver: Send + Sync {
+    fn checkpoint(&self, facts: &ExecutionFacts) -> Result<()>;
+}
+struct NoObserver;
+impl ExecutionObserver for NoObserver {
+    fn checkpoint(&self, _: &ExecutionFacts) -> Result<()> {
+        Ok(())
+    }
+}
 pub async fn run(
     definition: &ExecutionDefinition,
     inputs: BTreeMap<String, Value>,
     prepared: &BTreeMap<String, PreparedCase>,
     runner: &mut dyn CaseRunner,
     cancel: Arc<AtomicBool>,
+) -> Result<ExecutionFacts> {
+    run_observed(definition, inputs, prepared, runner, cancel, &NoObserver).await
+}
+pub async fn run_observed(
+    definition: &ExecutionDefinition,
+    inputs: BTreeMap<String, Value>,
+    prepared: &BTreeMap<String, PreparedCase>,
+    runner: &mut dyn CaseRunner,
+    cancel: Arc<AtomicBool>,
+    observer: &dyn ExecutionObserver,
 ) -> Result<ExecutionFacts> {
     let order = definition.validate()?;
     definition.validate_inputs(&inputs)?;
@@ -237,11 +260,34 @@ pub async fn run(
             _ => {}
         }
         for attempt in 1..=step.max_attempts {
+            let attempt_start = Instant::now();
             let began = offset(start);
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let step_budget = Duration::from_millis(step.timeout_ms);
-            let total_first = remaining <= step_budget;
-            let budget = remaining.min(step_budget);
+            let mut preview = facts.clone();
+            let mut active = fact.clone();
+            active.status = Status::Running;
+            active.attempts.push(AttemptFact {
+                attempt,
+                started_ms: began,
+                finished_ms: began,
+                status: Status::Running,
+                error: None,
+                case_result: None,
+            });
+            preview.status = Status::Running;
+            preview.steps.push(active);
+            if observer.checkpoint(&preview).is_err() {
+                facts.status = Status::Failed;
+                facts.error = Some("Cannot persist step start; action was not executed".into());
+                fact.status = Status::Failed;
+                fact.reason = facts.error.clone();
+                break;
+            }
+            // Checkpoint I/O consumes the same bounded action budget.
+            let step_deadline = attempt_start + Duration::from_millis(step.timeout_ms);
+            let total_first = deadline <= step_deadline;
+            let budget = deadline
+                .min(step_deadline)
+                .saturating_duration_since(Instant::now());
             let mut result = None;
             let mut operation_outputs = BTreeMap::new();
             let action = async {
@@ -256,7 +302,7 @@ pub async fn run(
                     }
                     Operation::ExecuteCase { .. } => {
                         let mut output = runner
-                            .run_case(prepared.get(&id).context("prepared case unavailable")?)
+                            .run_step(&id, prepared.get(&id).context("prepared case unavailable")?)
                             .await?;
                         ensure!(
                             output.case_id == prepared[&id].reference().case_id
@@ -284,7 +330,17 @@ pub async fn run(
             };
             let (status, error) = if budget.is_zero() {
                 drop(action);
-                (Status::TimedOut, Some("total execution timeout".into()))
+                (
+                    Status::TimedOut,
+                    Some(
+                        if total_first {
+                            "total execution timeout"
+                        } else {
+                            "step execution timeout"
+                        }
+                        .into(),
+                    ),
+                )
             } else {
                 tokio::select! {
                     biased;
@@ -305,6 +361,21 @@ pub async fn run(
                 case_result: result,
             });
             fact.status = status;
+            let mut preview = facts.clone();
+            let mut checkpoint = fact.clone();
+            if status == Status::Succeeded {
+                checkpoint.outputs = operation_outputs.clone();
+            }
+            preview.steps.push(checkpoint);
+            preview.status = Status::Running;
+            if observer.checkpoint(&preview).is_err() {
+                facts.status = Status::Failed;
+                facts.error = Some("Cannot persist step result; remaining actions stopped".into());
+                fact.status = Status::Failed;
+                fact.reason = facts.error.clone();
+                break;
+            }
+
             if status == Status::Succeeded {
                 fact.outputs = operation_outputs;
                 outputs.insert(id.clone(), fact.outputs.clone());
@@ -360,8 +431,11 @@ pub async fn run(
         Ok(Err(e)) => Some(diagnostic(&e)),
         Err(_) => Some("execution cleanup timed out; owned resource exit unconfirmed".into()),
     };
-    if facts.cleanup_error.is_some() && facts.status == Status::Succeeded {
-        facts.status = Status::Failed;
+    if facts.cleanup_error.is_some() {
+        facts.outputs.clear();
+        if facts.status == Status::Succeeded {
+            facts.status = Status::Failed;
+        }
     }
     facts.finished_ms = offset(start);
     Ok(facts)
@@ -472,6 +546,71 @@ mod tests {
         .map(String::from)
         .to_vec();
         (definition, BTreeMap::from([("pause".into(), prepared)]))
+    }
+    struct FailingObserver {
+        calls: std::sync::atomic::AtomicUsize,
+        fail_at: usize,
+    }
+    impl ExecutionObserver for FailingObserver {
+        fn checkpoint(&self, _: &ExecutionFacts) -> Result<()> {
+            ensure!(
+                self.calls.fetch_add(1, Ordering::AcqRel) != self.fail_at,
+                "fixture disk full"
+            );
+            Ok(())
+        }
+    }
+    #[tokio::test]
+    async fn failed_start_checkpoint_prevents_case_side_effect_and_always_cleans() {
+        let (definition, prepared) = case_flow();
+        let mut runner = runner();
+        let observer = FailingObserver {
+            calls: 0.into(),
+            fail_at: 0,
+        };
+        let facts = run_observed(
+            &definition,
+            inputs(),
+            &prepared,
+            &mut runner,
+            flag(),
+            &observer,
+        )
+        .await
+        .unwrap();
+        assert_eq!(facts.status, Status::Failed);
+        assert_eq!(runner.calls, 0);
+        assert_eq!(runner.cleanups, 1);
+        assert!(facts.error.unwrap().contains("not executed"));
+    }
+    #[tokio::test]
+    async fn failed_end_checkpoint_prevents_all_later_case_actions() {
+        let (mut definition, mut prepared) = case_flow();
+        let mut second = definition.steps[0].clone();
+        second.id = "second".into();
+        second.depends_on = vec!["pause".into()];
+        definition.steps.push(second);
+        prepared.insert("second".into(), prepared["pause"].clone());
+        let mut runner = runner();
+        let observer = FailingObserver {
+            calls: 0.into(),
+            fail_at: 1,
+        };
+        let facts = run_observed(
+            &definition,
+            inputs(),
+            &prepared,
+            &mut runner,
+            flag(),
+            &observer,
+        )
+        .await
+        .unwrap();
+        assert_eq!(facts.status, Status::Failed);
+        assert_eq!(runner.calls, 1);
+        assert_eq!(runner.cleanups, 1);
+        assert_eq!(facts.steps[1].status, Status::Skipped);
+        assert!(facts.steps[0].outputs.is_empty());
     }
     #[tokio::test]
     async fn real_wait_and_skip_propagation_have_typed_outputs_and_cleanup() {
