@@ -812,10 +812,63 @@ struct OpenAiCompatibleClient {
 #[derive(Deserialize)]
 struct Completion {
     choices: Vec<CompletionChoice>,
+    #[serde(default)]
+    object: Option<String>,
+    #[serde(default)]
+    error: Option<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct CompletionChoice {
-    message: Message,
+    message: serde_json::Value,
+    // Required: a missing reason cannot prove that a provider completed output.
+    finish_reason: String,
+}
+fn completion_output(bytes: &[u8], structured: bool) -> Result<String, LlmError> {
+    let rejected = || LlmError::Api("model response is incomplete or unsupported".into());
+    let mut completion: Completion = serde_json::from_slice(bytes).map_err(|_| rejected())?;
+    if completion.choices.len() != 1
+        || completion.error.is_some()
+        || completion
+            .object
+            .as_deref()
+            .is_some_and(|object| object != "chat.completion")
+    {
+        return Err(rejected());
+    }
+    let choice = completion.choices.pop().unwrap();
+    let message = choice.message.as_object().ok_or_else(rejected)?;
+    if choice.finish_reason != "stop"
+        || message.get("role").and_then(serde_json::Value::as_str) != Some("assistant")
+        || message.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "role"
+                    | "content"
+                    | "refusal"
+                    | "tool_calls"
+                    | "function_call"
+                    | "audio"
+                    | "annotations"
+            )
+        })
+        || ["refusal", "tool_calls", "function_call", "audio"]
+            .iter()
+            .any(|key| message.get(*key).is_some_and(|value| !value.is_null()))
+        || message
+            .get("annotations")
+            .is_some_and(|value| !value.is_null() && !value.as_array().is_some_and(Vec::is_empty))
+    {
+        return Err(rejected());
+    }
+    let content = message
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .ok_or_else(rejected)?;
+    if structured && serde_json::from_str::<serde_json::Value>(content).is_err() {
+        return Err(LlmError::Api("invalid model structured output".into()));
+    }
+    Ok(content.into())
 }
 #[async_trait]
 impl LlmClient for OpenAiCompatibleClient {
@@ -836,6 +889,7 @@ impl LlmClient for OpenAiCompatibleClient {
         if let Some(temperature) = options.temperature {
             body["temperature"] = serde_json::json!(temperature);
         }
+        let structured = options.json_schema.is_some();
         if let Some(schema) = options.json_schema {
             let schema: serde_json::Value = serde_json::from_str(&schema)
                 .map_err(|_| LlmError::UnsupportedCapability("invalid JSON schema"))?;
@@ -852,8 +906,12 @@ impl LlmClient for OpenAiCompatibleClient {
             .send()
             .await
             .map_err(|_| LlmError::ModelFailure("model transport failure"))?;
-        if !response.status().is_success() {
-            return Err(LlmError::ModelFailure("model HTTP failure"));
+        let status = response.status();
+        if status.as_u16() == 429 || status.is_server_error() {
+            return Err(LlmError::ModelFailure("model quota or service unavailable"));
+        }
+        if !status.is_success() {
+            return Err(LlmError::Api("model request rejected".into()));
         }
         // Bound response memory even when the upstream omits Content-Length.
         let mut response = response;
@@ -864,18 +922,11 @@ impl LlmClient for OpenAiCompatibleClient {
             .map_err(|_| LlmError::ModelFailure("model response transport failure"))?
         {
             if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
-                return Err(LlmError::ModelFailure("model response exceeds limit"));
+                return Err(LlmError::Api("model response exceeds limit".into()));
             }
             bytes.extend_from_slice(&chunk);
         }
-        let completion: Completion = serde_json::from_slice(&bytes)
-            .map_err(|_| LlmError::ModelFailure("invalid model response"))?;
-        completion
-            .choices
-            .into_iter()
-            .next()
-            .map(|choice| choice.message.content)
-            .ok_or(LlmError::ModelFailure("empty model response"))
+        completion_output(&bytes, structured)
     }
 }
 
@@ -1185,7 +1236,7 @@ mod tests {
                         }
                     }
                 }
-                let response = serde_json::json!({"choices":[{"message":{"role":"assistant","content":expected}}]}).to_string();
+                let response = serde_json::json!({"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":expected}}]}).to_string();
                 write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
             }
         });
@@ -1452,5 +1503,261 @@ mod tests {
             .await;
         assert_eq!(result.unwrap(), "fallback");
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    async fn completion_server(
+        status: u16,
+        body: String,
+        delay: Duration,
+    ) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            loop {
+                let mut chunk = [0u8; 4096];
+                let n = stream.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..n]);
+                if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]).to_lowercase();
+                    let len: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if bytes.len() >= end + 4 + len {
+                        assert!(headers.starts_with("post /v1/chat/completions "));
+                        assert!(headers.contains("authorization: bearer private-test-key"));
+                        count.fetch_add(1, Ordering::SeqCst);
+                        break;
+                    }
+                }
+            }
+            tokio::time::sleep(delay).await;
+            if status == 0 {
+                return;
+            } // A real peer disconnect, not a simulated error.
+            let response = format!("HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}", body.len());
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+        (endpoint, calls, task)
+    }
+    fn complete(text: &str) -> serde_json::Value {
+        serde_json::json!({"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":text,"refusal":null,"annotations":[]}}]})
+    }
+    #[tokio::test]
+    async fn completion_wire_rejections_never_fall_back_and_never_echo_provider_body() {
+        let mut responses = vec![
+            (400, "private-test-key".into()),
+            (401, "private-test-key".into()),
+            (403, "private-test-key".into()),
+            (404, "private-test-key".into()),
+            (408, "private-test-key".into()),
+            (422, "private-test-key".into()),
+            (302, "private-test-key".into()),
+            (200, "bad private-test-key".into()),
+            (200, "x".repeat(4 * 1024 * 1024 + 1)),
+        ];
+        for reason in [
+            "length",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            "unknown",
+            "",
+        ] {
+            let mut value = complete("private-test-key");
+            value["choices"][0]["finish_reason"] = serde_json::json!(reason);
+            responses.push((200, value.to_string()));
+        }
+        for field in [
+            "missing",
+            "null",
+            "refusal",
+            "tool_calls",
+            "function_call",
+            "role",
+            "content",
+            "unknown",
+            "object",
+            "error",
+            "annotations",
+            "audio",
+        ] {
+            let mut value = complete("private-test-key");
+            match field {
+                "missing" => {
+                    value["choices"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("finish_reason");
+                }
+                "null" => value["choices"][0]["finish_reason"] = serde_json::Value::Null,
+                "role" => value["choices"][0]["message"]["role"] = serde_json::json!("user"),
+                "content" => {
+                    value["choices"][0]["message"]["content"] =
+                        serde_json::json!([{"type":"unknown","text":"private-test-key"}])
+                }
+                "unknown" => {
+                    value["choices"][0]["message"]["unknown"] =
+                        serde_json::json!("private-test-key")
+                }
+                "object" => value["object"] = serde_json::json!("chat.completion.chunk"),
+                "error" => value["error"] = serde_json::json!("private-test-key"),
+                other => {
+                    value["choices"][0]["message"][other] = serde_json::json!("private-test-key")
+                }
+            }
+            responses.push((200, value.to_string()));
+        }
+        responses.push((200, serde_json::json!({"choices":[]}).to_string()));
+        for (status, body) in responses {
+            let (endpoint, calls, server) = completion_server(status, body, Duration::ZERO).await;
+            let mut p = profile("primary");
+            p.base_url = endpoint;
+            let fallback_calls = Arc::new(AtomicUsize::new(0));
+            let trace = Arc::new(ModelCallTrace::default());
+            let route = RegisteredClient {
+                clients: vec![
+                    ("primary".into(), OpenAiCompatibleFactory.build(&p).unwrap()),
+                    (
+                        "fallback".into(),
+                        ArcLlmClient::new(MockClient {
+                            id: "fallback".into(),
+                            calls: fallback_calls.clone(),
+                            business_failure: false,
+                        }),
+                    ),
+                ],
+                capabilities: BTreeSet::from(["text".into()]),
+                trace: Some(trace.clone()),
+            };
+            let error = route
+                .chat_with_budget(
+                    &[Message::user("hello")],
+                    ChatOptions::default(),
+                    Duration::from_secs(2),
+                )
+                .await
+                .err()
+                .unwrap();
+            server.await.unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
+            let entries = trace.snapshot().unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].outcome, ModelCallOutcome::Rejected);
+            assert!(
+                !format!("{error}{}", serde_json::to_string(&entries).unwrap())
+                    .contains("private-test-key")
+            );
+        }
+    }
+    #[tokio::test]
+    async fn completion_wire_retryable_failures_use_only_approved_fallback_within_budget() {
+        for status in [0, 429, 500, 503, 529] {
+            let (first, calls, first_server) =
+                completion_server(status, "private-test-key".into(), Duration::ZERO).await;
+            let (second, fallback_calls, second_server) =
+                completion_server(200, complete("ok").to_string(), Duration::ZERO).await;
+            let mut p = profile("primary");
+            p.base_url = first;
+            let mut f = profile("fallback");
+            f.base_url = second;
+            let trace = Arc::new(ModelCallTrace::default());
+            let route = RegisteredClient {
+                clients: vec![
+                    ("primary".into(), OpenAiCompatibleFactory.build(&p).unwrap()),
+                    (
+                        "fallback".into(),
+                        OpenAiCompatibleFactory.build(&f).unwrap(),
+                    ),
+                ],
+                capabilities: BTreeSet::from(["text".into()]),
+                trace: Some(trace.clone()),
+            };
+            assert_eq!(
+                route
+                    .chat_with_budget(
+                        &[Message::user("hi")],
+                        ChatOptions::default(),
+                        Duration::from_secs(2)
+                    )
+                    .await
+                    .unwrap(),
+                "ok"
+            );
+            first_server.await.unwrap();
+            second_server.await.unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            assert_eq!(fallback_calls.load(Ordering::SeqCst), 1);
+            let entries = trace.snapshot().unwrap();
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].outcome, ModelCallOutcome::TransportFailure);
+            assert_eq!(entries[1].outcome, ModelCallOutcome::Succeeded);
+            assert!(!serde_json::to_string(&entries)
+                .unwrap()
+                .contains("private-test-key"));
+        }
+        let (endpoint, calls, server) =
+            completion_server(200, complete("late").to_string(), Duration::from_secs(1)).await;
+        let mut p = profile("slow");
+        p.base_url = endpoint;
+        let trace = Arc::new(ModelCallTrace::default());
+        let route = RegisteredClient {
+            clients: vec![("slow".into(), OpenAiCompatibleFactory.build(&p).unwrap())],
+            capabilities: BTreeSet::from(["text".into()]),
+            trace: Some(trace.clone()),
+        };
+        let start = std::time::Instant::now();
+        assert!(route
+            .chat_with_budget(
+                &[Message::user("hi")],
+                ChatOptions::default(),
+                Duration::from_millis(40)
+            )
+            .await
+            .is_err());
+        assert!(start.elapsed() < Duration::from_millis(500));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            trace.snapshot().unwrap()[0].outcome,
+            ModelCallOutcome::TimedOut
+        );
+        server.abort();
+    }
+    #[test]
+    fn completion_requires_complete_single_text_and_valid_structured_json() {
+        assert_eq!(
+            completion_output(&serde_json::to_vec(&complete("ok")).unwrap(), false).unwrap(),
+            "ok"
+        );
+        assert!(completion_output(
+            &serde_json::to_vec(&complete("private-test-key")).unwrap(),
+            true
+        )
+        .is_err());
+        assert!(completion_output(&serde_json::to_vec(&complete(" ")).unwrap(), false).is_err());
+        let mut many = complete("ok");
+        let extra = many["choices"][0].clone();
+        many["choices"].as_array_mut().unwrap().push(extra);
+        assert!(completion_output(&serde_json::to_vec(&many).unwrap(), false).is_err());
+        assert_eq!(
+            completion_output(
+                &serde_json::to_vec(&complete("{\"ok\":true}")).unwrap(),
+                true
+            )
+            .unwrap(),
+            "{\"ok\":true}"
+        );
     }
 }

@@ -289,7 +289,7 @@ mod tests {
         let (first, s1) = server(429, "quota".into(), Duration::ZERO).await;
         let (second, s2) = server(
             200,
-            json!({"choices":[{"message":{"role":"assistant","content":"ok"}}]}).to_string(),
+            json!({"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"ok"}}]}).to_string(),
             Duration::ZERO,
         )
         .await;

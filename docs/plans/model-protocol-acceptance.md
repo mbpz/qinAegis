@@ -25,3 +25,10 @@
 - [API versioning](https://platform.claude.com/docs/en/api/versioning)
 - [Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
 - [API errors](https://platform.claude.com/docs/en/api/errors)
+
+
+## Chat Completions 统一边界补齐（2026-11-18）
+
+`openai_compatible` 同样要求完整输出：一条 assistant 文本和明确 `finish_reason: stop`。缺失/null 结束原因、截断、拒绝、工具/函数/非空音频或注释、未知内容、坏 JSON、超过 4 MiB 的响应均硬失败；标准 null 辅助字段及空 annotations 可接受。非 429 的 4xx 与重定向硬拒绝，只有 429、5xx 或传输故障允许按批准链备用。所有错误为固定安全说明，不带响应正文。
+
+新增三项核心真实 wire 测试；模型组 23 项通过。扩展真实 HTTP 验证 21 种硬失败每次只发一个请求，429/503 的 generator/critic 各按批准链执行两次，原子来源与实际请求一致。其他成功协议 fixture 均加入明确完成标记。该切片不等于 M03 的失败事实、模型纠正与完整秘密扫描全部完成。

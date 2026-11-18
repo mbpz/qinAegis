@@ -25,7 +25,7 @@ def main():
             calls.append(request)
             arrived.set()
             release.wait(15)
-            data=json.dumps({'choices':[{'message':{'role':'assistant','content':'{"ok":true}'}}]}).encode()
+            data=json.dumps({'choices':[{'finish_reason':'stop','message':{'role':'assistant','content':'{"ok":true}'}}]}).encode()
             try:
                 self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
             except (BrokenPipeError,ConnectionResetError): pass

@@ -37,7 +37,7 @@ def main():
                     "expected_result": "receipt matches submitted input", "tags": []}]
             else:
                 content = {"score": 90, "issues": [], "suggestions": [], "coverage": "receipt"}
-            payload = json.dumps({"choices": [{"message": {"role": "assistant", "content": json.dumps(content)}}]}).encode()
+            payload = json.dumps({"choices": [{"finish_reason":"stop","message": {"role": "assistant", "content": json.dumps(content)}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))

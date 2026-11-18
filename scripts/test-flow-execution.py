@@ -76,7 +76,14 @@ for await (const line of readline.createInterface({input:process.stdin})) {
  if(fs.existsSync(path.join(root,'cleanup-damage'))) {
   fs.writeFileSync(path.join(process.cwd(),'.qinaegis-owner'),'damaged-fixture');
   fs.writeFileSync(path.join(root,'owned-workspace'),process.cwd());
-  await new Promise(resolve=>setTimeout(resolve,500));
+  // Hold the damaged workspace until the HTTP harness confirms that the
+  // next action is durably queued. A time delay cannot establish admission.
+  const release=path.join(root,'cleanup-release');
+  const deadline=Date.now()+8000;
+  while(!fs.existsSync(release)) {
+   if(Date.now()>=deadline) throw Error('cleanup fixture queue-admission handshake timed out');
+   await new Promise(resolve=>setTimeout(resolve,20));
+  }
  }
  console.log(JSON.stringify({id:'0',ok:true,data:{case_id:req.args.case_id,passed:!failed,duration_ms:12,screenshot_base64:null,error_message:'fixture echo '+process.env.MIDSCENE_MODEL_API_KEY,retry_count:0,healed_yaml_script:null,failed_step:failed?'fixture assertion':null}}));
 }
@@ -141,7 +148,7 @@ def main():
             calls.append(json.loads(self.rfile.read(int(self.headers['Content-Length']))))
             content=([{'id':'flow-case','name':'Receipt','requirement_id':'receipt','type':'smoke','priority':'P1','yaml_script':'tasks: []','expected_result':'receipt matches submitted input','tags':[]}]
                 if len(calls)%2 else {'score':90,'issues':[],'suggestions':[],'coverage':'receipt'})
-            payload=json.dumps({'choices':[{'message':{'role':'assistant','content':json.dumps(content)}}]}).encode()
+            payload=json.dumps({'choices':[{'finish_reason':'stop','message':{'role':'assistant','content':json.dumps(content)}}]}).encode()
             self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     model=ThreadingHTTPServer(('127.0.0.1',0),Model)
     threading.Thread(target=model.serve_forever,daemon=True).start()
@@ -288,10 +295,19 @@ def main():
             require(not smoke.rpc('getExecutionFlows')['preparations'], 'restart restored memory-only credentials')
             # Real owned-process termination with an invalid workspace marker must quarantine
             # all subsequent queued work, and that quarantine must survive service restart.
+            blocked_preparation=prepare(long_value)
             (Path(directory)/'cleanup-damage').write_text('1')
             damaged_job=run(prepare(case_value))
             wait(lambda:(Path(directory)/'owned-workspace').exists(),'damaged workspace fixture not reached')
-            blocked_job=run(prepare(long_value))
+            try:
+                blocked_job=run(blocked_preparation)
+                queued=smoke.rpc('getFlowExecution',{'run_id':blocked_job['run_id']})
+                require(queued['status']=='queued' and queued['facts'] is None,
+                        'cleanup fixture did not hold the execution slot through queue admission')
+            finally:
+                # Release only after the admission attempt, including failure,
+                # so teardown cannot strand the test fixture process.
+                (Path(directory)/'cleanup-release').write_text('queue admission inspected')
             damaged=finish(damaged_job,'failed')
             require(damaged['facts']['cleanup_error'],'unconfirmed cleanup was lost')
             blocked=finish(blocked_job,'failed')

@@ -40,8 +40,11 @@ def main():
             elif self.path != '/v1/chat/completions' or self.headers.get('Authorization') != f'Bearer {key}':
                 fixture_errors.append('wrong fallback protocol/authentication')
             model = body['model']
-            if model in ('quota', 'denied'):
-                self.send_response(429 if model == 'quota' else 401)
+            if model in ('quota', 'denied') or model.startswith('wire-http-'):
+                status = int(model.removeprefix('wire-http-')) if model.startswith('wire-http-') else (429 if model == 'quota' else 401)
+                self.send_response(status)
+                if status == 302:
+                    self.send_header('Location', '/v1/chat/completions')
                 payload = json.dumps({'error': {'message': key}}).encode()
             else:
                 self.send_response(200)
@@ -62,7 +65,32 @@ def main():
                 payload = json.dumps({'type': 'message', 'role': 'assistant',
                     'stop_reason': 'refusal' if model == 'refusal' else 'end_turn',
                     'content': [{'type': 'text', 'text': text}]}
-                    if protocol == 'messages' else {'choices': [{'message': {'role': 'assistant', 'content': text}}]}).encode()
+                    if protocol == 'messages' else {'choices': [{'finish_reason': 'stop', 'message': {'role': 'assistant', 'content': text}}]}).encode()
+                if model.startswith('wire-'):
+                    value = {'choices':[{'finish_reason':'stop','message':{'role':'assistant','content':key}}]}
+                    choice = value['choices'][0]
+                    if model == 'wire-malformed':
+                        payload = ('invalid ' + key).encode()
+                    elif model == 'wire-oversize':
+                        payload = (key + 'x' * (4 * 1024 * 1024 + 1)).encode()
+                    else:
+                        if model == 'wire-missing-finish':
+                            del choice['finish_reason']
+                        elif model == 'wire-null-finish':
+                            choice['finish_reason'] = None
+                        elif model.startswith('wire-finish-'):
+                            choice['finish_reason'] = model.removeprefix('wire-finish-')
+                        elif model == 'wire-refusal':
+                            choice['message']['refusal'] = key
+                        elif model == 'wire-tool':
+                            choice['message']['tool_calls'] = [{'id':key}]
+                        elif model == 'wire-unknown-content':
+                            choice['message']['content'] = [{'type':'unknown','text':key}]
+                        elif model == 'wire-unknown-message':
+                            choice['message']['unknown'] = key
+                        elif model == 'wire-empty':
+                            value['choices'] = []
+                        payload = json.dumps(value).encode()
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()
@@ -157,8 +185,34 @@ def main():
             require(failed['status'] == 'failed' and len(requests) == before + 1, 'hard rejection triggered fallback')
             require(list((smoke.data / 'projects/smoke-beta/cases/draft').glob('*.json')) == native_saved,
                     'failed generation changed existing native cases')
+
+            # OpenAI-compatible authentication/protocol failures are terminal too.
+            # Every mode embeds the key in its body; no body may enter job errors.
+            primary = {**fallback, 'id':'open-primary','label':'OpenAI wire primary'}
+            registry = smoke.rpc('saveModel', {'profile':primary,'expected_revision':registry['revision']})
+            registry = smoke.rpc('setModelRoute', {'task':'generate','route':{'primary':'open-primary','fallbacks':['fallback']},'expected_revision':registry['revision']})
+            for mode in ('wire-http-400','wire-http-401','wire-http-403','wire-http-404','wire-http-408','wire-http-422','wire-http-302',
+                         'wire-malformed','wire-oversize','wire-missing-finish','wire-null-finish','wire-finish-length','wire-finish-content_filter',
+                         'wire-finish-tool_calls','wire-finish-function_call','wire-finish-unknown','wire-refusal','wire-tool','wire-unknown-content','wire-unknown-message','wire-empty'):
+                registry = smoke.rpc('saveModel', {'profile':{**primary,'model':mode},'expected_revision':registry['revision']})
+                before = len(requests)
+                observed = finish(smoke.rpc('runGenerate', {'project':'smoke-beta','requirement':'receipt','use_contracts':True}))
+                require(observed['status']=='failed' and len(requests)==before+1, f'{mode} called fallback or passed generation')
+                require(key not in json.dumps(observed), f'{mode} exposed response body')
+            for status in (429,503):
+                registry = smoke.rpc('saveModel', {'profile':{**primary,'model':f'wire-http-{status}'},'expected_revision':registry['revision']})
+                project = f'wire-{status}'
+                smoke.rpc('createProject', {'name':project,'url':f'https://{project}.invalid','tech_stack':[]})
+                before = len(requests)
+                observed = finish(smoke.rpc('runGenerate', {'project':project,'requirement':'receipt','use_contracts':False}))
+                require(observed['status']=='completed' and len(requests)==before+4, f'{status} did not follow approved two-phase fallback')
+                path = next((smoke.data/f'projects/{project}/cases/draft').glob('*.json'))
+                provenance = json.loads(path.read_text())['provenance']
+                for stage in ('generator','critic'):
+                    require([(a['profile_id'],a['outcome']) for a in provenance['model_calls'][stage]] == [('open-primary','transport_failure'),('fallback','succeeded')], 'OpenAI fallback trace differs from actual requests')
+                require(key not in path.read_text(), 'OpenAI fallback provenance exposed credential')
             require(not fixture_errors, 'wire fixture detected an invalid native request')
-            print('PASS native Messages text/JSON probe, protocol restrictions, approved cross-protocol generation/critic fallback, rejection and redacted provenance')
+            print('PASS Messages and OpenAI complete-output checks, hard rejection without fallback, bounded approved fallback, actual call counts and redacted provenance')
         finally:
             smoke.cleanup()
             model.shutdown()
