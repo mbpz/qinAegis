@@ -29,7 +29,7 @@ UI 使用 `npm ci`，Rust 使用 `--locked`，执行引擎使用 Node 24 与锁�
 
 归档只含服务和内嵌 UI。Node、Playwright 浏览器和 Midscene 执行器尚需单独准备；不能把网页打开视为自动化引擎安装完成。macOS/Linux 的用户目录安装脚本已有离线回归，Windows 当前为 ZIP 手工安装，尚无一键安装器。候选构建尚不包含签名、公证或全部系统干净机器验收。
 
-矩阵执行 UI 回归、Rust workspace 回归，以及隔离数据目录的服务启动/认证/契约生成/执行测试。另有 `test-case-assets.py`、`test-environment.py`、`test-task-history.py`，分别检查用例编辑与审核冲突、固定运行时环境操作、任务历史及重启中断；本批新增 `test-config-migration.py`、`test-report-maintenance.py` 检查迁移确认/秘密策略/原文冲突及报告残留归属/过期确认/证据保留。它们验证实际服务 RPC，不依赖真实远程模型。冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。
+矩阵执行 UI 回归、Rust workspace 回归，以及隔离数据目录的服务启动/认证/契约生成/执行测试。新增 `test-native-runtime.py` 覆盖原生上传的会话/CSRF/Origin、分块边界、重启偏移/预览、摘要拒绝、批准/修订及健康失败恢复；默认使用明确标记的不可执行 fixture，不代表实际引擎或干净安装通过。另有 `test-case-assets.py`、`test-environment.py`、`test-task-history.py`，分别检查用例编辑与审核冲突、固定运行时环境操作、任务历史及重启中断；本批新增 `test-config-migration.py`、`test-report-maintenance.py` 检查迁移确认/秘密策略/原文冲突及报告残留归属/过期确认/证据保留。它们验证实际服务 RPC，不依赖真实远程模型。冒烟步骤设 5 分钟上限并即时输出检查阶段，防止后台进程问题耗尽整个构建。
 
 Linux `engine-checks` job 安装锁定引擎，执行独立运行时打包和导入回归（`test-runtime-package.py`、`test-runtime-install.py`），构建并迁移运行时归档，再上传独立的 `standalone-runtime-linux-candidate`。该 artifact 与四平台基础服务候选包分开；其他运行时目标尚不能据此视为已验收。该 job 还核验官方 Allure 报告通过已打包服务的完整生成和读取链路。
 
@@ -86,3 +86,6 @@ M05 在四平台服务 smoke 新增 `scripts/test-model-protocols.py`：只连�
 T06 工作目录清理增量不修改发布矩阵：四平台 Rust 回归现在同时检查普通退出/异常退出、目录替换、缺失或超限标记、显式保留以及清理错误传播；Unix 另验证标记符号链接。Windows 采用持有的目录句柄和卷/128 位文件 ID，只有对应新修订的真实 Windows 运行才是该路径证据。跨重启自动恢复仍未实现，不能由目录名或 PID 推断可删除。
 
 M05 修订 `9dff2e0` 的 Release `44148136999` 四平台、engine-checks 和 assemble 全部通过；首次 ARM64 因托管 runner 容量不足取消，重试后实际执行通过。Pages `44148137089` 预览通过/生产部署跳过。下载候选独立核验 13 项 SHA 与四归档内外清单一致，来源 PR 合并提交 `81a922d6095b87d453a8e273ac6c727365c17d0a`。
+
+
+原生 Web 维护采用编译进服务的 `sha2`、关闭默认特性的 `tar` 和纯 Rust 后端 `flate2`，用户已明确授权保留三项最小库。最终用户通过 Environment 导入无需 Python 或全局 Node；CI 中 Python 用于构建/验收脚本，不是该导入路径的用户前置。真实运行时 HTTP 安装可通过 `test-native-runtime.py` 的 `--archive` 参数单独验证，捆绑 Node 健康不等于业务视觉或逐平台干净环境验收。完整维护边界及剩余证据见[原生维护方案](plans/native-runtime-maintenance.md)。

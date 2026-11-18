@@ -381,6 +381,8 @@ impl Default for AppState {
     }
 }
 
+pub(crate) type JobReporter = Arc<dyn Fn(&str) + Send + Sync>;
+
 impl AppState {
     pub fn new() -> anyhow::Result<Self> {
         let store = Arc::new(qin_aegis_core::jobs::JobStore::new(
@@ -412,10 +414,17 @@ impl AppState {
             app.jobs.lock().unwrap().insert(r.id, e);
         }
         app.history = Some(history);
+        if let Err(error) = crate::runtime_api::recover() {
+            eprintln!("Runtime recovery requires attention: {error}");
+        }
         Ok(app)
     }
 
     fn register_job(&self, id: &str, mut entry: JobEntry) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.jobs.lock().unwrap().values().any(|e| e.job_type == "runtimeMaintenance" && !e.worker_done),
+            "Runtime maintenance owns the execution slot; wait for cleanup to finish"
+        );
         if self.active_workers.load(Ordering::Acquire) >= 9 {
             anyhow::bail!("Task queue full: one execution slot and eight waiting tasks");
         }
@@ -839,9 +848,17 @@ impl AppState {
     where
         F: FnOnce(Arc<AtomicBool>) -> anyhow::Result<serde_json::Value> + Send + 'static,
     {
+        self.start_maintenance_reported(job_type, move |cancel, _| work(cancel))
+    }
+
+    fn start_maintenance_reported<F>(&mut self, job_type: &str, work: F) -> String
+    where
+        F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
+    {
         let id = self.job_id();
         let entry = JobEntry::new(job_type);
         let cancel = entry.cancel_flag.clone();
+        let output = entry.output.clone();
         if let Err(error) = self.register_job(&id, entry) {
             return serde_json::json!({"error":error.to_string()}).to_string();
         }
@@ -851,7 +868,10 @@ impl AppState {
         self.schedule(id.clone(), move || {
             let _guard = guard;
             _guard.start();
-            let outcome = work(cancel.clone());
+            let report: JobReporter = Arc::new(move |message| {
+                if let Ok(mut log) = output.lock() { log.push_str(message); }
+            });
+            let outcome = work(cancel.clone(), report);
             if let Ok(mut entries) = jobs.lock() {
                 if let Some(entry) = entries.get_mut(&job_id) {
                     if cancel.load(Ordering::Acquire) {
@@ -873,6 +893,34 @@ impl AppState {
             }
         });
         self.job_response(&id)
+    }
+
+    pub(crate) fn runtime_maintenance_active(&self) -> bool {
+        self.jobs.lock().unwrap().values().any(|e| e.job_type == "runtimeMaintenance" && !e.worker_done)
+    }
+
+    pub(crate) fn start_maintenance_value<F>(&mut self, kind: &str, work: F) -> anyhow::Result<serde_json::Value>
+    where
+        F: FnOnce(Arc<AtomicBool>) -> anyhow::Result<serde_json::Value> + Send + 'static,
+    {
+        let result: serde_json::Value = serde_json::from_str(&self.start_maintenance(kind, work))?;
+        if let Some(error) = result.get("error").and_then(serde_json::Value::as_str) {
+            anyhow::bail!("{error}");
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn start_runtime_maintenance<F>(&mut self, work: F) -> anyhow::Result<serde_json::Value>
+    where
+        F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
+    {
+        // The app mutex serializes admission. Queued tests have already frozen
+        // their inputs, so runtime replacement cannot join that queue.
+        anyhow::ensure!(self.active_workers.load(Ordering::Acquire) == 0,
+            "Wait for all running, queued and cancelling tasks before runtime maintenance");
+        let value: serde_json::Value = serde_json::from_str(&self.start_maintenance_reported("runtimeMaintenance", work))?;
+        if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) { anyhow::bail!("{error}"); }
+        Ok(value)
     }
 
     // ── Explore ──────────────────────────────────────────────────────────────
@@ -2484,6 +2532,77 @@ mod boundary_tests {
             "completed"
         );
     }
+    #[test]
+    fn maintenance_progress_is_scoped_bounded_and_redacted() {
+        let mut app = empty_app();
+        let mut config = AppConfig::default();
+        config.llm.api_key = "maintenance-secret-fixture".into();
+        app.config = Some(config);
+        let first = app.start_runtime_maintenance(|_, report| {
+            report(&"x".repeat(LOG_LIMIT * 2));
+            report("maintenance-secret-");
+            report("fixture\nfirst-phase-complete\n");
+            Ok(json!({}))
+        }).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.active_workers.load(Ordering::Acquire) != 0 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let second = app.start_runtime_maintenance(|_, report| {
+            report("second-phase-complete\n"); Ok(json!({}))
+        }).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.active_workers.load(Ordering::Acquire) != 0 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let jobs = app.jobs.lock().unwrap();
+        let first = jobs[first["jobId"].as_str().unwrap()].output.lock().unwrap();
+        assert!(first.text.len() <= LOG_LIMIT);
+        assert!(!first.text.contains("maintenance-secret-fixture"));
+        assert!(first.text.contains("first-phase-complete"));
+        assert!(!first.text.contains("second-phase-complete"));
+        let second = jobs[second["jobId"].as_str().unwrap()].output.lock().unwrap();
+        assert!(second.text.contains("second-phase-complete"));
+        assert!(!second.text.contains("first-phase-complete"));
+    }
+
+    #[test]
+    fn runtime_replacement_excludes_queued_work_and_retains_lease_until_cleanup() {
+        let mut app = empty_app();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        app.start_maintenance("running", move |_| {
+            started_tx.send(()).unwrap(); release_rx.recv().unwrap(); Ok(json!({}))
+        });
+        started_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        let queued: serde_json::Value = serde_json::from_str(&app.start_maintenance("queued", |_| Ok(json!({})))).unwrap();
+        assert!(app.start_runtime_maintenance(|_, _| panic!("must not replace queued runtime")).is_err());
+        assert!(app.stop_job(queued["jobId"].as_str().unwrap()).contains("true"));
+        release_tx.send(()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.active_workers.load(Ordering::Acquire) != 0 {
+            assert!(std::time::Instant::now() < deadline); std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let job = app.start_runtime_maintenance(move |_, _| {
+            started_tx.send(()).unwrap(); release_rx.recv().unwrap(); Ok(json!({}))
+        }).unwrap();
+        started_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert!(app.runtime_maintenance_active());
+        assert!(app.stop_job(job["jobId"].as_str().unwrap()).contains("true"));
+        assert!(app.start_maintenance("must_wait", |_| panic!("must not run during cleanup")).contains("cleanup"));
+        release_tx.send(()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.active_workers.load(Ordering::Acquire) != 0 {
+            assert!(std::time::Instant::now() < deadline); std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!app.runtime_maintenance_active());
+        assert!(app.start_runtime_maintenance(|_, _| Ok(json!({}))).is_ok());
+    }
+
     #[test]
     fn bounded_fifo_cancellation_and_snapshot_have_no_waiting_side_effects() {
         let mut app = empty_app();

@@ -29,7 +29,7 @@ Download the matching `qinaegis-x86_64-pc-windows-msvc.zip`, compare its hash wi
 
 ## Playwright + Midscene.js runtime
 
-The base package does not include the engine or automatically install it yet. Browsing assets and configuring the workbench require no Node runtime; executing engine-backed operations does.
+The base package does not include the engine or download it automatically. Browsing assets and configuring the workbench require no Node runtime; executing engine-backed operations does.
 
 An installed runtime directory must contain:
 
@@ -37,9 +37,9 @@ An installed runtime directory must contain:
 {"schema_version":1,"engine":"midscene","version":"your-verified-engine-version","entry":"dist/executor.js","node":"bin/node"}
 ```
 
-`entry` and optional `node` reference files inside that directory. Supply compiled executor resources, matching production dependencies and a compatible automation browser; a manifest alone is insufficient. Set `QINAEGIS_RUNTIME_DIR` to its absolute path **before starting the service**. Environment changes require restarting the service.
+`entry` and optional `node` reference files inside that directory. Supply compiled executor resources, matching production dependencies and a compatible automation browser; a manifest alone is insufficient. For an explicit external override, set `QINAEGIS_RUNTIME_DIR` to its absolute path **before starting the service**. Managed imports use the default data directory without this variable. Environment changes require restarting the service.
 
-For development only, prepare the repository's root `sandbox` dependencies/browser, then set `QINAEGIS_DEV_SANDBOX` to that absolute source directory. The development adapter uses `src/executor.ts` and `node_modules/tsx/dist/cli.mjs`. No implicit source-path fallback is used. Automated runtime downloads/repair and Web engine management are planned, not part of this installer.
+For development only, prepare the repository's root `sandbox` dependencies/browser, then set `QINAEGIS_DEV_SANDBOX` to that absolute source directory. The development adapter uses `src/executor.ts` and `node_modules/tsx/dist/cli.mjs`. No implicit source-path fallback is used. Environment can manage the default installation; changing that installation does not change an external or developer override.
 
 With compatible Node 24 installed, prepare the development engine from the 2.0 checkout:
 
@@ -58,13 +58,24 @@ Linux may also need Playwright's documented OS browser dependencies. Configure a
 
 ## Standalone runtime candidates
 
+### Import and maintain through Environment
+
+1. Choose **Runtime archive (.tar.gz)**, supply its trusted 64-character SHA-256, and click **Upload and verify archive**. The archive is limited to 1 GiB and transferred in 512 KiB chunks. The Rust service validates host, provenance, members and content without Python or global Node.
+2. Review the verified version, source and digest, then select **Approve this exact runtime change** and **Confirm installation**. A preview expires after 10 minutes; changed state requires a new preview. Refresh restores a pending preview but clears approval. **Discard pending preview** releases it.
+3. A successful upgrade retains the former current runtime as `previous`. If an older backup already exists, explicitly allow its discard after success. Use **Prepare rollback**, review and separately approve **Confirm rollback**. Content is checked again and failed activation restores the prior installation.
+4. Wait for running, queued and cancelling work to finish before maintenance. Switching blocks new task admission through cleanup. A retained upload can be explicitly discarded; restart never replays installation automatically.
+
+**Check available stable runtimes** explicitly queries compatible stable assets from the fixed `mbpz/qinAegis` GitHub publisher. Select a version and allow its download before verification; arbitrary URLs are not accepted. An empty list means no compatible archive/checksum pair is published, not that a candidate artifact has become a stable release. Network access occurs only on explicit query/download. Chromium remains separate.
+
+### Build or import offline with Python
+
 Build on the target host with Node 24 and pnpm 11.24.0: `python3 scripts/build-runtime.py`. It produces a separate archive and SHA-256 file under `build/runtime`; service archives do not include this engine. Verify the trusted checksum, stop the service, then import locally:
 
 ```bash
 python3 scripts/install-runtime.py /absolute/runtime.tar.gz --sha256 TRUSTED_SHA256 --data-dir /absolute/private-data
 ```
 
-Start subsequent service commands with `QINAEGIS_DATA_DIR=/absolute/private-data`. The installer verifies paths, host, content and checksum before switching `runtimes/midscene/current`, retaining the old directory as `previous`. It refuses an active service or an existing backup requiring a retention decision. A matching archive marker is insufficient: installed files are checked again. This tool currently requires Python on the importing machine; a complete one-click Web distribution remains pending.
+Start subsequent service commands with `QINAEGIS_DATA_DIR=/absolute/private-data`. The installer verifies paths, host, content and checksum before switching `runtimes/midscene/current`, retaining the old directory as `previous`. It refuses an active service or an existing backup requiring a retention decision. A matching archive marker is insufficient: installed files are checked again. This fallback requires Python on the importing machine and a stopped service. The Web import above runs inside the Rust service and has no Python prerequisite. Complete platform distribution acceptance remains open.
 
 In **Environment**, check runtime/browser facts, explicitly authorize **Install Chromium**, then inspect the actual launch result. Downloads use the selected runtime cache and do not install system libraries with elevated privileges. Browser/model compatibility and clean-machine acceptance remain separate.
 

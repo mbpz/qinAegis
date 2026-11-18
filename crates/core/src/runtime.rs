@@ -52,6 +52,7 @@ impl RuntimeResolver {
         if let Some(root) = std::env::var_os("QINAEGIS_DEV_SANDBOX") {
             return Self::developer(Path::new(&root));
         }
+        crate::runtime_install::Installer::new(&crate::LocalStorage::base_path())?.ensure_ready()?;
         Self::installed(&crate::LocalStorage::base_path().join("runtimes/midscene/current"))
             .context("Midscene engine unavailable; install its runtime or set QINAEGIS_RUNTIME_DIR")
     }

@@ -144,12 +144,38 @@ async fn run_managed(
         _ = cancelled(cancel) => Err(anyhow::anyhow!("Environment operation cancelled")),
         output = tokio::time::timeout(budget, operation) => output.map_err(|_| anyhow::anyhow!("Environment operation timed out")).and_then(|value|value),
     };
-    if result.is_err() {
-        owned.stop().await?;
-    } else {
-        owned.stopped = true;
+    // A successful direct child can still leave descendants. Confirm tree
+    // cleanup on both paths before any runtime directory may be switched.
+    match (result, owned.stop().await) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(cleanup)) => Err(anyhow::anyhow!("{error}; cleanup failed: {cleanup}")),
     }
-    result
+}
+
+pub(crate) fn healthcheck_at(root: &std::path::Path, cancel: Arc<AtomicBool>) -> Result<()> {
+    let runtime = RuntimeResolver::installed(root)?;
+    let mut cmd = command(&runtime)?;
+    cmd.args(["-e", r#"
+const fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
+(async()=>{
+ const root=process.env.QINAEGIS_CHECK_ROOT;
+ if(process.versions.node.split('.')[0]!=='24')throw Error('node version');
+ const manifest=JSON.parse(fs.readFileSync(path.join(root,'runtime.json')));
+ const provenance=JSON.parse(fs.readFileSync(path.join(root,'provenance.json')));
+ for(const name of ['playwright','@midscene/web','allure']){
+  const installed=JSON.parse(fs.readFileSync(path.join(root,'node_modules',name,'package.json'))).version;
+  if(typeof installed!=='string'||installed!==provenance.packages?.[name])throw Error('package version');
+ }
+ await import(pathToFileURL(path.join(root,manifest.entry)).href);
+ process.stdout.write(JSON.stringify({healthy:true}));
+})().catch(()=>process.exit(1));
+"#]);
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let bytes = rt.block_on(run_managed(&mut cmd, cancel, Duration::from_secs(30), true))?;
+    ensure!(serde_json::from_slice::<Value>(&bytes)?["healthy"] == true,
+        "Runtime health check failed; previous runtime retained");
+    Ok(())
 }
 
 // Version facts come from installed packages and a real headless browser launch.

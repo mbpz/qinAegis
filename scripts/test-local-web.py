@@ -32,7 +32,9 @@ def require(condition, message):
 class Smoke:
     def __init__(self, binary, directory):
         self.binary = binary
-        root = Path(directory)
+        # OS temp paths can contain aliases such as macOS /var -> /private/var.
+        # Use a real isolated data root; production runtime storage rejects linked ancestors.
+        root = Path(directory).resolve(strict=True)
         self.home = root / "home"
         self.data = root / "data"
         self.state = root / "state"

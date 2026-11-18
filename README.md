@@ -4,7 +4,7 @@ A local Web AI quality workbench based on **Playwright + Midscene.js visual test
 
 The product's central asset is the reusable test contract: business intent, inputs, preconditions, assertions and evidence remain separate from project bindings, models and engines. Versioned correction, extensible model routing and composable scenarios are the 2.0 direction. See [project memory](CONTEXT.md) and the [implementation plan](docs/plans/local-web.md) for scope and acceptance criteria.
 
-This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, full Web runtime maintenance, workflow execution and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
+This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, full runtime distribution acceptance, workflow execution and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
 
 Settings now offers reviewed migration from known configuration sources with an explicit credential choice, exact-content conflict checks and backup. Reports can inspect and explicitly clean verified owned staging residue while preserving execution evidence and completed reports. Windows managed processes use Job Objects and have passed Windows CI; per-engine cancellation timing remains pending.
 
@@ -57,11 +57,11 @@ Use the executable's full path if it is not on PATH. Closing the browser does no
 
 ## Installation and engines
 
-See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and frontend build tools are needed only for source builds. **Actual visual tests still require a prepared Playwright + Midscene.js engine**, including compatible Node and automation browser dependencies. The Environment page checks installed versions and actually launches Chromium; its download requires explicit consent. Full online engine distribution and Web runtime upgrades remain subsequent phases.
+See [INSTALL.md](INSTALL.md). The base executable embeds React assets; Rust and frontend build tools are needed only for source builds. **Actual visual tests still require a prepared Playwright + Midscene.js engine**, including compatible Node and automation browser dependencies. The Environment page checks installed versions and actually launches Chromium; its download requires explicit consent. Environment also imports trusted standalone archives, previews and confirms managed upgrades/rollback, and explicitly checks compatible stable publisher assets. Complete distribution and clean-machine acceptance remain open.
 
 - Installed runtime: `QINAEGIS_RUNTIME_DIR` points to an absolute directory containing a validated `runtime.json`, compiled executor and dependencies.
 - Development runtime: `QINAEGIS_DEV_SANDBOX` explicitly points to an absolute prepared `sandbox` source directory.
-- Host-native standalone runtime builds and verified local archive imports are available; see [installation](INSTALL.md).
+- Managed runtime: import a standalone archive and trusted SHA-256 in Environment; Rust handles verification and switching without Python or global Node. Chromium is a separate explicit install; see [installation](INSTALL.md).
 - Runtime discovery does not rely on the compiler's source directory or current working directory.
 - Performance and stress adapters require installed, verified Lighthouse/Locust environments; missing metrics fail explicitly. ZAP is unavailable until managed container cancellation is implemented.
 

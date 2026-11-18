@@ -1,3 +1,4 @@
+import RuntimeMaintenanceView from './RuntimeMaintenanceView';
 import { useRef, useState } from 'react';
 import { Button, Checkbox } from './ui';
 import JobProgress from './JobProgress';
@@ -33,6 +34,7 @@ export default function EnvironmentView() {
   }
   return <div className="view">
     <h2>Environment and engines</h2>
+    <RuntimeMaintenanceView />
     <p>Inspect the selected runtime and launch a temporary headless Chromium check. No project data or model calls are used.</p>
     {error && <p role="alert">{error}</p>}
     <section className="card">

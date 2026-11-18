@@ -57,7 +57,7 @@ qinaegis start --port 19877
 
 ## 安装与测试引擎
 
-见[安装说明](INSTALL_zh.md)。基础包包含已构建 UI，最终用户不需要 Rust 或前端开发环境；源码构建需要相应工具。**实际视觉测试仍需要已准备好的 Playwright + Midscene.js 引擎**、兼容 Node 和自动化浏览器。Environment 页面检测版本及真实浏览器启动，可明确授权安装 Chromium；完整运行时在线交付与 Web 升级仍待实现。
+见[安装说明](INSTALL_zh.md)。基础包包含已构建 UI，最终用户不需要 Rust 或前端开发环境；源码构建需要相应工具。**实际视觉测试仍需要已准备好的 Playwright + Midscene.js 引擎**、兼容 Node 和自动化浏览器。Environment 页面可原生导入可信运行时归档、预览并确认升级/回滚、显式查询兼容的稳定发布资产，并检查版本与真实浏览器启动。导入无需本机 Python 或全局 Node；Chromium 仍需另行明确授权安装。完整在线交付和干净环境仍待验收。
 
 - `QINAEGIS_RUNTIME_DIR`：安装后的运行时绝对目录，包含 `runtime.json`、编译后的执行器及依赖。
 - `QINAEGIS_DEV_SANDBOX`：显式指定已安装依赖的 sandbox 源码绝对目录，仅用于开发。

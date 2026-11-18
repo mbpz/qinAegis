@@ -27,7 +27,7 @@
 | [流程实际执行路径](plans/flow-execution-acceptance.md) | F04/F05 分步实现和验收门槛；仍待实现 |
 | [独立模型协议验收](plans/model-protocol-acceptance.md) | 原生 Messages 与批准的跨协议备用；本机协议及 Web 验证范围 |
 | [执行器目录清理边界](plans/engine-workspace-cleanup.md) | T06 所有权与错误传播；跨重启恢复仍待实现 |
-| [原生运行时维护方案](plans/native-runtime-maintenance.md) | R03/R05 导入、升级与回滚；依赖授权待答，尚未实现 |
+| [原生运行时维护方案](plans/native-runtime-maintenance.md) | R03/R05 原生 Web 导入、升级与回滚；最小 Rust 库已获授权，完整交付验收仍有缺口 |
 | [自动打包与官网迭代](plans/distribution-pages-2.0.md) | 分支候选包、独立 Pages 构建和正式发布边界 |
 
 方案定义目标，进度记录事实；候选包 CI 通过不等于真实业务视觉验证、干净机器安装或完整 2.0 GA。公开网站不读取本机工作台数据。系统无障碍控制是规划中的可选能力，需要单独授权和平台验收。

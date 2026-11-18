@@ -1,3 +1,4 @@
+import type { RuntimeMaintenance, RuntimePreview } from '../types/runtime_maintenance';
 import type { FlowDraft, FlowLibrary, FlowValidation, FlowsResponse, FlowPlan, PrepareFlowPlan } from '../types/flows';
 export interface ProjectSpec {project: string; exists: boolean; markdown: string; revision: string | null}
 // Shared RPC client — single source of truth
@@ -109,6 +110,43 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  getRuntimeMaintenance(): Promise<RuntimeMaintenance> { return call('getRuntimeMaintenance'); },
+  beginRuntimeUpload(size: number, expected_sha256: string): Promise<{upload_id: string; received: number}> { return call('beginRuntimeUpload', {size, expected_sha256}); },
+  abortRuntimeUpload(upload_id: string): Promise<{ok: boolean}> { return call('abortRuntimeUpload', {upload_id}); },
+  prepareRuntimeInstall(upload_id: string): Promise<JobStartResult> { return call('prepareRuntimeInstall', {upload_id}); },
+  discardRuntimePreview(preview_token: string): Promise<JobStartResult> { return call('discardRuntimePreview', {preview_token}); },
+  listRuntimeDownloads(): Promise<JobStartResult> { return call('listRuntimeDownloads'); },
+  prepareRuntimeDownload(asset_id: string): Promise<JobStartResult> { return call('prepareRuntimeDownload', {asset_id}); },
+  prepareRuntimeRollback(): Promise<JobStartResult> { return call('prepareRuntimeRollback'); },
+  confirmRuntimeChange(preview: RuntimePreview, discard_previous: boolean): Promise<JobStartResult> {
+    return call(preview.operation === 'rollback' ? 'confirmRuntimeRollback' : 'confirmRuntimeInstall', {
+      preview_token: preview.preview_token, expected_revision: preview.expected_revision, discard_previous, approved: true,
+    });
+  },
+  async uploadRuntimeChunk(upload_id: string, offset: number, chunk: Blob, signal: AbortSignal): Promise<{received: number}> {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(upload_id) || !Number.isSafeInteger(offset) || offset < 0 || chunk.size > 512 * 1024 || chunk.size === 0) throw new RpcError('Invalid upload chunk');
+    const csrf = await session();
+    signal.throwIfAborted();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener('abort', abort, {once: true});
+    const timeout = setTimeout(abort, DEFAULT_TIMEOUT);
+    try {
+      const response = await fetch(`/api/v2/runtime-upload/${upload_id}/${offset}`, {
+        method: 'PUT', credentials: 'same-origin', signal: controller.signal,
+        headers: {'Content-Type': 'application/octet-stream', 'X-Qinaegis-CSRF': csrf}, body: chunk,
+      });
+      if (response.status === 401) sessionPromise = undefined;
+      const result = await response.json();
+      if (!response.ok) throw new RpcError(result?.error?.message || 'Runtime upload failed', 'HTTP_ERROR');
+      if (result.received !== offset + chunk.size) throw new RpcError('Upload offset mismatch', 'PROTOCOL_ERROR');
+      return result;
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+    }
+  },
+
   getFlows(): Promise<FlowsResponse> { return call('getFlows'); },
   saveFlowDraft(draft: FlowDraft, expected_revision: number): Promise<FlowLibrary> { return call('saveFlowDraft', {draft, expected_revision}); },
   validateFlowDraft(draft: FlowDraft): Promise<FlowValidation> { return call('validateFlowDraft', {draft}); },

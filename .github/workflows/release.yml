@@ -60,10 +60,11 @@ jobs:
           path: build/runtime/*
           if-no-files-found: error
           retention-days: 14
-      - name: Validate official Allure through the packaged local service
+      - name: Validate native runtime switching and official Allure through the packaged local service
         shell: bash
         run: |
           tar -xzf build/allure-check/qinaegis-x86_64-unknown-linux-gnu.tar.gz -C build/allure-check
+          python3 scripts/test-native-runtime.py "$PWD/build/allure-check/qinaegis" --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz --exercise-switches
           python3 scripts/test-allure.py "$PWD/build/allure-check/qinaegis"
   build:
     timeout-minutes: 60
@@ -125,6 +126,7 @@ jobs:
           BINARY="$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
           if [[ "$RUNNER_OS" == "Windows" ]]; then BINARY="$(cygpath -w "$BINARY")"; fi
           python scripts/test-local-web.py "$BINARY"
+          python scripts/test-native-runtime.py "$BINARY"
           echo "::group::Contract generation smoke"
           python scripts/test-contract-generation.py "$BINARY"
           echo "::endgroup::"

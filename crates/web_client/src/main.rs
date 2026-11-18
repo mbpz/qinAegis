@@ -10,6 +10,7 @@ mod environment;
 mod lifecycle;
 mod model_api;
 mod report_maintenance;
+mod runtime_api;
 mod server;
 
 #[tokio::main]

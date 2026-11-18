@@ -5,7 +5,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -156,6 +156,7 @@ pub fn router(state: ServerState) -> Router {
         .route("/api/v2/launch", post(launch))
         .route("/api/v2/shutdown", post(shutdown))
         .route("/api/v2/rpc", post(rpc))
+        .route("/api/v2/runtime-upload/{id}/{offset}", put(runtime_upload))
         .route("/api/v2/allure/{project}/{run_id}", get(allure_report))
         .fallback(static_asset)
         .layer(DefaultBodyLimit::max(1024 * 1024))
@@ -350,19 +351,46 @@ struct RpcRequest {
 fn empty_params() -> Value {
     json!({})
 }
+fn authorized_mutation(state: &ServerState, headers: &HeaderMap) -> bool {
+    headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) == Some(state.origin.as_str())
+        && state.csrf(headers).is_some_and(|csrf| headers.get("x-qinaegis-csrf")
+            .and_then(|v| v.to_str().ok()).is_some_and(|v| secret_eq(v, &csrf)))
+}
+async fn runtime_upload(State(state): State<ServerState>, request: Request) -> Response {
+    if !authorized_mutation(&state, request.headers()) {
+        return failure(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Valid local session and CSRF token required");
+    }
+    let parts: Vec<_> = request.uri().path().split('/').collect();
+    let id = parts.get(4).copied().unwrap_or("").to_owned();
+    let offset = parts.get(5).and_then(|s| s.parse::<u64>().ok());
+    if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) || offset.is_none() {
+        return failure(StatusCode::BAD_REQUEST, "INVALID_UPLOAD", "Invalid upload identity or offset");
+    }
+    let bytes = match axum::body::to_bytes(request.into_body(), qin_aegis_core::runtime_transfer::CHUNK_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => return failure(StatusCode::PAYLOAD_TOO_LARGE, "CHUNK_LIMIT", "Runtime chunks must not exceed 512 KiB"),
+    };
+    let Ok(permit) = state.blocking_work.clone().try_acquire_owned() else {
+        return failure(StatusCode::SERVICE_UNAVAILABLE, "BUSY", "Application work queue is full");
+    };
+    match tokio::task::spawn_blocking(move || -> anyhow::Result<u64> {
+        let _permit = permit;
+        let app = state.app.lock().map_err(|_| anyhow::anyhow!("Application state unavailable"))?;
+        anyhow::ensure!(!state.stopping.load(Ordering::Acquire), "Service is shutting down");
+        anyhow::ensure!(!app.runtime_maintenance_active(), "Wait for runtime maintenance cleanup before uploading");
+        crate::runtime_api::transfers()?.append(&id, offset.unwrap(), &bytes)
+    }).await {
+        Ok(Ok(received)) => Json(json!({"received":received})).into_response(),
+        Ok(Err(error)) => failure(StatusCode::CONFLICT, "UPLOAD_REJECTED", &error.to_string()),
+        Err(_) => failure(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL", "Upload operation failed"),
+    }
+}
 async fn rpc(
     State(state): State<ServerState>,
     headers: HeaderMap,
     Json(body): Json<RpcRequest>,
 ) -> Response {
-    let authorized = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
-        == Some(state.origin.as_str())
-        && state.csrf(&headers).is_some_and(|csrf| {
-            headers
-                .get("x-qinaegis-csrf")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| secret_eq(v, &csrf))
-        });
+    let authorized = authorized_mutation(&state, &headers);
     if !authorized {
         return failure(
             StatusCode::UNAUTHORIZED,

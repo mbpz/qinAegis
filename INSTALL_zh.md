@@ -29,7 +29,7 @@ sh install.sh --version 2.0.0
 
 ## Playwright + Midscene.js 引擎
 
-基础包尚不自动安装引擎。浏览资产和设置不需要 Node；实际执行视觉测试需要兼容 Node、Playwright/Midscene.js 及自动化浏览器。
+基础包不包含引擎，也不自动联网下载。浏览资产和设置不需要 Node；实际执行视觉测试需要兼容 Node、Playwright/Midscene.js 及自动化浏览器。
 
 安装式运行时目录须包含以下清单及真实配套文件：
 
@@ -37,9 +37,9 @@ sh install.sh --version 2.0.0
 {"schema_version":1,"engine":"midscene","version":"your-verified-engine-version","entry":"dist/executor.js","node":"bin/node"}
 ```
 
-将示例 `version` 替换为已验证的引擎版本，仅使用 ASCII 字母、数字、点、连字符或下划线。`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器，在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录。修改环境变量后重启服务。
+将示例 `version` 替换为已验证的引擎版本，仅使用 ASCII 字母、数字、点、连字符或下划线。`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器。显式外部覆盖可在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录；默认受管安装不需要此变量。修改环境变量后重启服务。
 
-开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。自动下载/修复引擎和完整 Web 引擎管理属于后续阶段。
+开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。Environment 管理默认安装；切换默认安装不会改变显式外部或开发覆盖。
 
 已安装兼容的 Node 24 时，在 2.0 源码目录准备开发引擎：
 
@@ -58,13 +58,24 @@ Linux 还可能需要 Playwright 文档要求的浏览器系统依赖。执行 A
 
 ## 独立运行时候选包
 
+### 在 Environment 导入和维护
+
+1. 选择 **Runtime archive (.tar.gz)**，填写可信渠道提供的 64 位 SHA-256，点击 **Upload and verify archive**。归档上限 1 GiB，按 512 KiB 分块传输。Rust 服务校验宿主、来源、成员和内容，无需本机 Python 或全局 Node。
+2. 核对预览的版本、来源和摘要，勾选 **Approve this exact runtime change**，点击 **Confirm installation**。预览有效期 10 分钟，状态变化后重新准备；刷新可恢复预览，但批准会清除。**Discard pending preview** 明确丢弃待确认预览。
+3. 成功升级将原 current 保留为 previous；已有更旧备份时，需明确允许成功后丢弃。回滚使用 **Prepare rollback**，再次核对、批准并点击 **Confirm rollback**。切换前重新核验内容，激活失败恢复原安装。
+4. 等待运行中、排队及取消清理任务完成后维护；切换至清理结束期间拒绝新任务。残留上传可明确丢弃；服务重启不会自动重放安装。
+
+**Check available stable runtimes** 由用户显式查询固定 `mbpz/qinAegis` GitHub 发布源的兼容稳定资产；选择版本并允许下载后才下载校验，不接受任意 URL。空列表表示没有兼容的归档/摘要对，不能把候选 CI artifact 当作稳定版本。页面载入不自动查询；Chromium 仍独立安装。
+
+### 构建或使用 Python 离线导入
+
 构建机准备 Node 24 与 pnpm 11.24.0，运行 `python3 scripts/build-runtime.py`，在 `build/runtime` 生成独立归档与摘要；基础服务归档不包含引擎。核对可信 SHA-256、停止服务后本地导入：
 
 ```bash
 python3 scripts/install-runtime.py /绝对路径/runtime.tar.gz --sha256 可信SHA256 --data-dir /绝对路径/私有数据
 ```
 
-后续服务命令设置同一 `QINAEGIS_DATA_DIR`。安装器校验归档边界、宿主、内容和摘要，暂存后切换 `runtimes/midscene/current`，旧目录保留为 `previous`。服务活动或已有备份需人工决定保留时明确拒绝；不能只凭摘要标记跳过文件完整性检查。该导入工具当前仍需要本机 Python，完整一键 Web 分发尚待实现。
+后续服务命令设置同一 `QINAEGIS_DATA_DIR`。安装器校验归档边界、宿主、内容和摘要，暂存后切换 `runtimes/midscene/current`，旧目录保留为 `previous`。服务活动或已有备份需人工决定保留时明确拒绝；不能只凭摘要标记跳过文件完整性检查。该备用导入工具需要本机 Python 且必须停止服务；上述 Web 原生导入无需 Python。完整逐平台交付仍待验收。
 
 **Environment** 可检测运行时和浏览器，明确授权 **Install Chromium** 后安装匹配浏览器，并显示实际启动结果。下载使用选定运行时缓存，不提权安装系统库。真实模型兼容与干净机器验收另行完成。
 
