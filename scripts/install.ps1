@@ -144,7 +144,7 @@ try {
             $Checksum = $matches[0].Substring(0,64)
         }
         if ($Checksum -notmatch '^[0-9a-fA-F]{64}$') { throw 'Archive requires an exact SHA256 checksum.' }
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        Add-Type -AssemblyName System.IO.Compression
         $archiveStream = [IO.File]::Open([IO.Path]::GetFullPath($Archive),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
         $zip = $null
         try {
