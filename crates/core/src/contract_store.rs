@@ -1,6 +1,7 @@
 //! Local reusable contract library. Every mutation validates a complete snapshot
 //! under a process lock and commits it with compare-and-swap revision semantics.
 use crate::asset_file::AssetFile;
+use crate::contract_correction::{CorrectionObservation, ModelCorrectionSource};
 use crate::contracts::{ContractDraft, ProjectBinding, PublishedContract, ReviewerKind};
 use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,8 @@ pub struct StoredCorrection {
     pub evidence: Vec<String>,
     pub status: CorrectionStatus,
     pub reviewer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_source: Option<ModelCorrectionSource>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -76,6 +79,7 @@ pub struct ContractLibrary {
     pub deprecations: Vec<Deprecation>,
     pub derivations: Vec<Derivation>,
     pub migrations: Vec<Migration>,
+    pub observations: Vec<CorrectionObservation>,
 }
 
 impl Default for ContractLibrary {
@@ -90,6 +94,7 @@ impl Default for ContractLibrary {
             deprecations: vec![],
             derivations: vec![],
             migrations: vec![],
+            observations: vec![],
         }
     }
 }
@@ -109,6 +114,8 @@ struct LibraryRecord {
     derivations: Vec<Derivation>,
     #[serde(default)]
     migrations: Vec<Migration>,
+    #[serde(default)]
+    observations: Vec<CorrectionObservation>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +140,7 @@ impl TryFrom<LibraryRecord> for ContractLibrary {
             deprecations: record.deprecations,
             derivations: record.derivations,
             migrations: record.migrations,
+            observations: record.observations,
         };
         for binding in record.bindings {
             library.bindings.push(
@@ -227,6 +235,18 @@ impl ContractLibrary {
                 proposal.original_version.checked_add(1) == Some(proposal.replacement.version),
                 "correction must target the next version"
             );
+            if let Some(source) = &proposal.model_source {
+                source.validate(
+                    &proposal.replacement,
+                    &proposal.reason,
+                    &proposal.evidence,
+                    original,
+                )?;
+                ensure!(
+                    source.input.library_revision < self.revision,
+                    "model correction source revision is invalid"
+                );
+            }
             match proposal.status {
                 CorrectionStatus::Pending => ensure!(
                     proposal.reviewer.is_none(),
@@ -251,6 +271,34 @@ impl ContractLibrary {
                     );
                 }
             }
+        }
+        let mut observation_ids = BTreeSet::new();
+        for observation in &self.observations {
+            observation.validate()?;
+            ensure!(
+                observation_ids.insert((
+                    &observation.proposal_id,
+                    &observation.project,
+                    &observation.run_id,
+                    &observation.case_id
+                )),
+                "duplicate correction observation"
+            );
+            let proposal = self
+                .proposals
+                .iter()
+                .find(|p| p.id == observation.proposal_id)
+                .context("observation proposal missing")?;
+            ensure!(
+                proposal.status == CorrectionStatus::Approved
+                    && observation.contract_version == proposal.replacement.version,
+                "observation requires approved replacement"
+            );
+            ensure!(
+                &observation.input.publication
+                    == self.publication(&proposal.replacement.id, proposal.replacement.version)?,
+                "observation publication differs"
+            );
         }
         let mut deprecated = BTreeSet::new();
         for d in &self.deprecations {
@@ -350,7 +398,16 @@ impl ContractStore {
         expected: u64,
         change: impl FnOnce(&mut ContractLibrary) -> Result<()>,
     ) -> Result<ContractLibrary> {
+        self.update_checked(expected, change, || Ok(()))
+    }
+    fn update_checked(
+        &self,
+        expected: u64,
+        change: impl FnOnce(&mut ContractLibrary) -> Result<()>,
+        before_commit: impl Fn() -> Result<()>,
+    ) -> Result<ContractLibrary> {
         let guard = self.file.lock()?;
+        before_commit()?;
         let mut library: ContractLibrary = match guard.read()? {
             Some(bytes) => serde_json::from_slice(&bytes).context("invalid contract library")?,
             None => ContractLibrary::default(),
@@ -367,7 +424,11 @@ impl ContractStore {
             .checked_add(1)
             .context("library revision exhausted")?;
         library.validate()?;
-        guard.write(&serde_json::to_vec_pretty(&library)?)?;
+        let bytes = serde_json::to_vec_pretty(&library)?;
+        // This is the atomic commit boundary. Cancellation accepted before it
+        // cannot persist a proposal; an already begun write is not retractable.
+        before_commit()?;
+        guard.write(&bytes)?;
         Ok(library)
     }
 
@@ -410,34 +471,116 @@ impl ContractStore {
         evidence: Vec<String>,
         expected: u64,
     ) -> Result<ContractLibrary> {
-        self.update(expected, |lib| {
-            ensure!(
-                version == lib.latest(contract_id),
-                "correction base is stale"
-            );
-            ensure!(
-                replacement.version == lib.next(contract_id)?,
-                "correction must target next version"
-            );
-            lib.publication(contract_id, version)?.propose_correction(
-                replacement.clone(),
-                reason,
-                evidence.clone(),
-            )?;
-            lib.proposals.push(StoredCorrection {
-                id: format!(
-                    "correction-{}",
-                    expected.checked_add(1).context("revision exhausted")?
-                ),
-                original_version: version,
-                replacement,
-                reason: reason.into(),
-                evidence,
-                status: CorrectionStatus::Pending,
-                reviewer: None,
-            });
-            Ok(())
-        })
+        self.propose_with_source(
+            contract_id,
+            version,
+            replacement,
+            reason,
+            evidence,
+            expected,
+            None,
+            None,
+        )
+    }
+
+    pub fn propose_model(
+        &self,
+        replacement: ContractDraft,
+        reason: &str,
+        source: ModelCorrectionSource,
+        expected: u64,
+    ) -> Result<ContractLibrary> {
+        ensure!(
+            source.input.library_revision == expected,
+            "model correction source revision mismatch"
+        );
+        self.propose_with_source(
+            &source.input.contract_id.clone(),
+            source.input.version,
+            replacement,
+            reason,
+            source.evidence_tokens.clone(),
+            expected,
+            Some(source),
+            None,
+        )
+    }
+
+    pub fn propose_model_cancellable(
+        &self,
+        replacement: ContractDraft,
+        reason: &str,
+        source: ModelCorrectionSource,
+        expected: u64,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<ContractLibrary> {
+        ensure!(
+            source.input.library_revision == expected,
+            "model correction source revision mismatch"
+        );
+        self.propose_with_source(
+            &source.input.contract_id.clone(),
+            source.input.version,
+            replacement,
+            reason,
+            source.evidence_tokens.clone(),
+            expected,
+            Some(source),
+            Some(cancel),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn propose_with_source(
+        &self,
+        contract_id: &str,
+        version: u32,
+        replacement: ContractDraft,
+        reason: &str,
+        evidence: Vec<String>,
+        expected: u64,
+        model_source: Option<ModelCorrectionSource>,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<ContractLibrary> {
+        self.update_checked(
+            expected,
+            |lib| {
+                ensure!(
+                    version == lib.latest(contract_id),
+                    "correction base is stale"
+                );
+                ensure!(
+                    replacement.version == lib.next(contract_id)?,
+                    "correction must target next version"
+                );
+                lib.publication(contract_id, version)?.propose_correction(
+                    replacement.clone(),
+                    reason,
+                    evidence.clone(),
+                )?;
+                lib.proposals.push(StoredCorrection {
+                    id: format!(
+                        "correction-{}",
+                        expected.checked_add(1).context("revision exhausted")?
+                    ),
+                    original_version: version,
+                    replacement,
+                    reason: reason.into(),
+                    evidence,
+                    status: CorrectionStatus::Pending,
+                    reviewer: None,
+                    model_source,
+                });
+                Ok(())
+            },
+            || {
+                ensure!(
+                    !cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Acquire)),
+                    "Contract correction cancelled before commit"
+                );
+                Ok(())
+            },
+        )
     }
 
     pub fn review(
@@ -481,6 +624,39 @@ impl ContractStore {
                 CorrectionStatus::Rejected
             };
             lib.proposals[index].reviewer = Some(reviewer.into());
+            Ok(())
+        })
+    }
+
+    pub fn observe_correction(
+        &self,
+        proposal_id: &str,
+        record: &crate::execution_records::RunRecord,
+        case_id: &str,
+        expected: u64,
+    ) -> Result<ContractLibrary> {
+        self.update(expected, |lib| {
+            let proposal = lib
+                .proposals
+                .iter()
+                .find(|p| p.id == proposal_id)
+                .context("correction proposal not found")?;
+            ensure!(
+                proposal.status == CorrectionStatus::Approved,
+                "correction must be approved before observation"
+            );
+            let publication =
+                lib.publication(&proposal.replacement.id, proposal.replacement.version)?;
+            let observation =
+                CorrectionObservation::prepare(proposal_id, record, case_id, publication)?;
+            ensure!(
+                !lib.observations.iter().any(|o| o.proposal_id == proposal_id
+                    && o.project == record.project
+                    && o.run_id == record.run_id
+                    && o.case_id == case_id),
+                "observation already recorded"
+            );
+            lib.observations.push(observation);
             Ok(())
         })
     }
@@ -1062,5 +1238,42 @@ mod tests {
         assert!(ContractStore::new(alias.join("library.json"))
             .snapshot()
             .is_err());
+    }
+    #[test]
+    fn cancellation_after_lock_and_before_commit_preserves_exact_library() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let store = ContractStore::new(dir.path().join("library.json"));
+        let original = published(&store);
+        let before = std::fs::read(dir.path().join("library.json")).unwrap();
+        let cancel = AtomicBool::new(false);
+        let result = store.update_checked(
+            original.revision,
+            |lib| {
+                lib.drafts.push(draft("receipt", 2));
+                // Deterministic cancellation after admission under the lock, before
+                // serialization/commit. A preceding async select cannot catch it.
+                cancel.store(true, Ordering::Release);
+                Ok(())
+            },
+            || {
+                ensure!(!cancel.load(Ordering::Acquire), "cancelled before commit");
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read(dir.path().join("library.json")).unwrap(),
+            before
+        );
+        assert_eq!(store.snapshot().unwrap(), original);
+        // Contention is explicitly fail-fast; it never queues a late write.
+        let guard = store.file.lock().unwrap();
+        assert!(store
+            .update_checked(original.revision, |_| Ok(()), || Ok(()))
+            .is_err());
+        cancel.store(true, Ordering::Release);
+        drop(guard);
+        assert_eq!(store.snapshot().unwrap(), original);
     }
 }

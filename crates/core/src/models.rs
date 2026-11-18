@@ -636,6 +636,93 @@ impl ResolvedModelRoute {
     }
 }
 
+/// Private, generation-only compatibility route. Configured destinations retain
+/// their existing authorization; provider labels never select a different wire.
+/// Freeze resolved configuration before queueing. Never serialize or Debug it.
+pub struct LegacyGenerationRoute {
+    profiles: Vec<ModelProfile>,
+}
+impl LegacyGenerationRoute {
+    pub fn freeze(
+        primary: crate::llm::ProviderConfig,
+        secondary: Option<crate::llm::ProviderConfig>,
+    ) -> Result<Self> {
+        let mut profiles = Vec::new();
+        // Profile validation performs no file access.
+        let validator = ModelRegistry::new(PathBuf::new());
+        for (id, configured) in std::iter::once(("legacy-primary", primary))
+            .chain(secondary.map(|p| ("legacy-secondary", p)))
+        {
+            ensure!(
+                configured.is_configured(),
+                "legacy generation model is incomplete"
+            );
+            let profile = ModelProfile {
+                id: id.into(),
+                label: id.into(),
+                adapter: "openai_compatible".into(),
+                base_url: configured.base_url,
+                api_key: configured.api_key,
+                model: configured.model,
+                capabilities: vec!["text".into()],
+                enabled: true,
+                allow_remote: true,
+                midscene_family: None,
+            };
+            validator.validate_profile(&profile)?;
+            profiles.push(profile);
+        }
+        let route = Self { profiles };
+        let metadata = route.snapshot().to_string();
+        ensure!(
+            route.profiles.iter().all(|p| !metadata.contains(&p.api_key)
+                && route
+                    .profiles
+                    .iter()
+                    .all(|candidate| !candidate.model.contains(&p.api_key))),
+            "legacy generation metadata contains a credential"
+        );
+        Ok(route)
+    }
+    pub fn candidates(&self) -> &[ModelProfile] {
+        &self.profiles
+    }
+    pub fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({"source":"legacy_config","model":self.profiles[0].model,
+            "candidates":self.profiles.iter().map(|p| serde_json::json!({
+                "id":p.id,"adapter":p.adapter,"model":p.model,
+                "capabilities":p.capabilities,"midscene_family":p.midscene_family
+            })).collect::<Vec<_>>()})
+    }
+    pub fn build_client_with_trace(&self) -> Result<(ArcLlmClient, Arc<ModelCallTrace>)> {
+        let trace = Arc::new(ModelCallTrace::default());
+        let mut clients = Vec::new();
+        for profile in &self.profiles {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|_| anyhow::anyhow!("cannot initialize model HTTP client"))?;
+            clients.push((
+                profile.id.clone(),
+                ArcLlmClient::new(OpenAiCompatibleClient {
+                    profile: profile.clone(),
+                    client,
+                    default_max_tokens: 1024,
+                }),
+            ));
+        }
+        Ok((
+            ArcLlmClient::new(RegisteredClient {
+                clients,
+                capabilities: BTreeSet::from(["text".into()]),
+                trace: Some(trace.clone()),
+            }),
+            trace,
+        ))
+    }
+}
+
 /// Bounded metadata only; callers must snapshot and atomically save it with their asset.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -966,12 +1053,14 @@ impl ModelAdapterFactory for OpenAiCompatibleFactory {
         Ok(ArcLlmClient::new(OpenAiCompatibleClient {
             profile: profile.clone(),
             client,
+            default_max_tokens: 4096,
         }))
     }
 }
 struct OpenAiCompatibleClient {
     profile: ModelProfile,
     client: reqwest::Client,
+    default_max_tokens: u32,
 }
 #[derive(Deserialize)]
 struct Completion {
@@ -1049,7 +1138,7 @@ impl LlmClient for OpenAiCompatibleClient {
         if let Some(system) = options.system_prompt {
             conversation.insert(0, Message::system(system));
         }
-        let mut body = serde_json::json!({"model":self.profile.model,"messages":conversation,"max_tokens":options.max_tokens.unwrap_or(4096)});
+        let mut body = serde_json::json!({"model":self.profile.model,"messages":conversation,"max_tokens":options.max_tokens.unwrap_or(self.default_max_tokens)});
         if let Some(temperature) = options.temperature {
             body["temperature"] = serde_json::json!(temperature);
         }
@@ -1874,7 +1963,115 @@ mod tests {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap(),
+            default_max_tokens: 4096,
         })
+    }
+    fn legacy_provider(endpoint: String, model: &str) -> crate::llm::ProviderConfig {
+        crate::llm::ProviderConfig {
+            provider: "anthropic_messages".into(), // A label cannot change the legacy wire.
+            base_url: endpoint,
+            api_key: "private-test-key".into(),
+            model: model.into(),
+        }
+    }
+    #[test]
+    fn legacy_generation_freezes_bounded_safe_candidates_and_rejects_credentials_in_metadata() {
+        let mut primary = legacy_provider("http://127.0.0.1:9/v1".into(), "original");
+        let frozen = LegacyGenerationRoute::freeze(
+            primary.clone(),
+            Some(legacy_provider(
+                "http://127.0.0.1:10/v1".into(),
+                "secondary",
+            )),
+        )
+        .unwrap();
+        primary.model = "changed".into();
+        primary.api_key = "changed-key".into();
+        let snapshot = frozen.snapshot();
+        assert_eq!(snapshot["model"], "original");
+        assert_eq!(snapshot["candidates"][0]["id"], "legacy-primary");
+        assert_eq!(snapshot["candidates"][1]["id"], "legacy-secondary");
+        assert_eq!(snapshot["candidates"][0]["adapter"], "openai_compatible");
+        assert_eq!(frozen.candidates()[0].api_key, "private-test-key");
+        for private in ["private-test-key", "127.0.0.1", "changed-key"] {
+            assert!(!snapshot.to_string().contains(private));
+        }
+        let mut escaped = legacy_provider("http://127.0.0.1:9/v1".into(), "one");
+        escaped.api_key = "quoted-\"credential".into();
+        escaped.model = escaped.api_key.clone();
+        assert!(LegacyGenerationRoute::freeze(escaped, None).is_err());
+        for mutation in 0..4 {
+            let mut invalid = legacy_provider("http://127.0.0.1:9/v1".into(), "one");
+            match mutation {
+                0 => invalid.base_url = "https://example.invalid/v1?key=secret".into(),
+                1 => invalid.api_key.clear(),
+                2 => invalid.model = "x".repeat(201),
+                _ => invalid.model = "private-test-key".into(),
+            }
+            assert!(LegacyGenerationRoute::freeze(invalid, None).is_err());
+        }
+    }
+    #[tokio::test]
+    async fn legacy_generation_uses_completion_wire_and_preserves_token_default_and_override() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for override_tokens in [None, Some(37)] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                loop {
+                    let mut chunk = [0; 4096];
+                    let size = socket.read(&mut chunk).await.unwrap();
+                    assert!(size > 0);
+                    bytes.extend_from_slice(&chunk[..size]);
+                    if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|h| h.strip_prefix("content-length:"))
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        if bytes.len() >= end + 4 + length {
+                            assert!(headers.starts_with("post /v1/chat/completions "));
+                            let body: serde_json::Value =
+                                serde_json::from_slice(&bytes[end + 4..]).unwrap();
+                            let response = complete("ok").to_string();
+                            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
+                            return body;
+                        }
+                    }
+                }
+            });
+            let frozen =
+                LegacyGenerationRoute::freeze(legacy_provider(endpoint, "original"), None).unwrap();
+            let (client, trace) = frozen.build_client_with_trace().unwrap();
+            let options = ChatOptions {
+                max_tokens: override_tokens,
+                ..ChatOptions::default()
+            };
+            assert_eq!(
+                client
+                    .chat_with_options(&[Message::user("hello")], options)
+                    .await
+                    .unwrap(),
+                "ok"
+            );
+            let body = server.await.unwrap();
+            assert_eq!(body["model"], "original");
+            assert_eq!(body["max_tokens"], override_tokens.unwrap_or(1024));
+            assert_eq!(
+                trace.snapshot().unwrap(),
+                vec![ModelCallAttempt {
+                    call: 1,
+                    attempt: 1,
+                    profile_id: "legacy-primary".into(),
+                    outcome: ModelCallOutcome::Succeeded,
+                }]
+            );
+        }
     }
     #[tokio::test]
     async fn completion_wire_retryable_failures_use_only_approved_fallback_within_budget() {

@@ -29,9 +29,10 @@ fn nonempty(value: &str) -> Result<()> {
 /// accepted. Unknown fields (including keys or endpoints) fail closed.
 fn validate_model(model: &Value) -> Result<()> {
     let object = model.as_object().context("invalid model snapshot")?;
-    if object.get("source").is_some() {
+    let legacy = object.get("source").is_some();
+    if legacy {
         ensure!(
-            object.len() == 2
+            (object.len() == 2 || (object.len() == 3 && object.contains_key("candidates")))
                 && object.get("source").and_then(Value::as_str) == Some("legacy_config"),
             "invalid legacy model snapshot"
         );
@@ -41,6 +42,10 @@ fn validate_model(model: &Value) -> Result<()> {
                 .and_then(Value::as_str)
                 .context("model name missing")?,
         )?;
+        // Historical two-field legacy snapshots remain readable without facts.
+        if !object.contains_key("candidates") {
+            return Ok(());
+        }
     } else {
         ensure!(
             object.len() == 3 && object.get("revision").and_then(Value::as_u64).is_some(),
@@ -53,50 +58,72 @@ fn validate_model(model: &Value) -> Result<()> {
             ),
             "invalid model task"
         );
-        let candidates = object
-            .get("candidates")
-            .and_then(Value::as_array)
-            .context("model candidates missing")?;
+    }
+    let candidates = object
+        .get("candidates")
+        .and_then(Value::as_array)
+        .context("model candidates missing")?;
+    ensure!(
+        !candidates.is_empty() && candidates.len() <= 4,
+        "invalid model candidates"
+    );
+    if legacy {
+        ensure!(candidates.len() <= 2, "invalid legacy model candidates");
         ensure!(
-            !candidates.is_empty() && candidates.len() <= 4,
-            "invalid model candidates"
+            candidates[0].get("model") == object.get("model"),
+            "legacy primary model differs from snapshot"
         );
-        let mut ids = BTreeSet::new();
-        for candidate in candidates {
-            let c = candidate.as_object().context("invalid model candidate")?;
+    }
+    let mut ids = BTreeSet::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        let c = candidate.as_object().context("invalid model candidate")?;
+        ensure!(
+            c.len() == 5
+                && c.keys().all(|k| matches!(
+                    k.as_str(),
+                    "id" | "adapter" | "model" | "capabilities" | "midscene_family"
+                )),
+            "unexpected model candidate field"
+        );
+        if legacy {
             ensure!(
-                c.len() == 5
-                    && c.keys().all(|k| matches!(
-                        k.as_str(),
-                        "id" | "adapter" | "model" | "capabilities" | "midscene_family"
-                    )),
-                "unexpected model candidate field"
-            );
-            for key in ["id", "adapter", "model"] {
-                nonempty(
-                    c.get(key)
-                        .and_then(Value::as_str)
-                        .context("model metadata missing")?,
-                )?;
-            }
-            ensure!(
-                ids.insert(c["id"].as_str().unwrap()),
-                "duplicate model candidate"
-            );
-            ensure!(
-                c["capabilities"].as_array().is_some_and(|a| a
-                    .iter()
-                    .all(|v| matches!(v.as_str(), Some("text" | "vision" | "json" | "tools")))),
-                "invalid capabilities"
-            );
-            ensure!(
-                c["midscene_family"].is_null()
-                    || c["midscene_family"]
-                        .as_str()
-                        .is_some_and(|s| !s.trim().is_empty()),
-                "invalid model family"
+                c["id"]
+                    == if index == 0 {
+                        "legacy-primary"
+                    } else {
+                        "legacy-secondary"
+                    }
+                    && c["adapter"] == "openai_compatible"
+                    && c["capabilities"] == serde_json::json!(["text"])
+                    && c["midscene_family"].is_null()
+                    && c["model"].as_str().is_some_and(|model| model.len() <= 200),
+                "invalid legacy model candidate"
             );
         }
+        for key in ["id", "adapter", "model"] {
+            nonempty(
+                c.get(key)
+                    .and_then(Value::as_str)
+                    .context("model metadata missing")?,
+            )?;
+        }
+        ensure!(
+            ids.insert(c["id"].as_str().unwrap()),
+            "duplicate model candidate"
+        );
+        ensure!(
+            c["capabilities"].as_array().is_some_and(|a| a
+                .iter()
+                .all(|v| matches!(v.as_str(), Some("text" | "vision" | "json" | "tools")))),
+            "invalid capabilities"
+        );
+        ensure!(
+            c["midscene_family"].is_null()
+                || c["midscene_family"]
+                    .as_str()
+                    .is_some_and(|s| !s.trim().is_empty()),
+            "invalid model family"
+        );
     }
     Ok(())
 }
@@ -136,7 +163,7 @@ impl GenerationModelCalls {
         let candidates = model
             .get("candidates")
             .and_then(Value::as_array)
-            .context("model call trace requires registered candidates")?;
+            .context("model call trace requires frozen candidates")?;
         for (phase, attempts) in [("generator", &self.generator), ("critic", &self.critic)] {
             ensure!(
                 !attempts.is_empty() && attempts.len() <= candidates.len(),
@@ -168,8 +195,10 @@ impl GenerationModelCalls {
                 }
             }
             ensure!(
-                !attempts.iter().any(|attempt| matches!(attempt.outcome,
-                    ModelCallOutcome::Started | ModelCallOutcome::Cancelled)),
+                !attempts.iter().any(|attempt| matches!(
+                    attempt.outcome,
+                    ModelCallOutcome::Started | ModelCallOutcome::Cancelled
+                )),
                 "unfinished model call in saved provenance"
             );
             if phase == "generator" {
@@ -470,6 +499,66 @@ mod tests {
             model: json!({"source":"legacy_config","model":"fixture"}),
             model_calls: None,
         }
+    }
+    #[test]
+    fn legacy_candidates_validate_actual_model_calls_and_keep_old_provenance_readable() {
+        use crate::models::{LegacyGenerationRoute, ModelCallAttempt, ModelCallOutcome};
+        let route = LegacyGenerationRoute::freeze(
+            crate::llm::ProviderConfig {
+                provider: "label-only".into(),
+                base_url: "https://example.invalid/v1".into(),
+                api_key: "private-key".into(),
+                model: "one".into(),
+            },
+            None,
+        )
+        .unwrap();
+        let mut source = provenance();
+        source.model = route.snapshot();
+        source.model_calls = Some(GenerationModelCalls {
+            generator: vec![ModelCallAttempt {
+                call: 1,
+                attempt: 1,
+                profile_id: "legacy-primary".into(),
+                outcome: ModelCallOutcome::Succeeded,
+            }],
+            critic: vec![ModelCallAttempt {
+                call: 2,
+                attempt: 1,
+                profile_id: "legacy-primary".into(),
+                outcome: ModelCallOutcome::Succeeded,
+            }],
+        });
+        source
+            .validate("alpha", "receipt", &source.yaml_script)
+            .unwrap();
+        let valid = source.model.clone();
+        for mutation in 0..7 {
+            source.model = valid.clone();
+            match mutation {
+                0 => source.model["candidates"][0]["adapter"] = json!("anthropic_messages"),
+                1 => source.model["candidates"][0]["id"] = json!("registered-profile"),
+                2 => source.model["candidates"][0]["model"] = json!("other"),
+                3 => source.model["candidates"][0]["api_key"] = json!("private-key"),
+                4 => source.model["candidates"] = json!([]),
+                5 => source.model["candidates"][0]["capabilities"] = json!(["vision"]),
+                _ => source.model["base_url"] = json!("https://example.invalid/v1"),
+            }
+            assert!(source
+                .validate("alpha", "receipt", &source.yaml_script)
+                .is_err());
+        }
+        source = provenance();
+        source
+            .validate("alpha", "receipt", &source.yaml_script)
+            .unwrap();
+        source.model_calls = Some(GenerationModelCalls {
+            generator: vec![],
+            critic: vec![],
+        });
+        assert!(source
+            .validate("alpha", "receipt", &source.yaml_script)
+            .is_err());
     }
     #[test]
     fn model_calls_validate_actual_fallback_and_reject_fabricated_or_misordered_use() {

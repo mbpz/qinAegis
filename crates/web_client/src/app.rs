@@ -1,3 +1,4 @@
+mod correction;
 use qin_aegis_core::{
     protocol::{JsonRpcRequest, MidsceneProcess},
     resolve_env_var,
@@ -337,6 +338,23 @@ fn create_llm_client(cfg: &AppConfig) -> ArcLlmClient {
             primary_clone.model,
         )),
     }
+}
+
+/// Resolve environment references before admission, so queued generation cannot
+/// switch destination or credentials when configuration changes.
+fn freeze_legacy_generation(cfg: &AppConfig) -> anyhow::Result<qin_aegis_core::models::LegacyGenerationRoute> {
+    let primary = ProviderConfig {
+        provider: cfg.llm.provider.clone(), base_url: resolve_env_var(&cfg.llm.base_url),
+        api_key: resolve_env_var(&cfg.llm.api_key), model: cfg.llm.model.clone(),
+    };
+    let secondary = if !cfg.llm.secondary_api_key.is_empty() && !cfg.llm.secondary_model.is_empty() {
+        let configured = ProviderConfig {
+            provider: cfg.llm.secondary_provider.clone(), base_url: resolve_env_var(&cfg.llm.secondary_base_url),
+            api_key: resolve_env_var(&cfg.llm.secondary_api_key), model: cfg.llm.secondary_model.clone(),
+        };
+        configured.is_configured().then_some(configured)
+    } else { None };
+    qin_aegis_core::models::LegacyGenerationRoute::freeze(primary, secondary)
 }
 
 // ============================================================================
@@ -1106,8 +1124,9 @@ impl AppState {
         candidates: &[String],
         attempts: &[qin_aegis_core::models::ModelCallAttempt],
         outcome: &str,
+        source: &'static str,
     ) -> anyhow::Result<()> {
-        let evidence = crate::generation_evidence::encode(candidates, attempts, outcome)?;
+        let evidence = crate::generation_evidence::encode(candidates, attempts, outcome, source)?;
         let history = {
             let mut entries = jobs.lock().map_err(|_| anyhow::anyhow!("generation evidence unavailable"))?;
             let entry = entries.get_mut(job_id).ok_or_else(|| anyhow::anyhow!("generation task unavailable"))?;
@@ -1151,7 +1170,15 @@ impl AppState {
                 spec.markdown, spec_markdown
             );
         }
-        let model_snapshot = Self::model_snapshot(&route, &cfg);
+        let legacy = if route.is_none() {
+            match freeze_legacy_generation(&cfg) {
+                Ok(route) => Some(route),
+                Err(error) => return serde_json::json!({"error":error.to_string()}).to_string(),
+            }
+        } else { None };
+        let evidence_source = if legacy.is_some() { "legacy_config" } else { "registered_route" };
+        let model_snapshot = legacy.as_ref().map(|route| route.snapshot())
+            .unwrap_or_else(|| Self::model_snapshot(&route, &cfg));
         let generation_context = qin_aegis_core::execution_records::GenerationContext {
             specification: specification.clone(),
             contracts: contracts.clone(),
@@ -1171,11 +1198,10 @@ impl AppState {
         let cancel_flag = entry.cancel_flag.clone();
         let output_arc = entry.output.clone();
 
-        if let Some(route) = &route {
-            entry
-                .secrets
-                .extend(route.candidates().iter().map(|p| p.api_key.clone()));
-        }
+        let candidates = route.as_ref().map(|route| route.candidates())
+            .or_else(|| legacy.as_ref().map(|route| route.candidates())).expect("frozen generation route");
+        let candidate_ids: Vec<String> = candidates.iter().map(|p| p.id.clone()).collect();
+        entry.secrets.extend(candidates.iter().map(|p| p.api_key.clone()));
         if let Err(error) = self.register_job(&job_id, entry) {
             return serde_json::json!({"error":error.to_string()}).to_string();
         }
@@ -1205,27 +1231,25 @@ impl AppState {
                     o.push_str(&format!("[{}] Requirement: {}\n", job_id, requirement));
                 }
 
-                let (llm, trace) = match route.as_ref() {
-                    Some(route) => match qin_aegis_core::models::build_client_with_trace(route) {
-                        Ok((client, trace)) => (client, Some(trace)),
-                        Err(e) => {
-                            Self::set_job_status_internal(&jobs, &job_id, "failed");
-                            Self::set_job_error_internal(&jobs, &job_id, &e.to_string());
-                            return;
-                        }
-                    },
-                    None => (create_llm_client(&cfg), None),
+                let built = match route.as_ref() {
+                    Some(route) => qin_aegis_core::models::build_client_with_trace(route),
+                    None => legacy.as_ref().expect("frozen legacy route").build_client_with_trace(),
+                };
+                let (llm, trace) = match built {
+                    Ok((client, trace)) => (client, trace),
+                    Err(error) => {
+                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                        Self::set_job_error_internal(&jobs, &job_id, &error.to_string());
+                        return;
+                    }
                 };
 
-                let candidate_ids: Vec<String> = route.as_ref().map(|route|
-                    route.candidates().iter().map(|profile| profile.id.clone()).collect()
-                ).unwrap_or_default();
-                if let Some(trace) = &trace {
+                {
                     let trace_jobs = jobs.clone();
                     let trace_job_id = job_id.clone();
                     let trace_candidates = candidate_ids.clone();
                     if trace.set_checkpoint(move |attempts| Self::checkpoint_generation_evidence(
-                        &trace_jobs, &trace_job_id, &trace_candidates, attempts, "in_progress"
+                        &trace_jobs, &trace_job_id, &trace_candidates, attempts, "in_progress", evidence_source
                     )).is_err() {
                         Self::set_job_error_internal(&jobs, &job_id, "generation model evidence unavailable");
                         Self::set_job_status_internal(&jobs, &job_id, "failed");
@@ -1234,12 +1258,8 @@ impl AppState {
                 }
                 let service = TestCaseService::new(llm, LocalStorageInstance)
                     .with_output_secrets(output_secrets)
-                    .with_cancel_flag(cancel_flag.clone());
-                let service = if let Some(trace) = &trace {
-                    service.with_model_trace(trace.clone())
-                } else {
-                    service
-                };
+                    .with_cancel_flag(cancel_flag.clone())
+                    .with_model_trace(trace.clone());
 
                 // Check cancel flag before generate
                 if cancel_flag.load(Ordering::Relaxed) {
@@ -1253,21 +1273,16 @@ impl AppState {
                     ) => result,
                     _ = crate::environment::cancelled(cancel_flag.clone()) => Err(anyhow::anyhow!("Generation cancelled")),
                 };
-                if let Some(trace) = &trace {
+                {
                     let outcome = if cancel_flag.load(Ordering::Acquire) { "cancelled" }
                         else if generated.is_err() { "failed" }
                         else if generated.as_ref().is_ok_and(|cases| cases.iter().any(|case| !case.review_verified)) {
                             "completed_with_unverified_reviews"
                         } else { "completed" };
                     if trace.snapshot().and_then(|attempts| Self::checkpoint_generation_evidence(
-                        &jobs, &job_id, &candidate_ids, &attempts, outcome
+                        &jobs, &job_id, &candidate_ids, &attempts, outcome, evidence_source
                     )).is_err() {
                         generated = Err(anyhow::anyhow!("generation model evidence unavailable; task cannot be certified complete"));
-                    }
-                } else if let Ok(mut entries) = jobs.lock() {
-                    if let Some(entry) = entries.get_mut(&job_id) {
-                        entry.result = Some(serde_json::json!({"schema_version":1,"source":"legacy_config",
-                            "actual_attempts":"not_recorded","application_outcome":if cancel_flag.load(Ordering::Acquire) {"cancelled"} else if generated.is_ok() {"completed"} else {"failed"}}));
                     }
                 }
                 match generated {
@@ -2296,6 +2311,32 @@ mod boundary_tests {
         }
         assert!(patched_config(None, &json!({"exploration":{"max_depth":0}})).is_err());
         assert!(patched_config(None, &json!({"llm":{"base_url":"file:///tmp/key"}})).is_err());
+    }
+    #[test]
+    fn legacy_generation_freezes_resolved_environment_and_secondary_before_queueing() {
+        const KEY: &str = "QINAEGIS_LEGACY_GENERATION_FREEZE_TEST_KEY";
+        const ENDPOINT: &str = "QINAEGIS_LEGACY_GENERATION_FREEZE_TEST_ENDPOINT";
+        std::env::set_var(KEY, "frozen-private-key");
+        std::env::set_var(ENDPOINT, "http://127.0.0.1:2345/v1");
+        let mut cfg = AppConfig::default();
+        cfg.llm.api_key = format!("${KEY}");
+        cfg.llm.base_url = format!("${ENDPOINT}");
+        cfg.llm.model = "frozen-one".into();
+        cfg.llm.secondary_model = "frozen-two".into();
+        cfg.llm.secondary_api_key = "secondary-private-key".into();
+        cfg.llm.secondary_base_url = "http://127.0.0.1:2346/v1".into();
+        let frozen = freeze_legacy_generation(&cfg).unwrap();
+        std::env::set_var(KEY, "changed-private-key");
+        std::env::set_var(ENDPOINT, "http://127.0.0.1:9999/v1");
+        cfg.llm.model = "changed".into();
+        cfg.llm.secondary_model = "changed".into();
+        assert_eq!(frozen.candidates()[0].api_key, "frozen-private-key");
+        assert_eq!(frozen.candidates()[0].base_url, "http://127.0.0.1:2345/v1");
+        assert_eq!(frozen.candidates()[0].model, "frozen-one");
+        assert_eq!(frozen.candidates()[1].model, "frozen-two");
+        assert!(!frozen.snapshot().to_string().contains("private-key"));
+        std::env::remove_var(KEY);
+        std::env::remove_var(ENDPOINT);
     }
     #[test]
     fn config_response_never_contains_secret() {

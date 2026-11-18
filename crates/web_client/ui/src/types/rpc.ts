@@ -112,7 +112,7 @@ export interface ReportHtmlResponse {
   error?: string;
 }
 
-export type JobType = 'explore' | 'generate' | 'testExec' | 'allureReport' | 'modelProbe' | 'runtimeCheck' | 'browserInstall';
+export type JobType = 'explore' | 'generate' | 'testExec' | 'allureReport' | 'modelProbe' | 'runtimeCheck' | 'browserInstall' | 'contractCorrection';
 
 export type JobStatusValue = 'idle' | 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'stopped' | 'interrupted';
 
@@ -172,3 +172,26 @@ export interface ReportCleanupPreview {
   manual_review: { name: string; reason: string }[];
   preserved: string[];
 }
+
+export interface CorrectionAttempt {
+  call: number; attempt: number; profile_id: string;
+  outcome: 'started' | 'succeeded' | 'transport_failure' | 'timed_out' | 'rejected' | 'cancelled' | 'rate_limited' | 'service_unavailable';
+}
+export interface ContractCorrectionSource {
+  schema_version: 1;
+  input: {project: string; contract_id: string; version: number; library_revision: number;
+    publication: import('./contracts').PublishedContract; run_id: string; case_id: string; instruction: string;
+    case: RunEvidence['cases'][number]; run_status: string;
+    result: {passed: boolean; duration_ms: number; error_message: string | null; failed_step: string | null} | null;
+    evidence_token: string};
+  model: unknown; attempts: CorrectionAttempt[]; limitations: string[]; evidence_tokens: string[];
+}
+export interface CorrectionObservation {
+  proposal_id: string; project: string; run_id: string; case_id: string; contract_version: number;
+  outcome: 'passed' | 'failed' | 'incomplete'; recorded_by: 'local-owner'; semantic_validation: 'not_verified';
+  input: ContractCorrectionSource['input'];
+}
+export type CorrectionLibrary = Omit<import('./contracts').ContractsSnapshot, 'proposals'> & {
+  proposals: (import('./contracts').ContractProposal & {model_source?: ContractCorrectionSource | null})[];
+  observations?: CorrectionObservation[];
+};

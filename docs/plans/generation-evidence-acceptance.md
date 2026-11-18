@@ -25,3 +25,5 @@
 真实服务入口 `python3 scripts/test-generation-evidence.py /绝对路径/qinaegis` 验证失败/备用、应用校验、critic 未验证、秘密回显、请求前事实、取消和强杀恢复；模型协议、基础服务、契约生成/执行、任务历史、流程/流程执行七组 HTTP 回归共同通过。新脚本已接入四平台候选 CI。
 
 实际 Chromium 验证免费 beUI 选择与折叠控件、主/备用实际四次调用、冻结候选、critic 未验证、取消及中断说明；刷新后从持久任务重新读取事实，不将中断显示为生成中，已知 fixture 凭据未进入页面。控制台 0 errors/0 warnings，证据在本机 `output/playwright/generation-*.png`。本机系统代理曾转发回环夹具并将断连转换为 5xx；Rust 的 loopback 测试现在显式 no_proxy，HTTP 头按名称大小写不敏感、值精确相等校验，生产代理行为未修改，原有失败分类和安全断言保持。
+
+2026-11-18 后续：旧配置生成的严格主备与真实尝试也已实现并通过 `scripts/test-legacy-generation.py`，旧历史保持 not_recorded。模型纠正按[独立方案](model-correction-acceptance.md)完成本机验收；不复用 generator/critic 调用序列冒充 correct 依据。最新范围以验收清单为准。

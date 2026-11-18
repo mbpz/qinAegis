@@ -15,8 +15,11 @@ export function generationEvidence(result: unknown, snapshot: unknown): {status:
   const value = object(result);
   if (!value || value.schema_version !== 1) return null;
   if (value.source === 'legacy_config' && value.actual_attempts === 'not_recorded') return {status: 'Actual provider attempts were not recorded for this legacy route.', rows: [], legacy: true};
-  if (value.source !== 'registered_route' || typeof value.application_outcome !== 'string' || !Object.prototype.hasOwnProperty.call(applicationOutcomes, value.application_outcome) || !Array.isArray(value.attempts) || value.attempts.length > 804) return null;
-  const candidates = object(object(snapshot)?.model)?.candidates;
+  if ((value.source !== 'registered_route' && value.source !== 'legacy_config') || typeof value.application_outcome !== 'string' || !Object.prototype.hasOwnProperty.call(applicationOutcomes, value.application_outcome) || !Array.isArray(value.attempts) || value.attempts.length > 804) return null;
+  const model = object(object(snapshot)?.model);
+  if (value.source === 'legacy_config' && model?.source !== 'legacy_config') return null;
+  if (value.source === 'registered_route' && model?.source === 'legacy_config') return null;
+  const candidates = model?.candidates;
   if (!Array.isArray(candidates) || candidates.length < 1 || candidates.length > 4) return null;
   const rows: GenerationAttemptRow[] = [];
   let previousCall = 0, previousAttempt = 0;

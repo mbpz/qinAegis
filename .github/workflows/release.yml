@@ -139,6 +139,8 @@ jobs:
           python scripts/test-flow-execution.py "$BINARY"
           python scripts/test-model-protocols.py "$BINARY"
           python scripts/test-generation-evidence.py "$BINARY"
+          python scripts/test-legacy-generation.py "$BINARY"
+          python scripts/test-contract-correction.py "$BINARY"
           python scripts/test-environment.py "$BINARY"
           python scripts/test-task-history.py "$BINARY"
           python scripts/test-report-maintenance.py "$BINARY"

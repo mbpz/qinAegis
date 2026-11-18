@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 pub mod contracts;
+pub mod contract_correction;
 pub mod contract_store;
 pub mod contract_execution;
 pub mod models;

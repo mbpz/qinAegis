@@ -171,7 +171,11 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
     }
     if matches!(
         method,
-        "runExplore" | "runGenerate" | "runTests" | "generateAllureReport"
+        "runExplore"
+            | "runGenerate"
+            | "runTests"
+            | "generateAllureReport"
+            | "runContractCorrection"
     ) && app
         .active_workers
         .load(std::sync::atomic::Ordering::Acquire)
@@ -313,6 +317,44 @@ fn dispatch_inner(app: &mut AppState, method: &str, p: &Value) -> Result<Value, 
             )
             .and_then(|s| Ok(serde_json::to_value(s)?))
             .map_err(|e| e.to_string());
+        }
+        "runContractCorrection" => {
+            let version = p
+                .get("version")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .ok_or("invalid contract version")?;
+            let expected = p
+                .get("expected_revision")
+                .and_then(Value::as_u64)
+                .ok_or("expected_revision required")?;
+            app.run_contract_correction(
+                id(p, "project")?,
+                id(p, "contract_id")?,
+                version,
+                id(p, "run_id")?,
+                id(p, "case_id")?,
+                expected,
+                text(p, "instruction")?,
+            )
+        }
+        "recordContractCorrectionObservation" => {
+            if p.get("approved").and_then(Value::as_bool) != Some(true) {
+                return Err("explicit observation confirmation required".into());
+            }
+            let expected = p
+                .get("expected_revision")
+                .and_then(Value::as_u64)
+                .ok_or("expected_revision required")?;
+            return app
+                .record_contract_correction_observation(
+                    id(p, "proposal_id")?,
+                    id(p, "project")?,
+                    id(p, "run_id")?,
+                    id(p, "case_id")?,
+                    expected,
+                )
+                .map_err(|e| e.to_string());
         }
         "runGenerate" => {
             // HTTP accepts only a saved, project-bound specification revision.

@@ -351,3 +351,25 @@ test('generation evidence resolves frozen candidate indices and rejects malforme
   assert.equal(generationEvidence({truncated:true},snapshot),null);
   assert.equal(generationEvidence({schema_version:1,source:'legacy_config',actual_attempts:'not_recorded'},null).legacy,true);
 });
+
+
+test('legacy generation evidence displays frozen actual attempts and preserves unrecorded history', async () => {
+  const {generationEvidence} = await import(pathToFileURL(join(temp, 'utils/generation_evidence.js')).href);
+  const snapshot = {model:{source:'legacy_config',model:'original',candidates:[
+    {id:'legacy-primary',adapter:'openai_compatible',model:'original'},
+    {id:'legacy-secondary',adapter:'openai_compatible',model:'backup'},
+  ]}};
+  const value = {schema_version:1,source:'legacy_config',application_outcome:'completed',attempts:[
+    [1,1,0,'service_unavailable'],[1,2,1,'succeeded'],[2,1,0,'succeeded'],
+  ]};
+  const read = generationEvidence(value, snapshot);
+  assert.equal(read.legacy,false);
+  assert.equal(read.rows[1].candidate,'legacy-secondary');
+  assert.equal(read.rows[1].model,'backup');
+  assert.match(read.rows[0].outcome,/service unavailable/);
+  assert.match(read.status,/completed/);
+  assert.equal(generationEvidence(value,{model:{candidates:snapshot.model.candidates}}),null);
+  assert.equal(generationEvidence({...value,source:'registered_route'},snapshot),null);
+  assert.equal(generationEvidence({...value,source:{toString:null}},snapshot),null);
+  assert.equal(generationEvidence({schema_version:1,source:'legacy_config',actual_attempts:'not_recorded'},null).legacy,true);
+});

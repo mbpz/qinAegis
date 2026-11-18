@@ -8,7 +8,7 @@ import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/model
 import type { ConfigMigrationSources, ConfigMigrationPreview, ConfigMigrationResult, ConfigSecretPolicy } from '../types/config_migration';
 
 import type {
-  AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence, CaseAsset,
+  CorrectionLibrary, AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence, CaseAsset,
   ReportCleanupPreview, ConfigStatusResponse,
   StateResponse,
   VersionResponse,
@@ -186,7 +186,9 @@ export const rpc = {
   generateAllureReport(project: string, run_id: string): Promise<JobStartResult> { return call('generateAllureReport', {project, run_id}); },
   getAllureReportHtml(project: string, run_id: string): Promise<AllureReportResponse> { return call('getAllureReportHtml', {project, run_id}); },
   getRunEvidence(project: string, run_id: string): Promise<RunEvidence> { return call('getRunEvidence', {project, run_id}); },
-  getContracts(): Promise<ContractsSnapshot> {
+  runContractCorrection(params: {project: string; contract_id: string; version: number; run_id: string; case_id: string; expected_revision: number; instruction: string}): Promise<JobStartResult> { return call('runContractCorrection', params); },
+  recordContractCorrectionObservation(params: {proposal_id: string; project: string; run_id: string; case_id: string; expected_revision: number; approved: true}): Promise<CorrectionLibrary> { return call('recordContractCorrectionObservation', params); },
+  getContracts(): Promise<CorrectionLibrary> {
     return call('getContracts');
   },
   saveContractDraft(params: { draft: ContractDraft; expected_revision: number }): Promise<ContractsSnapshot> {

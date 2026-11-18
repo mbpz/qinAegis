@@ -22,7 +22,12 @@ pub(crate) fn encode(
     candidates: &[String],
     attempts: &[ModelCallAttempt],
     outcome: &str,
+    source: &'static str,
 ) -> Result<Value> {
+    ensure!(
+        matches!(source, "registered_route" | "legacy_config"),
+        "invalid generation evidence source"
+    );
     ensure!(
         matches!(
             outcome,
@@ -82,7 +87,7 @@ pub(crate) fn encode(
     }
     let value = serde_json::to_value(Evidence {
         schema_version: 1,
-        source: "registered_route",
+        source,
         application_outcome: outcome,
         attempt_fields: ["call", "attempt", "candidate_index", "outcome"],
         attempts: compact,
@@ -98,6 +103,31 @@ pub(crate) fn encode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_evidence_uses_frozen_candidates_without_claiming_registered_approval() {
+        let candidates: Vec<String> = vec!["legacy-primary".into(), "legacy-secondary".into()];
+        let attempts = vec![
+            ModelCallAttempt {
+                call: 1,
+                attempt: 1,
+                profile_id: candidates[0].clone(),
+                outcome: ModelCallOutcome::RateLimited,
+            },
+            ModelCallAttempt {
+                call: 1,
+                attempt: 2,
+                profile_id: candidates[1].clone(),
+                outcome: ModelCallOutcome::Succeeded,
+            },
+        ];
+        let value = encode(&candidates, &attempts, "completed", "legacy_config").unwrap();
+        assert_eq!(value["source"], "legacy_config");
+        assert_eq!(
+            value["attempts"][1],
+            serde_json::json!([1, 2, 1, "succeeded"])
+        );
+        assert!(encode(&candidates, &attempts, "completed", "unknown").is_err());
+    }
     #[test]
     fn full_generation_trace_survives_existing_task_result_limit_and_restart() {
         let candidates: Vec<_> = (0..4)
@@ -118,7 +148,7 @@ mod tests {
                 });
             }
         }
-        let result = encode(&candidates, &attempts, "completed").unwrap();
+        let result = encode(&candidates, &attempts, "completed", "registered_route").unwrap();
         assert!(serde_json::to_vec(&result).unwrap().len() < MAX_RESULT_BYTES);
         let root = std::env::temp_dir().join(format!(
             "qinaegis-generation-evidence-{}-{}",
@@ -147,17 +177,17 @@ mod tests {
         assert_eq!(store.load_and_recover().unwrap()[0].result, Some(result));
         let mut invalid = attempts.clone();
         invalid[2].profile_id = "foreign".into();
-        assert!(encode(&candidates, &invalid, "failed").is_err());
+        assert!(encode(&candidates, &invalid, "failed", "registered_route").is_err());
         invalid = attempts.clone();
         invalid.remove(1);
-        assert!(encode(&candidates, &invalid, "failed").is_err());
+        assert!(encode(&candidates, &invalid, "failed", "registered_route").is_err());
         attempts.push(ModelCallAttempt {
             call: 202,
             attempt: 1,
             profile_id: candidates[0].clone(),
             outcome: ModelCallOutcome::Started,
         });
-        assert!(encode(&candidates, &attempts, "in_progress").is_err());
+        assert!(encode(&candidates, &attempts, "in_progress", "registered_route").is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

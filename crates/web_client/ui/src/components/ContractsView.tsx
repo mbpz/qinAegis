@@ -1,5 +1,7 @@
 import { Button, Checkbox, Input, Select, TextArea } from './ui';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './motion/collapsible';
+import ContractCorrectionPanel, { CorrectionSourceDetails, CorrectionObservationPanel } from './ContractCorrectionPanel';
+import type { CorrectionLibrary } from '../types/rpc';
 import { FileUpload } from './motion/file-upload';
 import { useEffect, useRef, useState } from 'react';
 import { rpc, RpcError } from '../utils/rpc';
@@ -57,7 +59,7 @@ export default function ContractsView({ projects }: { projects: string[] }) {
   const [targetVersion, setTargetVersion] = useState('');
   const [migrationJson, setMigrationJson] = useState('[]');
   const [lifecycleApproved, setLifecycleApproved] = useState(false);
-  const [snapshot, setSnapshot] = useState<ContractsSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<CorrectionLibrary | null>(null);
   const [editor, setEditor] = useState<Editor>(blank);
   const [selected, setSelected] = useState('');
   const [compare, setCompare] = useState('');
@@ -84,7 +86,7 @@ export default function ContractsView({ projects }: { projects: string[] }) {
     locked.current = true;
     setBusy(true);
     rpc.getContracts().then(data => {
-      if (mounted.current && requestId.current === id) setSnapshot(data);
+      if (mounted.current && requestId.current === id) setSnapshot(current => !current || data.revision >= current.revision ? data : current);
     }).catch(error => {
       if (mounted.current && requestId.current === id) { setMessage(String(error)); setFailed(true); }
     }).finally(() => {
@@ -105,7 +107,7 @@ export default function ContractsView({ projects }: { projects: string[] }) {
     try {
       const data = await action();
       if (!mounted.current || requestId.current !== id) return;
-      if (data) setSnapshot(data);
+      if (data) setSnapshot(current => !current || data.revision >= current.revision ? data : current);
       setPublishConfirmed(false);
       setLifecycleApproved(false);
       setReviewConfirmed(null);
@@ -122,6 +124,11 @@ export default function ContractsView({ projects }: { projects: string[] }) {
   function mutation(action: (revision: number) => Promise<ContractsSnapshot>, success: string) {
     if (!snapshot) return;
     return perform(() => action(snapshot.revision), success);
+  }
+  function acceptCorrectionLibrary(data: CorrectionLibrary) {
+    if (!mounted.current) return;
+    setSnapshot(current => !current || data.revision >= current.revision ? data : current);
+    setReviewConfirmed(null); setPublishConfirmed(false); setLifecycleApproved(false); setImportReviewRevision(null);
   }
   const publications = snapshot?.publications ?? [];
   const publication = publications.find(item => keyOf(item.definition) === selected);
@@ -324,6 +331,8 @@ export default function ContractsView({ projects }: { projects: string[] }) {
         </div>
       </>}
 
+      {publication && snapshot && <ContractCorrectionPanel key={JSON.stringify([selected, snapshot.revision])} projects={projects} publication={publication} revision={snapshot.revision} onLibrary={acceptCorrectionLibrary} />}
+
       <div className="card">
         <div className="card-title">Correction proposals</div>
         {!snapshot?.proposals.length && <p>No correction proposals.</p>}
@@ -333,6 +342,12 @@ export default function ContractsView({ projects }: { projects: string[] }) {
           <p>Existing references (remain pinned after approval): {snapshot.bindings.filter(item => item.contract_id === proposal.replacement.id).map(item => `${item.project} v${item.contract_version}`).join(', ') || 'None'}</p>
           <Collapsible><CollapsibleTrigger>Original published definition v{proposal.original_version}</CollapsibleTrigger><CollapsibleContent><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{pretty(publications.find(item => item.definition.id === proposal.replacement.id && item.definition.version === proposal.original_version)?.definition ?? 'Original publication unavailable; refresh before reviewing.')}</pre></CollapsibleContent></Collapsible>
           <Collapsible><CollapsibleTrigger>Review complete replacement definition</CollapsibleTrigger><CollapsibleContent><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{pretty(proposal.replacement)}</pre></CollapsibleContent></Collapsible>
+          {proposal.model_source && <CorrectionSourceDetails source={proposal.model_source} />}
+          {(snapshot.observations ?? []).filter(item => item.proposal_id === proposal.id).map(item => <div key={JSON.stringify([item.project, item.run_id, item.case_id])}><p>Observed v{item.contract_version}: {item.project} / {item.run_id} / {item.case_id} · {item.outcome} · recorded by {item.recorded_by} · semantic validation: {item.semantic_validation}</p><Collapsible><CollapsibleTrigger>Frozen new-version observation facts</CollapsibleTrigger><CollapsibleContent><pre style={{whiteSpace: 'pre-wrap', overflowWrap: 'anywhere'}}>{pretty(item.input)}</pre></CollapsibleContent></Collapsible></div>)}
+          {proposal.status === 'approved' && (() => {
+            const published = publications.find(item => item.definition.id === proposal.replacement.id && item.definition.version === proposal.replacement.version);
+            return published ? <CorrectionObservationPanel key={JSON.stringify([proposal.id, snapshot.revision])} proposal={proposal} publication={published} projects={projects} revision={snapshot.revision} onLibrary={acceptCorrectionLibrary} /> : <p>Refresh the library to inspect the published replacement before associating an observation.</p>;
+          })()}
           {proposal.status === 'pending' && <>
             <Checkbox label={"I have reviewed the reason, evidence, replacement, and affected project references."} checked={reviewConfirmed === proposal.id} onCheckedChange={checked => setReviewConfirmed(checked ? proposal.id : null)} /><br />
             <Button type="button" className="btn btn-primary" disabled={reviewConfirmed !== proposal.id} onClick={() => mutation(revision => rpc.reviewContractCorrection({ proposal_id: proposal.id, decision: 'approve', expected_revision: revision, approved: true }), 'Correction approved and published. Existing bindings retain their versions.')}>Approve & publish correction</Button>{' '}
