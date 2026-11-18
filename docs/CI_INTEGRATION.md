@@ -92,3 +92,7 @@ M05 修订 `9dff2e0` 的 Release `44148136999` 四平台、engine-checks 和 ass
 
 
 Schema 2 实际执行新增 `scripts/test-flow-execution.py`，在四平台基础服务 smoke 中验证审核/CAS、真实等待与取消、共享队列、受审用例/步骤选定模型冻结、RunRecord/Allure 关联、秘密脱敏、终态重启和清理失败隔离。模型与执行器为明确的本机协议夹具；不代表真实模型视觉业务通过。免费 beUI 组合与实际浏览器旅程另行验收，历史 v1 计划继续不可执行。
+
+注册链生成证据新增 `scripts/test-generation-evidence.py`，四平台真实 HTTP 验证实际尝试/限流备用、业务校验与 critic 未验证、已知秘密回显拒绝、取消及强杀后保留 started/interrupted 不重放。实现 `2ef4743a` 的 Release `44250352725` 四平台、engine-checks、assemble 全部通过，正式 Release 跳过；Pages `44250352800` 预览通过、生产部署跳过。下载候选独立核验全部 14 项 SHA 与四归档内外清单一致，源码 PR 合并提交 `6581f671b3287ed0d0eccf52ccba8e75824cd504` 的父提交包含 `2ef4743a`。
+
+当前能力状态按[三维复盘](plans/capability-map-review-2.0.md)与清单修订。新增完整过程采集、辅助归因、暂停/继续/接管目标仍待实现，不能将现有 CI 绿色扩展为这些能力通过。

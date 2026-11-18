@@ -34,6 +34,8 @@ The same published contract can be bound to two projects with different paramete
 
 The domain owns contracts and validation rules. Model adapters generate suggestions, execution adapters perform actions, and reporting preserves facts. Their responsibilities stay separate so changing a model or engine does not rewrite business expectations. The Web UI uses official free beUI components.
 
+The [capability review](docs/plans/capability-map-review-2.0.md) compares testing scope, process control and independent assets against the code. Current evidence includes screenshots, failed steps, results and frozen inputs; full Trace/Console/Network capture, reviewed failure diagnosis and pause/resume/handoff remain pending. A local service does not imply zero execution dependencies or no outbound model traffic. The [product agent](docs/agents/product.md) maintains goals and evidence-based task status.
+
 ## Build and run
 
 The 2.0 development source is on `codex/qinaegis-2.0` until it is merged into `main`. The previous public release uses a different architecture; do not use a generic “latest” download to obtain 2.0.

@@ -11,6 +11,7 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Added
 
+- Product-agent guidance and a code-grounded capability review across test scope, process control and independent assets. Acceptance now tracks full evidence capture, audit/coverage, reviewed diagnosis and staged human control separately from existing functionality.
 - Generation jobs retain actual registered model attempts across failure, cancellation and restart, distinguish quota/service/protocol outcomes, and reject known credential echoes before saving assets. Tasks exposes frozen model evidence using existing free beUI controls.
 - Windows installer acceptance passes on actual Windows CI, including running file identities, 8.3 aliases, independent installations and data-preserving uninstall.
 - Separate schema-2 reviewed execution flows: free beUI composition, typed ports/conditions, bounded waits, fixed per-step models, frozen admission, durable checkpoints and case-run/Allure evidence. Historical v1 plans stay non-executable; visual fallback and automatic healing remain unavailable.

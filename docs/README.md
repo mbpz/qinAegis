@@ -11,6 +11,8 @@
 | [用户指南](USER_GUIDE.md) | 当前 Web 操作、契约治理、模型、配置迁移、执行证据、Allure 与中断残留维护 |
 | [产品记忆](../CONTEXT.md) | 用户确认的长期要求、架构约束和提交身份 |
 | [完整产品方案](plans/local-web.md) | 2.0 全量目标、核心分工、交互、安全与 P0–P8 验收；含明确标注的改造前基线 |
+| [三维能力复盘](plans/capability-map-review-2.0.md) | 用户拆解对照源码，测试分类/过程控制/资产治理、六组能力和修订目标 |
+| [产品 Agent](agents/product.md) | 产品拆解、可信表述、目标/状态/依赖/指标和证据维护规则 |
 | [验收 checklist](progress/acceptance-checklist-2.0.md) | 有依赖顺序的逐项完成条件、证据及外部条件 |
 | [开发进度](progress/local-web-2.0.md) | 已实现与验证事实、剩余缺口；不能用完整方案代替此证据 |
 | [路线图](../qinAegis-platform-roadmap.md) | 剩余顺序、阶段状态和完成条件 |
@@ -24,8 +26,9 @@
 | [契约执行追溯与生命周期验收](plans/contract-execution-acceptance.md) | 契约/生成/执行快照、审核迁移、Allure 与事实源 |
 | [受控项目规格验收](plans/project-specification-acceptance.md) | F01 固定规格资产、冲突保护与冻结输入；真实浏览器验收通过 |
 | [流程治理与计划验收](plans/flow-governance-acceptance.md) | F03 JSON 草稿、不可变发布和类型化快照；仅计划，实际浏览器与复核通过 |
-| [流程实际执行路径](plans/flow-execution-acceptance.md) | F04/F05 分步实现和验收门槛；仍待实现 |
+| [流程实际执行路径](plans/flow-execution-acceptance.md) | F04/F05 已验收的 schema 2 等待/审核用例范围；自动视觉备用仍待实现 |
 | [独立模型协议验收](plans/model-protocol-acceptance.md) | 原生 Messages 与批准的跨协议备用；本机协议及 Web 验证范围 |
+| [生成调用事实验收](plans/generation-evidence-acceptance.md) | 注册链尝试、失败/取消/中断、秘密拒绝及 Tasks 查看；M03 仍有缺口 |
 | [执行器目录清理边界](plans/engine-workspace-cleanup.md) | T06 所有权与错误传播；跨重启恢复仍待实现 |
 | [原生运行时维护方案](plans/native-runtime-maintenance.md) | R03/R05 原生 Web 导入、升级与回滚；最小 Rust 库已获授权，完整交付验收仍有缺口 |
 | [自动打包与官网迭代](plans/distribution-pages-2.0.md) | 分支候选包、独立 Pages 构建和正式发布边界 |
