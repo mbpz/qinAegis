@@ -176,7 +176,7 @@ def main():
             for stage in ('generator', 'critic'):
                 attempts = case['provenance']['model_calls'][stage]
                 require([(a['profile_id'], a['outcome']) for a in attempts] ==
-                        [('native', 'transport_failure'), ('fallback', 'succeeded')], 'actual model attempts missing')
+                        [('native', 'rate_limited'), ('fallback', 'succeeded')], 'actual model attempts missing')
 
             # A hard rejection is terminal, even if an approved fallback exists.
             registry = smoke.rpc('saveModel', {'profile': {**profile, 'model': 'denied'}, 'expected_revision': registry['revision']})
@@ -209,7 +209,7 @@ def main():
                 path = next((smoke.data/f'projects/{project}/cases/draft').glob('*.json'))
                 provenance = json.loads(path.read_text())['provenance']
                 for stage in ('generator','critic'):
-                    require([(a['profile_id'],a['outcome']) for a in provenance['model_calls'][stage]] == [('open-primary','transport_failure'),('fallback','succeeded')], 'OpenAI fallback trace differs from actual requests')
+                    require([(a['profile_id'],a['outcome']) for a in provenance['model_calls'][stage]] == [('open-primary','rate_limited' if status == 429 else 'service_unavailable'),('fallback','succeeded')], 'OpenAI fallback trace differs from actual requests')
                 require(key not in path.read_text(), 'OpenAI fallback provenance exposed credential')
             require(not fixture_errors, 'wire fixture detected an invalid native request')
             print('PASS Messages and OpenAI complete-output checks, hard rejection without fallback, bounded approved fallback, actual call counts and redacted provenance')

@@ -124,6 +124,8 @@ export interface JobStatus {
   wait_reason?: string | null;
   output: string;
   result?: unknown;
+  snapshot?: unknown;
+  history_error?: string | null;
   error?: string;
 }
 

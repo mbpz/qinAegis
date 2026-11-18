@@ -10,6 +10,7 @@ mod dispatch;
 mod environment;
 mod lifecycle;
 mod model_api;
+mod generation_evidence;
 mod report_maintenance;
 mod runtime_api;
 mod server;

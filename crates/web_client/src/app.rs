@@ -1100,6 +1100,34 @@ impl AppState {
         }
     }
 
+    fn checkpoint_generation_evidence(
+        jobs: &Arc<Mutex<HashMap<String, JobEntry>>>,
+        job_id: &str,
+        candidates: &[String],
+        attempts: &[qin_aegis_core::models::ModelCallAttempt],
+        outcome: &str,
+    ) -> anyhow::Result<()> {
+        let evidence = crate::generation_evidence::encode(candidates, attempts, outcome)?;
+        let history = {
+            let mut entries = jobs.lock().map_err(|_| anyhow::anyhow!("generation evidence unavailable"))?;
+            let entry = entries.get_mut(job_id).ok_or_else(|| anyhow::anyhow!("generation task unavailable"))?;
+            anyhow::ensure!(entry.job_type == "generate" && !entry.worker_done, "generation task already finished");
+            entry.result = Some(evidence);
+            entry.history.clone()
+        };
+        if let Some(history) = history {
+            // Follow the existing history -> jobs lock order. Never hold jobs
+            // or the model trace data lock while waiting for disk persistence.
+            let _serial = history.serial.lock().map_err(|_| anyhow::anyhow!("generation history unavailable"))?;
+            let entry = jobs.lock().map_err(|_| anyhow::anyhow!("generation task unavailable"))?
+                .get(job_id).cloned().ok_or_else(|| anyhow::anyhow!("generation task unavailable"))?;
+            history.write(job_id, &entry, false);
+            anyhow::ensure!(history.error.lock().map_err(|_| anyhow::anyhow!("generation history unavailable"))?.is_none(),
+                "generation model evidence could not be persisted");
+        }
+        Ok(())
+    }
+
     // ── Generate ─────────────────────────────────────────────────────────────
 
     pub fn run_generate(
@@ -1152,6 +1180,8 @@ impl AppState {
             return serde_json::json!({"error":error.to_string()}).to_string();
         }
 
+        let output_secrets = self.jobs.lock().unwrap().get(&job_id)
+            .map(|entry| entry.secrets.clone()).unwrap_or_default();
         self.append_output(&format!("[{}] generate dispatched\n", job_id));
 
         let worker = WorkerGuard::new(self.active_workers.clone(), jobs.clone(), job_id.clone());
@@ -1187,9 +1217,26 @@ impl AppState {
                     None => (create_llm_client(&cfg), None),
                 };
 
-                let service = TestCaseService::new(llm, LocalStorageInstance);
-                let service = if let Some(trace) = trace {
-                    service.with_model_trace(trace)
+                let candidate_ids: Vec<String> = route.as_ref().map(|route|
+                    route.candidates().iter().map(|profile| profile.id.clone()).collect()
+                ).unwrap_or_default();
+                if let Some(trace) = &trace {
+                    let trace_jobs = jobs.clone();
+                    let trace_job_id = job_id.clone();
+                    let trace_candidates = candidate_ids.clone();
+                    if trace.set_checkpoint(move |attempts| Self::checkpoint_generation_evidence(
+                        &trace_jobs, &trace_job_id, &trace_candidates, attempts, "in_progress"
+                    )).is_err() {
+                        Self::set_job_error_internal(&jobs, &job_id, "generation model evidence unavailable");
+                        Self::set_job_status_internal(&jobs, &job_id, "failed");
+                        return;
+                    }
+                }
+                let service = TestCaseService::new(llm, LocalStorageInstance)
+                    .with_output_secrets(output_secrets)
+                    .with_cancel_flag(cancel_flag.clone());
+                let service = if let Some(trace) = &trace {
+                    service.with_model_trace(trace.clone())
                 } else {
                     service
                 };
@@ -1200,12 +1247,29 @@ impl AppState {
                     return;
                 }
 
-                let generated = tokio::select! {
+                let mut generated = tokio::select! {
                     result = service.generate_and_save_with_context(
                         &project, &spec_markdown, &requirement, Some(generation_context),
                     ) => result,
                     _ = crate::environment::cancelled(cancel_flag.clone()) => Err(anyhow::anyhow!("Generation cancelled")),
                 };
+                if let Some(trace) = &trace {
+                    let outcome = if cancel_flag.load(Ordering::Acquire) { "cancelled" }
+                        else if generated.is_err() { "failed" }
+                        else if generated.as_ref().is_ok_and(|cases| cases.iter().any(|case| !case.review_verified)) {
+                            "completed_with_unverified_reviews"
+                        } else { "completed" };
+                    if trace.snapshot().and_then(|attempts| Self::checkpoint_generation_evidence(
+                        &jobs, &job_id, &candidate_ids, &attempts, outcome
+                    )).is_err() {
+                        generated = Err(anyhow::anyhow!("generation model evidence unavailable; task cannot be certified complete"));
+                    }
+                } else if let Ok(mut entries) = jobs.lock() {
+                    if let Some(entry) = entries.get_mut(&job_id) {
+                        entry.result = Some(serde_json::json!({"schema_version":1,"source":"legacy_config",
+                            "actual_attempts":"not_recorded","application_outcome":if cancel_flag.load(Ordering::Acquire) {"cancelled"} else if generated.is_ok() {"completed"} else {"failed"}}));
+                    }
+                }
                 match generated {
                     Ok(cases) => {
                         let mut o = output_arc.lock().unwrap();

@@ -139,10 +139,11 @@ impl LlmClient for MessagesClient {
             .await
             .map_err(|_| LlmError::ModelFailure("Messages transport failure"))?;
         let status = response.status();
-        if status.as_u16() == 429 || status.is_server_error() {
-            return Err(LlmError::ModelFailure(
-                "Messages quota or service unavailable",
-            ));
+        if status.as_u16() == 429 {
+            return Err(LlmError::RateLimited);
+        }
+        if status.is_server_error() {
+            return Err(LlmError::ServiceUnavailable);
         }
         if !status.is_success() {
             return Err(rejected("Messages request rejected"));
@@ -179,6 +180,18 @@ mod tests {
             allow_remote: false,
             midscene_family: None,
         }
+    }
+    fn direct_messages_client(profile: &ModelProfile) -> ArcLlmClient {
+        // Keep loopback fixtures independent of platform HTTP proxy settings.
+        ArcLlmClient::new(MessagesClient {
+            profile: profile.clone(),
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+        })
     }
     fn completed(text: &str) -> String {
         json!({"type":"message","role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":text}]}).to_string()
@@ -225,7 +238,7 @@ mod tests {
     #[tokio::test]
     async fn native_wire_preserves_system_and_structured_output_contract() {
         let (endpoint, server) = server(200, completed(r#"{"ok":true}"#), Duration::ZERO).await;
-        let client = AnthropicFactory.build(&profile(endpoint)).unwrap();
+        let client = direct_messages_client(&profile(endpoint));
         let schema = r#"{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}"#;
         let result = client
             .chat_with_options(
@@ -243,8 +256,16 @@ mod tests {
         let received = server.await.unwrap();
         let (headers, body) = received.split_once("\r\n\r\n").unwrap();
         assert!(headers.starts_with("POST /v1/messages HTTP/1.1"));
-        assert!(headers.contains("x-api-key: secret-fixture-key"));
-        assert!(headers.contains("anthropic-version: 2026-10-21"));
+        // HTTP field names are case-insensitive; values remain exact even if a
+        // local system proxy canonicalizes their spelling on the wire.
+        let header_value = |name: &str| {
+            headers
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then(|| value.trim()))
+        };
+        assert_eq!(header_value("x-api-key"), Some("secret-fixture-key"));
+        assert_eq!(header_value("anthropic-version"), Some("2026-10-21"));
         assert!(!headers.to_ascii_lowercase().contains("authorization:"));
         let body: Value = serde_json::from_str(body).unwrap();
         assert_eq!(body["system"], "original assertions");
@@ -266,14 +287,15 @@ mod tests {
             (200, "x".repeat(4 * 1024 * 1024 + 1), false),
         ] {
             let (endpoint, server) = server(status, body, Duration::ZERO).await;
-            let error = AnthropicFactory
-                .build(&profile(endpoint))
-                .unwrap()
+            let error = direct_messages_client(&profile(endpoint))
                 .chat(&[Message::user("hi")])
                 .await
                 .err()
                 .unwrap();
-            assert_eq!(matches!(error, LlmError::ModelFailure(_)), retry);
+            assert_eq!(
+                matches!(error, LlmError::RateLimited | LlmError::ServiceUnavailable),
+                retry
+            );
             assert!(!error.to_string().contains("secret-fixture-key"));
             server.await.unwrap();
         }
@@ -296,13 +318,10 @@ mod tests {
         let trace = Arc::new(ModelCallTrace::default());
         let route = RegisteredClient {
             clients: vec![
-                (
-                    "primary".into(),
-                    AnthropicFactory.build(&profile(first)).unwrap(),
-                ),
+                ("primary".into(), direct_messages_client(&profile(first))),
                 (
                     "fallback".into(),
-                    OpenAiCompatibleFactory.build(&profile(second)).unwrap(),
+                    super::super::tests::direct_completion_client(&profile(second)),
                 ),
             ],
             capabilities: BTreeSet::from(["text".into()]),
@@ -327,10 +346,7 @@ mod tests {
             .starts_with("POST /v1/chat/completions HTTP/1.1"));
         let (endpoint, server) = server(200, completed("late"), Duration::from_secs(1)).await;
         let route = RegisteredClient {
-            clients: vec![(
-                "slow".into(),
-                AnthropicFactory.build(&profile(endpoint)).unwrap(),
-            )],
+            clients: vec![("slow".into(), direct_messages_client(&profile(endpoint)))],
             capabilities: BTreeSet::from(["text".into()]),
             trace: Some(trace.clone()),
         };

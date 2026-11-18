@@ -11,6 +11,8 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Added
 
+- Generation jobs retain actual registered model attempts across failure, cancellation and restart, distinguish quota/service/protocol outcomes, and reject known credential echoes before saving assets. Tasks exposes frozen model evidence using existing free beUI controls.
+- Windows installer acceptance passes on actual Windows CI, including running file identities, 8.3 aliases, independent installations and data-preserving uninstall.
 - Separate schema-2 reviewed execution flows: free beUI composition, typed ports/conditions, bounded waits, fixed per-step models, frozen admission, durable checkpoints and case-run/Allure evidence. Historical v1 plans stay non-executable; visual fallback and automatic healing remain unavailable.
 
 - Reusable contract library with immutable published versions, project bindings, reviewed corrections, comparison, deprecation, derivation, controlled import/export and reviewed binding migration.

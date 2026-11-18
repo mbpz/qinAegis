@@ -158,12 +158,20 @@ impl GenerationModelCalls {
                     ensure!(
                         matches!(
                             attempt.outcome,
-                            ModelCallOutcome::TransportFailure | ModelCallOutcome::TimedOut
+                            ModelCallOutcome::TransportFailure
+                                | ModelCallOutcome::TimedOut
+                                | ModelCallOutcome::RateLimited
+                                | ModelCallOutcome::ServiceUnavailable
                         ),
                         "model fallback after non-retryable outcome"
                     );
                 }
             }
+            ensure!(
+                !attempts.iter().any(|attempt| matches!(attempt.outcome,
+                    ModelCallOutcome::Started | ModelCallOutcome::Cancelled)),
+                "unfinished model call in saved provenance"
+            );
             if phase == "generator" {
                 ensure!(
                     attempts.last().unwrap().outcome == ModelCallOutcome::Succeeded,

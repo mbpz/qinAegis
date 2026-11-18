@@ -481,7 +481,9 @@ mod tests {
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let client = reqwest::Client::new();
+        // Exercise the local server directly, including deliberately invalid
+        // Host headers, regardless of the developer machine's system proxy.
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
         assert_eq!(
             client
                 .get(format!("{origin}/healthz"))

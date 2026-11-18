@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ui = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temp = mkdtempSync(join(tmpdir(), 'qinaegis-rpc-'));
-execFileSync(process.execPath, [join(ui, 'node_modules/typescript/bin/tsc'), 'src/utils/rpc.ts', 'src/utils/flow_execution_editor.ts', '--target', 'ES2020', '--module', 'ES2022', '--moduleResolution', 'bundler', '--outDir', temp], { cwd: ui });
+execFileSync(process.execPath, [join(ui, 'node_modules/typescript/bin/tsc'), 'src/utils/rpc.ts', 'src/utils/flow_execution_editor.ts', 'src/utils/generation_evidence.ts', '--target', 'ES2020', '--module', 'ES2022', '--moduleResolution', 'bundler', '--outDir', temp], { cwd: ui });
 const compiled = join(temp, 'rpc.mjs');
 writeFileSync(compiled, readFileSync(join(temp, 'utils/rpc.js')));
 process.on('exit', () => rmSync(temp, { recursive: true, force: true }));
@@ -328,4 +328,26 @@ test('execution polling retries only transient snapshot contention with a finite
   assert.equal(retryExecutionRead(busy, 3), false);
   assert.equal(retryExecutionRead(new Error('session expired'), 0), false);
   assert.equal(retryExecutionRead(new Error('execution not found'), 0), false);
+});
+
+
+test('generation evidence resolves frozen candidate indices and rejects malformed historical attempts', async () => {
+  const {generationEvidence} = await import(pathToFileURL(join(temp, 'utils/generation_evidence.js')).href);
+  const snapshot = {model:{candidates:[{id:'primary',model:'frozen-one'},{id:'fallback',model:'frozen-two'}]}};
+  const value = {schema_version:1,source:'registered_route',application_outcome:'failed',attempts:[[1,1,0,'rate_limited'],[1,2,1,'succeeded'],[2,1,0,'rejected']]};
+  const read = generationEvidence(value,snapshot);
+  assert.equal(read.rows[1].model,'frozen-two');
+  assert.equal(read.rows[1].candidate,'fallback');
+  assert.equal(read.rows[2].phase,'Critic 1');
+  assert.match(read.status,/failed/);
+  assert.match(generationEvidence({...value,application_outcome:'completed_with_unverified_reviews'},snapshot).status,/could not be verified/);
+  assert.match(generationEvidence({...value,application_outcome:'cancelled',attempts:[[1,1,0,'cancelled']]},snapshot).rows[0].outcome,/cancelled/);
+  for (const row of [[1,1,2,'succeeded'],[1,2,1,'succeeded'],[1,1,0,'unknown'],[1,1,0,{toString:null}],[202,1,0,'started']]) {
+    assert.equal(generationEvidence({...value,attempts:[row]},snapshot),null);
+  }
+  assert.equal(generationEvidence({...value,application_outcome:'toString'},snapshot),null);
+  assert.equal(generationEvidence({...value,attempts:[[1,1,0,'toString']]},snapshot),null);
+  assert.equal(generationEvidence(value,{model:{candidates:[{id:'primary',model:null}]}}),null);
+  assert.equal(generationEvidence({truncated:true},snapshot),null);
+  assert.equal(generationEvidence({schema_version:1,source:'legacy_config',actual_attempts:'not_recorded'},null).legacy,true);
 });

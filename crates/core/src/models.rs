@@ -342,13 +342,30 @@ impl ModelRegistry {
 
     /// Freeze one explicitly selected visual profile. This authorizes no
     /// fallback and performs no network calls. Credentials stay in memory.
-    pub fn resolve_execution_profile(&self, profile_id: &str, expected_revision: u64) -> Result<ResolvedModelRoute> {
+    pub fn resolve_execution_profile(
+        &self,
+        profile_id: &str,
+        expected_revision: u64,
+    ) -> Result<ResolvedModelRoute> {
         let guard = self.file.lock()?;
         let doc = self.read(&guard)?;
-        ensure!(doc.revision == expected_revision, "model registry revision conflict");
-        let route = TaskModelRoute { primary: profile_id.into(), fallbacks: vec![] };
-        let (profiles, capabilities) = resolve_profiles("execute", &route, &doc.profiles, &["text", "vision"])?;
-        Ok(ResolvedModelRoute { revision: doc.revision, task: "execute".into(), profiles, capabilities, adapters: self.adapters.clone() })
+        ensure!(
+            doc.revision == expected_revision,
+            "model registry revision conflict"
+        );
+        let route = TaskModelRoute {
+            primary: profile_id.into(),
+            fallbacks: vec![],
+        };
+        let (profiles, capabilities) =
+            resolve_profiles("execute", &route, &doc.profiles, &["text", "vision"])?;
+        Ok(ResolvedModelRoute {
+            revision: doc.revision,
+            task: "execute".into(),
+            profiles,
+            capabilities,
+            adapters: self.adapters.clone(),
+        })
     }
 
     /// Capture one approved destination, never a fallback chain. No network I/O under the file lock.
@@ -631,32 +648,155 @@ pub struct ModelCallAttempt {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCallOutcome {
+    /// Locally admitted; does not prove that the remote provider received it.
+    Started,
     Succeeded,
     TransportFailure,
     TimedOut,
     Rejected,
+    Cancelled,
+    RateLimited,
+    ServiceUnavailable,
 }
+type TraceCheckpoint = dyn Fn(&[ModelCallAttempt]) -> Result<()> + Send + Sync;
 #[derive(Default)]
 pub struct ModelCallTrace {
     next_call: std::sync::atomic::AtomicU64,
     entries: std::sync::Mutex<(Vec<ModelCallAttempt>, bool)>,
+    checkpoint: std::sync::Mutex<Option<Arc<TraceCheckpoint>>>,
+    // Serialize mutation + callback, preserving durable snapshot order while
+    // releasing entries before crossing the application's persistence boundary.
+    checkpoint_serial: std::sync::Mutex<()>,
 }
 impl ModelCallTrace {
-    pub fn snapshot(&self) -> Result<Vec<ModelCallAttempt>> {
+    /// Install once before any attempts. The callback receives a bounded complete
+    /// copy, outside the entries lock, before a request and after its outcome.
+    /// Consume the slice directly: do not call snapshot(), mutate the trace or
+    /// install hooks from this callback (the checkpoint sequence is serialized).
+    /// Errors are sticky and never expose callback/provider error text.
+    pub fn set_checkpoint<F>(&self, checkpoint: F) -> Result<()>
+    where
+        F: Fn(&[ModelCallAttempt]) -> Result<()> + Send + Sync + 'static,
+    {
+        let _serial = self
+            .checkpoint_serial
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
         let entries = self
             .entries
             .lock()
             .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
-        ensure!(!entries.1, "model trace capacity exceeded");
+        ensure!(
+            entries.0.is_empty() && !entries.1,
+            "model trace already started"
+        );
+        let mut hook = self
+            .checkpoint
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+        ensure!(hook.is_none(), "model trace checkpoint already installed");
+        *hook = Some(Arc::new(checkpoint));
+        Ok(())
+    }
+    pub fn snapshot(&self) -> Result<Vec<ModelCallAttempt>> {
+        // A concurrent owner must not observe an outcome before its durable
+        // callback commits (or marks the trace failed). Hooks consume their slice.
+        let _serial = self
+            .checkpoint_serial
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+        ensure!(!entries.1, "model trace capacity or checkpoint failed");
         Ok(entries.0.clone())
     }
-    fn record(&self, entry: ModelCallAttempt) {
-        if let Ok(mut entries) = self.entries.lock() {
-            if entries.0.len() < 1024 {
+    fn record(&self, entry: ModelCallAttempt) -> Result<()> {
+        let _serial = self
+            .checkpoint_serial
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+        let saved = {
+            let mut entries = self
+                .entries
+                .lock()
+                .map_err(|_| anyhow::anyhow!("model trace unavailable"))?;
+            ensure!(!entries.1, "model trace capacity or checkpoint failed");
+            if let Some(previous) = entries
+                .0
+                .iter_mut()
+                .find(|v| v.call == entry.call && v.attempt == entry.attempt)
+            {
+                if previous.outcome != ModelCallOutcome::Started
+                    || entry.outcome == ModelCallOutcome::Started
+                    || previous.profile_id != entry.profile_id
+                {
+                    entries.1 = true;
+                    anyhow::bail!("invalid model trace transition");
+                }
+                *previous = entry;
+            } else if entry.outcome == ModelCallOutcome::Started
+                && entry.call > 0
+                && entry.attempt > 0
+                && entries.0.len() < 1024
+            {
                 entries.0.push(entry);
             } else {
                 entries.1 = true;
+                anyhow::bail!("model trace capacity or transition failed");
             }
+            entries.0.clone()
+        };
+        let hook = self
+            .checkpoint
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model trace unavailable"))?
+            .clone();
+        if let Some(hook) = hook {
+            let committed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hook(&saved)));
+            if !matches!(committed, Ok(Ok(()))) {
+                if let Ok(mut entries) = self.entries.lock() {
+                    entries.1 = true;
+                }
+                anyhow::bail!("model trace checkpoint failed");
+            }
+        }
+        Ok(())
+    }
+}
+
+struct TraceAttempt<'a> {
+    trace: &'a ModelCallTrace,
+    entry: ModelCallAttempt,
+    finished: bool,
+}
+impl<'a> TraceAttempt<'a> {
+    fn begin(trace: &'a ModelCallTrace, entry: ModelCallAttempt) -> Result<Self, LlmError> {
+        trace
+            .record(entry.clone())
+            .map_err(|_| LlmError::EvidenceUnavailable)?;
+        Ok(Self {
+            trace,
+            entry,
+            finished: false,
+        })
+    }
+    fn finish(&mut self, outcome: ModelCallOutcome) -> Result<(), LlmError> {
+        self.finished = true;
+        self.entry.outcome = outcome;
+        self.trace
+            .record(self.entry.clone())
+            .map_err(|_| LlmError::EvidenceUnavailable)
+    }
+}
+impl Drop for TraceAttempt<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.entry.outcome = ModelCallOutcome::Cancelled;
+            // Drop cannot return a persistence error. record makes it sticky so
+            // the owner cannot subsequently snapshot/complete successfully.
+            let _ = self.trace.record(self.entry.clone());
         }
     }
 }
@@ -744,33 +884,57 @@ impl RegisteredClient {
             if tokio::time::Instant::now() >= deadline {
                 return Err(LlmError::ModelFailure("model route timed out"));
             }
+            let mut attempt = self
+                .trace
+                .as_ref()
+                .map(|trace| {
+                    TraceAttempt::begin(
+                        trace,
+                        ModelCallAttempt {
+                            call,
+                            attempt: (index + 1) as u8,
+                            profile_id: id.clone(),
+                            outcome: ModelCallOutcome::Started,
+                        },
+                    )
+                })
+                .transpose()?;
+            // Synchronous durable admission consumes the same total budget.
+            // Do not even poll a provider if its checkpoint exhausted it.
+            if tokio::time::Instant::now() >= deadline {
+                if let Some(attempt) = &mut attempt {
+                    attempt.finish(ModelCallOutcome::TimedOut)?;
+                }
+                return Err(LlmError::ModelFailure("model route timed out"));
+            }
             let response = tokio::time::timeout_at(
                 deadline.min(tokio::time::Instant::now() + candidate_budget),
                 client.chat_with_options(messages, options.clone()),
             )
             .await;
-            if let Some(trace) = &self.trace {
+            if let Some(attempt) = &mut attempt {
                 let outcome = match &response {
                     Ok(Ok(_)) => ModelCallOutcome::Succeeded,
+                    Ok(Err(LlmError::RateLimited)) => ModelCallOutcome::RateLimited,
+                    Ok(Err(LlmError::ServiceUnavailable)) => ModelCallOutcome::ServiceUnavailable,
                     Ok(Err(LlmError::ModelFailure(_))) | Ok(Err(LlmError::Request(_))) => {
                         ModelCallOutcome::TransportFailure
                     }
                     Err(_) => ModelCallOutcome::TimedOut,
                     Ok(Err(_)) => ModelCallOutcome::Rejected,
                 };
-                trace.record(ModelCallAttempt {
-                    call,
-                    attempt: (index + 1) as u8,
-                    profile_id: id.clone(),
-                    outcome,
-                });
+                attempt.finish(outcome)?;
             }
             match response {
                 Ok(Ok(result)) => {
                     tracing::info!(provider_id = %id, "model request completed");
                     return Ok(result);
                 }
-                Ok(Err(LlmError::ModelFailure(_))) | Ok(Err(LlmError::Request(_))) | Err(_) => {
+                Ok(Err(LlmError::ModelFailure(_)))
+                | Ok(Err(LlmError::Request(_)))
+                | Ok(Err(LlmError::RateLimited))
+                | Ok(Err(LlmError::ServiceUnavailable))
+                | Err(_) => {
                     tracing::warn!(
                         provider_id = %id,
                         fallback = index + 1 < self.clients.len(),
@@ -907,8 +1071,11 @@ impl LlmClient for OpenAiCompatibleClient {
             .await
             .map_err(|_| LlmError::ModelFailure("model transport failure"))?;
         let status = response.status();
-        if status.as_u16() == 429 || status.is_server_error() {
-            return Err(LlmError::ModelFailure("model quota or service unavailable"));
+        if status.as_u16() == 429 {
+            return Err(LlmError::RateLimited);
+        }
+        if status.is_server_error() {
+            return Err(LlmError::ServiceUnavailable);
         }
         if !status.is_success() {
             return Err(LlmError::Api("model request rejected".into()));
@@ -958,16 +1125,34 @@ mod tests {
 
     #[test]
     fn explicit_execution_profile_requires_current_visual_authorized_registration() {
-        let dir=tempfile::tempdir().unwrap();let registry=ModelRegistry::new(dir.path().join("models.json"));
-        let mut selected=profile("chosen");selected.capabilities.push("vision".into());selected.midscene_family=Some("qwen2.5-vl".into());
-        registry.upsert(0,selected.clone(),false).unwrap();
-        let frozen=registry.resolve_execution_profile("chosen",1).unwrap();assert_eq!(frozen.candidates().len(),1);assert_eq!(frozen.candidates()[0].model,"model-chosen");
-        assert!(registry.resolve_execution_profile("chosen",0).is_err());assert!(registry.resolve_execution_profile("missing",1).is_err());
-        selected.enabled=false;registry.upsert(1,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",2).is_err());
-        selected.enabled=true;selected.allow_remote=false;registry.upsert(2,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",3).is_err());
-        selected.allow_remote=true;selected.midscene_family=None;registry.upsert(3,selected.clone(),false).unwrap();assert!(registry.resolve_execution_profile("chosen",4).is_err());
-        selected.midscene_family=Some("qwen2.5-vl".into());selected.capabilities=vec!["text".into()];registry.upsert(4,selected,false).unwrap();assert!(registry.resolve_execution_profile("chosen",5).is_err());
-        assert_eq!(frozen.candidates()[0].model,"model-chosen");assert_eq!(frozen.candidates()[0].api_key,"private-test-key");
+        let dir = tempfile::tempdir().unwrap();
+        let registry = ModelRegistry::new(dir.path().join("models.json"));
+        let mut selected = profile("chosen");
+        selected.capabilities.push("vision".into());
+        selected.midscene_family = Some("qwen2.5-vl".into());
+        registry.upsert(0, selected.clone(), false).unwrap();
+        let frozen = registry.resolve_execution_profile("chosen", 1).unwrap();
+        assert_eq!(frozen.candidates().len(), 1);
+        assert_eq!(frozen.candidates()[0].model, "model-chosen");
+        assert!(registry.resolve_execution_profile("chosen", 0).is_err());
+        assert!(registry.resolve_execution_profile("missing", 1).is_err());
+        selected.enabled = false;
+        registry.upsert(1, selected.clone(), false).unwrap();
+        assert!(registry.resolve_execution_profile("chosen", 2).is_err());
+        selected.enabled = true;
+        selected.allow_remote = false;
+        registry.upsert(2, selected.clone(), false).unwrap();
+        assert!(registry.resolve_execution_profile("chosen", 3).is_err());
+        selected.allow_remote = true;
+        selected.midscene_family = None;
+        registry.upsert(3, selected.clone(), false).unwrap();
+        assert!(registry.resolve_execution_profile("chosen", 4).is_err());
+        selected.midscene_family = Some("qwen2.5-vl".into());
+        selected.capabilities = vec!["text".into()];
+        registry.upsert(4, selected, false).unwrap();
+        assert!(registry.resolve_execution_profile("chosen", 5).is_err());
+        assert_eq!(frozen.candidates()[0].model, "model-chosen");
+        assert_eq!(frozen.candidates()[0].api_key, "private-test-key");
     }
 
     #[test]
@@ -1425,9 +1610,24 @@ mod tests {
             ModelCallOutcome::Rejected
         );
         let trace = ModelCallTrace::default();
-        for _ in 0..1025 {
-            trace.record(frozen[0].clone());
+        for call in 1..=1024 {
+            trace
+                .record(ModelCallAttempt {
+                    call,
+                    attempt: 1,
+                    profile_id: "fixture".into(),
+                    outcome: ModelCallOutcome::Started,
+                })
+                .unwrap();
         }
+        assert!(trace
+            .record(ModelCallAttempt {
+                call: 1025,
+                attempt: 1,
+                profile_id: "fixture".into(),
+                outcome: ModelCallOutcome::Started
+            })
+            .is_err());
         assert!(trace.snapshot().is_err());
     }
 
@@ -1628,7 +1828,7 @@ mod tests {
             let trace = Arc::new(ModelCallTrace::default());
             let route = RegisteredClient {
                 clients: vec![
-                    ("primary".into(), OpenAiCompatibleFactory.build(&p).unwrap()),
+                    ("primary".into(), direct_completion_client(&p)),
                     (
                         "fallback".into(),
                         ArcLlmClient::new(MockClient {
@@ -1662,6 +1862,20 @@ mod tests {
             );
         }
     }
+    // A disconnect must reach reqwest directly: system proxies can translate a
+    // closed peer into HTTP 502 and thereby change the observed failure class.
+    // This only isolates fixture transport; the production adapter is unchanged.
+    pub(super) fn direct_completion_client(profile: &ModelProfile) -> ArcLlmClient {
+        ArcLlmClient::new(OpenAiCompatibleClient {
+            profile: profile.clone(),
+            client: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .unwrap(),
+        })
+    }
     #[tokio::test]
     async fn completion_wire_retryable_failures_use_only_approved_fallback_within_budget() {
         for status in [0, 429, 500, 503, 529] {
@@ -1676,11 +1890,8 @@ mod tests {
             let trace = Arc::new(ModelCallTrace::default());
             let route = RegisteredClient {
                 clients: vec![
-                    ("primary".into(), OpenAiCompatibleFactory.build(&p).unwrap()),
-                    (
-                        "fallback".into(),
-                        OpenAiCompatibleFactory.build(&f).unwrap(),
-                    ),
+                    ("primary".into(), direct_completion_client(&p)),
+                    ("fallback".into(), direct_completion_client(&f)),
                 ],
                 capabilities: BTreeSet::from(["text".into()]),
                 trace: Some(trace.clone()),
@@ -1702,7 +1913,14 @@ mod tests {
             assert_eq!(fallback_calls.load(Ordering::SeqCst), 1);
             let entries = trace.snapshot().unwrap();
             assert_eq!(entries.len(), 2);
-            assert_eq!(entries[0].outcome, ModelCallOutcome::TransportFailure);
+            assert_eq!(
+                entries[0].outcome,
+                match status {
+                    0 => ModelCallOutcome::TransportFailure,
+                    429 => ModelCallOutcome::RateLimited,
+                    _ => ModelCallOutcome::ServiceUnavailable,
+                }
+            );
             assert_eq!(entries[1].outcome, ModelCallOutcome::Succeeded);
             assert!(!serde_json::to_string(&entries)
                 .unwrap()
@@ -1714,7 +1932,7 @@ mod tests {
         p.base_url = endpoint;
         let trace = Arc::new(ModelCallTrace::default());
         let route = RegisteredClient {
-            clients: vec![("slow".into(), OpenAiCompatibleFactory.build(&p).unwrap())],
+            clients: vec![("slow".into(), direct_completion_client(&p))],
             capabilities: BTreeSet::from(["text".into()]),
             trace: Some(trace.clone()),
         };
@@ -1759,5 +1977,174 @@ mod tests {
             .unwrap(),
             "{\"ok\":true}"
         );
+    }
+
+    fn traced_completion(
+        endpoint: String,
+        trace: Arc<ModelCallTrace>,
+        fallback_calls: Arc<AtomicUsize>,
+    ) -> RegisteredClient {
+        let mut primary = profile("primary");
+        primary.base_url = endpoint;
+        RegisteredClient {
+            clients: vec![
+                ("primary".into(), direct_completion_client(&primary)),
+                (
+                    "fallback".into(),
+                    ArcLlmClient::new(MockClient {
+                        id: "fallback".into(),
+                        calls: fallback_calls,
+                        business_failure: false,
+                    }),
+                ),
+            ],
+            capabilities: BTreeSet::from(["text".into()]),
+            trace: Some(trace),
+        }
+    }
+    #[tokio::test]
+    async fn trace_checkpoints_admit_before_http_and_update_cancelled_in_place_on_drop() {
+        let (endpoint, calls, server) =
+            completion_server(200, complete("late").to_string(), Duration::from_secs(1)).await;
+        let trace = Arc::new(ModelCallTrace::default());
+        let saved = Arc::new(std::sync::Mutex::new(Vec::<Vec<ModelCallAttempt>>::new()));
+        let sink = saved.clone();
+        let observed_calls = calls.clone();
+        let weak_trace = Arc::downgrade(&trace);
+        trace
+            .set_checkpoint(move |entries| {
+                // The callback can read without the entries lock being held. It
+                // receives its own complete copy and never needs to snapshot it.
+                assert!(weak_trace.upgrade().unwrap().entries.try_lock().is_ok());
+                if entries.last().unwrap().outcome == ModelCallOutcome::Started {
+                    assert_eq!(observed_calls.load(Ordering::SeqCst), 0);
+                }
+                sink.lock().unwrap().push(entries.to_vec());
+                Ok(())
+            })
+            .unwrap();
+        let fallback_calls = Arc::new(AtomicUsize::new(0));
+        let route = traced_completion(endpoint, trace.clone(), fallback_calls.clone());
+        let messages = [Message::user("private input")];
+        let mut future = Box::pin(route.chat_with_budget(
+            &messages,
+            ChatOptions::default(),
+            Duration::from_secs(2),
+        ));
+        tokio::select! {
+            _ = &mut future => panic!("delayed provider completed unexpectedly"),
+            _ = async { while calls.load(Ordering::SeqCst)==0 { tokio::task::yield_now().await; } } => {}
+        }
+        assert_eq!(
+            trace.snapshot().unwrap()[0].outcome,
+            ModelCallOutcome::Started
+        );
+        drop(future);
+        assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
+        let events = saved.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0][0].outcome, ModelCallOutcome::Started);
+        assert_eq!(events[1][0].outcome, ModelCallOutcome::Cancelled);
+        assert_eq!(trace.snapshot().unwrap().len(), 1);
+        assert!(trace.set_checkpoint(|_| Ok(())).is_err());
+        assert!(!serde_json::to_string(&*events).unwrap().contains("private"));
+        server.abort();
+    }
+    #[tokio::test]
+    async fn trace_checkpoint_failures_stop_before_request_or_fallback_and_stay_observable() {
+        for fail_on in [
+            ModelCallOutcome::Started,
+            ModelCallOutcome::Succeeded,
+            ModelCallOutcome::RateLimited,
+        ] {
+            let status = if fail_on == ModelCallOutcome::RateLimited {
+                429
+            } else {
+                200
+            };
+            let (endpoint, calls, server) =
+                completion_server(status, complete("ok").to_string(), Duration::ZERO).await;
+            let trace = Arc::new(ModelCallTrace::default());
+            let fail = fail_on.clone();
+            trace
+                .set_checkpoint(move |entries| {
+                    if entries.last().unwrap().outcome == fail {
+                        anyhow::bail!("private callback credential/body");
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            assert!(trace.set_checkpoint(|_| Ok(())).is_err());
+            let fallback_calls = Arc::new(AtomicUsize::new(0));
+            let route = traced_completion(endpoint, trace.clone(), fallback_calls.clone());
+            let error = route
+                .chat_with_budget(
+                    &[Message::user("hi")],
+                    ChatOptions::default(),
+                    Duration::from_secs(2),
+                )
+                .await
+                .err()
+                .unwrap();
+            assert!(matches!(error, LlmError::EvidenceUnavailable));
+            assert!(!error.to_string().contains("private"));
+            assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                usize::from(fail_on != ModelCallOutcome::Started)
+            );
+            assert!(trace.snapshot().is_err());
+            server.abort();
+        }
+        let trace = Arc::new(ModelCallTrace::default());
+        trace
+            .set_checkpoint(|entries| {
+                if entries[0].outcome == ModelCallOutcome::Cancelled {
+                    anyhow::bail!("private failed drop");
+                }
+                Ok(())
+            })
+            .unwrap();
+        let entry = ModelCallAttempt {
+            call: 1,
+            attempt: 1,
+            profile_id: "fixture".into(),
+            outcome: ModelCallOutcome::Started,
+        };
+        let guard = TraceAttempt::begin(&trace, entry).unwrap();
+        drop(guard);
+        assert!(trace.snapshot().is_err());
+    }
+
+    #[tokio::test]
+    async fn trace_durable_admission_consumes_deadline_without_polling_provider() {
+        let (endpoint, calls, server) =
+            completion_server(200, complete("unused").to_string(), Duration::ZERO).await;
+        let trace = Arc::new(ModelCallTrace::default());
+        trace
+            .set_checkpoint(|entries| {
+                if entries[0].outcome == ModelCallOutcome::Started {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Ok(())
+            })
+            .unwrap();
+        let fallback_calls = Arc::new(AtomicUsize::new(0));
+        let route = traced_completion(endpoint, trace.clone(), fallback_calls.clone());
+        assert!(route
+            .chat_with_budget(
+                &[Message::user("hi")],
+                ChatOptions::default(),
+                Duration::from_millis(5)
+            )
+            .await
+            .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            trace.snapshot().unwrap()[0].outcome,
+            ModelCallOutcome::TimedOut
+        );
+        server.abort();
     }
 }

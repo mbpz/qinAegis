@@ -10,6 +10,8 @@ pub struct TestCaseService {
     llm: ArcLlmClient,
     storage: LocalStorageInstance,
     model_trace: Option<std::sync::Arc<crate::models::ModelCallTrace>>,
+    output_secrets: Vec<String>,
+    cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl TestCaseService {
@@ -18,7 +20,36 @@ impl TestCaseService {
             llm,
             storage,
             model_trace: None,
+            output_secrets: Vec::new(),
+            cancel_flag: None,
         }
+    }
+
+    /// Frozen credentials are compared in memory only, before decoded model
+    /// output can reach names, diagnostics, provenance or persistent assets.
+    pub fn with_output_secrets(mut self, secrets: Vec<String>) -> Self {
+        self.output_secrets = secrets.into_iter().filter(|s| !s.is_empty()).collect();
+        self
+    }
+
+    /// Stops generation at model and storage boundaries. Already committed cases
+    /// remain saved; cancellation cannot interrupt an atomic storage write.
+    pub fn with_cancel_flag(
+        mut self,
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        self.cancel_flag = Some(flag);
+        self
+    }
+
+    fn ensure_not_cancelled(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.cancel_flag.as_ref().is_some_and(|flag| {
+                flag.load(std::sync::atomic::Ordering::Acquire)
+            }),
+            "Generation cancelled"
+        );
+        Ok(())
     }
 
     pub fn with_model_trace(
@@ -56,15 +87,22 @@ impl TestCaseService {
         if let Some(context) = &context {
             context.validate(project_name)?;
         }
-        let generator = TestCaseGenerator::new(self.llm.clone());
-        let critic = Critic::new(self.llm.clone());
+        let echoed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guarded = ArcLlmClient::new(OutputGuard {
+            client: self.llm.clone(), secrets: self.output_secrets.clone(), echoed: echoed.clone(),
+        });
+        let generator = TestCaseGenerator::new(guarded.clone());
+        let critic = Critic::new(guarded);
 
         anyhow::ensure!(
             self.model_trace.is_none() || context.is_some(),
             "model trace requires generation context"
         );
         let generation_start = self.trace_snapshot()?.len();
-        let cases = generator.generate(spec_markdown, requirement_text).await?;
+        self.ensure_not_cancelled()?;
+        let generated = generator.generate(spec_markdown, requirement_text).await;
+        self.ensure_not_cancelled()?;
+        let cases = generated?;
         let generation_calls = self.trace_snapshot()?[generation_start..].to_vec();
         validate_generated_cases(&cases)?;
         for case in &cases {
@@ -77,14 +115,23 @@ impl TestCaseService {
 
         for tc in &cases {
             let critic_start = self.trace_snapshot()?.len();
+            self.ensure_not_cancelled()?;
             let review = critic
                 .review(&tc.yaml_script, spec_markdown, requirement_text)
                 .await;
+            self.ensure_not_cancelled()?;
 
+            if review.as_ref().err().is_some_and(|error| matches!(
+                error.downcast_ref::<crate::llm::LlmError>(),
+                Some(crate::llm::LlmError::EvidenceUnavailable)
+            )) {
+                anyhow::bail!("model call evidence persistence failed");
+            }
+            anyhow::ensure!(!echoed.load(std::sync::atomic::Ordering::Acquire), ECHO_REJECTION);
             let (score, issues) = match &review {
                 Ok(r) => (r.score, r.issues.clone()),
-                Err(e) => {
-                    tracing::warn!("critic review failed for {}: {}", tc.name, e);
+                Err(_) => {
+                    tracing::warn!("critic review failed; draft retained without a successful review");
                     (0, vec![])
                 }
             };
@@ -125,6 +172,7 @@ impl TestCaseService {
                 provenance.validate(project_name, &tc.id, &tc.yaml_script)?;
                 storage_case.provenance = Some(provenance);
             }
+            self.ensure_not_cancelled()?;
             self.storage.save_case(project_name, &storage_case).await?;
 
             results.push(SaveResult {
@@ -132,6 +180,7 @@ impl TestCaseService {
                 case_name: tc.name.clone(),
                 score,
                 issues,
+                review_verified: review.is_ok(),
                 saved: true,
             });
         }
@@ -233,6 +282,46 @@ impl TestCaseService {
     }
 }
 
+const ECHO_REJECTION: &str = "model output rejected because it contains configured credentials";
+
+struct OutputGuard {
+    client: ArcLlmClient,
+    secrets: Vec<String>,
+    echoed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+impl OutputGuard {
+    fn reject_echo(&self, response: &str) -> Result<(), crate::llm::LlmError> {
+        fn contains(value: &serde_json::Value, secret: &str) -> bool {
+            match value {
+                serde_json::Value::String(value) => value.contains(secret),
+                serde_json::Value::Array(items) => items.iter().any(|v| contains(v, secret)),
+                serde_json::Value::Object(items) => items.iter().any(|(k,v)| k.contains(secret) || contains(v, secret)),
+                _ => false,
+            }
+        }
+        let json = response.trim().trim_start_matches("```json").trim_start_matches("```")
+            .trim_end_matches("```").trim();
+        let decoded = serde_json::from_str::<serde_json::Value>(json).ok();
+        if self.secrets.iter().any(|secret| response.contains(secret)
+            || decoded.as_ref().is_some_and(|value| contains(value, secret))) {
+            self.echoed.store(true, std::sync::atomic::Ordering::Release);
+            return Err(crate::llm::LlmError::Api(ECHO_REJECTION.into()));
+        }
+        Ok(())
+    }
+}
+#[async_trait::async_trait]
+impl crate::llm::LlmClient for OutputGuard {
+    async fn chat(&self, messages: &[crate::llm::Message]) -> Result<String, crate::llm::LlmError> {
+        self.chat_with_options(messages, crate::llm::ChatOptions::default()).await
+    }
+    async fn chat_with_options(&self, messages: &[crate::llm::Message], options: crate::llm::ChatOptions) -> Result<String, crate::llm::LlmError> {
+        let response = self.client.chat_with_options(messages, options).await?;
+        self.reject_echo(&response)?;
+        Ok(response)
+    }
+}
+
 // Generated data is untrusted. Validate the complete batch before any storage
 // writes, rather than allowing a model to choose filesystem paths or overwrite
 // an existing case that may already have been reviewed.
@@ -295,4 +384,158 @@ pub struct SaveResult {
     pub score: u8,
     pub issues: Vec<String>,
     pub saved: bool,
+    pub review_verified: bool,
+}
+
+#[cfg(test)]
+mod output_secret_tests {
+    use super::*;
+    use crate::llm::{LlmClient, LlmError, Message};
+    use std::sync::{Arc, Mutex};
+
+    struct Responses(Mutex<std::collections::VecDeque<Result<String, LlmError>>>);
+    #[async_trait::async_trait]
+    impl LlmClient for Responses {
+        async fn chat(&self, _: &[Message]) -> Result<String, LlmError> {
+            self.0.lock().unwrap().pop_front().expect("unexpected model call")
+        }
+    }
+    struct Project { name: String }
+    impl Project {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let project = Self { name: format!("output-guard-{}-{}-{}", std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+                NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed)) };
+            std::fs::create_dir_all(crate::storage::LocalStorage::project_dir(&project.name)).unwrap();
+            project
+        }
+        fn exists(&self) -> bool {
+            fn any_json(path: &std::path::Path) -> bool {
+                std::fs::read_dir(path).ok().into_iter().flatten().filter_map(Result::ok)
+                    .any(|entry| if entry.path().is_dir() { any_json(&entry.path()) }
+                         else { entry.path().extension().is_some_and(|s| s == "json") })
+            }
+            any_json(&crate::storage::LocalStorage::cases_dir(&self.name))
+        }
+    }
+    impl Drop for Project {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(crate::storage::LocalStorage::project_dir(&self.name)); }
+    }
+    fn case(id: &str) -> serde_json::Value {
+        serde_json::json!({"id":id,"name":"Safe case","requirement_id":"r","type":"smoke",
+            "priority":"P1","yaml_script":"tasks: []","expected_result":"receipt","tags":[]})
+    }
+    fn review() -> String {
+        serde_json::json!({"score":90,"issues":[],"suggestions":[],"coverage":"checked"}).to_string()
+    }
+    fn service(responses: Vec<Result<String,LlmError>>) -> (TestCaseService,Arc<Responses>) {
+        let queue = Arc::new(Responses(Mutex::new(responses.into())));
+        (TestCaseService::new(ArcLlmClient(queue.clone()),LocalStorageInstance)
+            .with_output_secrets(vec!["".into(),"private-credential".into()]),queue)
+    }
+    #[tokio::test]
+    async fn later_case_credential_rejects_complete_batch_before_any_write() {
+        let project=Project::new();
+        let mut later=case("later"); later["tags"]=serde_json::json!(["private-credential"]);
+        let (service,queue)=service(vec![Ok(serde_json::json!([case("first"),later]).to_string())]);
+        let error=service.generate_and_save(&project.name,"spec","requirement").await.unwrap_err().to_string();
+        assert!(error.contains(ECHO_REJECTION) && !error.contains("private-credential"));
+        assert!(!project.exists());
+        assert!(queue.0.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn decoded_unknown_json_keys_and_fenced_unicode_echo_are_rejected() {
+        for fenced in [false,true] {
+            let project=Project::new();
+            let mut item=case("safe"); item["private-credential"]=serde_json::json!({"ignored":"field"});
+            let response=serde_json::json!([item]).to_string().replace("private-credential",r"\u0070rivate-credential");
+            let response=if fenced {format!("```json\n{response}\n```")} else {response};
+            let (service,_)=service(vec![Ok(response)]);
+            assert!(service.generate_and_save(&project.name,"spec","r").await.unwrap_err().to_string().contains(ECHO_REJECTION));
+            assert!(!project.exists());
+        }
+    }
+    #[tokio::test]
+    async fn critic_decoded_echo_is_fatal_before_case_storage() {
+        let project=Project::new();
+        let response=review().replace("checked",r"\u0070rivate-credential");
+        let (service,queue)=service(vec![Ok(serde_json::json!([case("safe")]).to_string()),Ok(response)]);
+        let error=service.generate_and_save(&project.name,"spec","r").await.unwrap_err().to_string();
+        assert!(error.contains(ECHO_REJECTION) && !error.contains("private-credential"));
+        assert!(!project.exists());
+        assert!(queue.0.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn missing_critic_evidence_is_fatal_even_without_registered_trace() {
+        let project=Project::new();
+        let (service,_)=service(vec![Ok(serde_json::json!([case("safe")]).to_string()),
+            Err(LlmError::EvidenceUnavailable)]);
+        assert!(service.generate_and_save(&project.name,"spec","r").await.unwrap_err()
+            .to_string().contains("model call evidence persistence failed"));
+        assert!(!project.exists());
+    }
+    #[tokio::test]
+    async fn pre_cancelled_generation_makes_no_model_calls() {
+        let project = Project::new();
+        let (service, queue) = service(vec![Ok("unused".into())]);
+        let service = service.with_cancel_flag(Arc::new(std::sync::atomic::AtomicBool::new(true)));
+        assert_eq!(service.generate_and_save(&project.name, "spec", "r").await
+            .unwrap_err().to_string(), "Generation cancelled");
+        assert_eq!(queue.0.lock().unwrap().len(), 1);
+        assert!(!project.exists());
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_generator_or_critic_prevents_storage() {
+        struct CancelResponse {
+            responses: Responses,
+            flag: Arc<std::sync::atomic::AtomicBool>,
+            calls: std::sync::atomic::AtomicUsize,
+            cancel_on: usize,
+        }
+        #[async_trait::async_trait]
+        impl LlmClient for CancelResponse {
+            async fn chat(&self, messages: &[Message]) -> Result<String, LlmError> {
+                let response = self.responses.chat(messages).await;
+                if self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == self.cancel_on {
+                    self.flag.store(true, std::sync::atomic::Ordering::Release);
+                }
+                response
+            }
+        }
+        for cancel_on in [0, 1] {
+            let project = Project::new();
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let client = Arc::new(CancelResponse {
+                responses: Responses(Mutex::new(vec![
+                    Ok(serde_json::json!([case("safe")]).to_string()), Ok(review()),
+                ].into())),
+                flag: flag.clone(),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                cancel_on,
+            });
+            let service = TestCaseService::new(ArcLlmClient(client.clone()), LocalStorageInstance)
+                .with_cancel_flag(flag);
+            assert_eq!(service.generate_and_save(&project.name, "spec", "r").await
+                .unwrap_err().to_string(), "Generation cancelled");
+            assert_eq!(client.calls.load(std::sync::atomic::Ordering::Relaxed), cancel_on + 1);
+            assert!(!project.exists());
+        }
+    }
+
+    #[tokio::test]
+    async fn safe_output_is_unchanged_and_ordinary_critic_failure_stays_draft() {
+        for failed in [false,true] {
+            let project=Project::new();
+            let (service,_)=service(vec![Ok(serde_json::json!([case("safe")]).to_string()),
+                if failed {Err(LlmError::Api("private-credential provider diagnostic".into()))} else {Ok(review())}]);
+            let result=service.generate_and_save(&project.name,"spec","r").await.unwrap();
+            assert_eq!(result[0].score,if failed {0} else {90});
+            assert_eq!(result[0].review_verified,!failed);
+            let asset=crate::storage::LocalStorage::get_case_asset(&project.name,"safe").unwrap();
+            assert_eq!(asset.yaml_script,"tasks: []");
+            assert_eq!(asset.status,CaseStatus::Draft);
+        }
+    }
 }
