@@ -7,7 +7,7 @@ review and routing behavior, not visual or business-semantic correctness.
 import importlib.util
 import json
 import os
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import signal
 import sys
@@ -87,7 +87,7 @@ def main():
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-    server = ThreadingHTTPServer(('127.0.0.1', 0), Model)
+    server = m.LoopbackHTTPServer(('127.0.0.1', 0), Model)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix='qinaegis-correction-') as directory:
         root = Path(directory)

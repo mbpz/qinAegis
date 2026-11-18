@@ -7,6 +7,8 @@ Uses only the standard library. No browser, engine, model or user data is used.
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import http.client
+from http.server import ThreadingHTTPServer
+from socketserver import TCPServer
 import json
 import os
 from pathlib import Path
@@ -27,6 +29,19 @@ class SmokeFailure(Exception):
 def require(condition, message):
     if not condition:
         raise SmokeFailure(message)
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """Numeric local fixtures must not depend on reverse-DNS availability.
+
+    HTTPServer.server_bind calls socket.getfqdn even for 127.0.0.1. Some macOS
+    runners wait tens of seconds per fixture. Bind exactly the test loopback
+    address and set the required HTTP metadata directly, without resolving it.
+    """
+    def server_bind(self):
+        require(self.server_address[0] == '127.0.0.1', 'fixture must bind numeric loopback')
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
 
 
 class Smoke:

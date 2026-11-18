@@ -9,7 +9,7 @@ import importlib.util
 import json
 import shutil
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import sys
 import tempfile
@@ -150,7 +150,7 @@ def main():
                 if len(calls)%2 else {'score':90,'issues':[],'suggestions':[],'coverage':'receipt'})
             payload=json.dumps({'choices':[{'finish_reason':'stop','message':{'role':'assistant','content':json.dumps(content)}}]}).encode()
             self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
-    model=ThreadingHTTPServer(('127.0.0.1',0),Model)
+    model=m.LoopbackHTTPServer(('127.0.0.1',0),Model)
     threading.Thread(target=model.serve_forever,daemon=True).start()
     with tempfile.TemporaryDirectory(prefix='qinaegis-flow-exec-') as directory:
         smoke = FlowSmoke(binary, directory)

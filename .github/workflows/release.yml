@@ -126,6 +126,7 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then SUFFIX=".exe"; fi
           BINARY="$PWD/target/$RELEASE_TARGET/release/qinaegis$SUFFIX"
           if [[ "$RUNNER_OS" == "Windows" ]]; then BINARY="$(cygpath -w "$BINARY")"; fi
+          python scripts/test-loopback-fixtures.py
           python scripts/test-local-web.py "$BINARY"
           python scripts/test-native-runtime.py "$BINARY"
           echo "::group::Contract generation smoke"

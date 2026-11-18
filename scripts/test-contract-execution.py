@@ -6,7 +6,7 @@ execution or an external visual model. No remote AI, browser or real app is used
 """
 import importlib.util
 import json
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import shutil
 import sys
@@ -82,7 +82,7 @@ def main():
             self.send_header('Content-Length', str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
-    model = ThreadingHTTPServer(('127.0.0.1', 0), Model)
+    model = module.LoopbackHTTPServer(('127.0.0.1', 0), Model)
     threading.Thread(target=model.serve_forever, daemon=True).start()
     with tempfile.TemporaryDirectory(prefix='qinaegis-execution-') as directory:
         root = Path(directory)

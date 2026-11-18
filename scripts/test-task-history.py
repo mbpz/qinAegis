@@ -9,7 +9,7 @@ import sys
 import tempfile
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 loader = importlib.util.spec_from_file_location("smoke", Path(__file__).with_name("test-local-web.py"))
 m = importlib.util.module_from_spec(loader)
 loader.loader.exec_module(m)
@@ -29,7 +29,7 @@ def main():
             try:
                 self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
             except (BrokenPipeError,ConnectionResetError): pass
-    server=ThreadingHTTPServer(('127.0.0.1',0),Model)
+    server=m.LoopbackHTTPServer(('127.0.0.1',0),Model)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     with tempfile.TemporaryDirectory(prefix='qinaegis-task-history-') as root:
         smoke=m.Smoke(Path(sys.argv[1]).resolve(),root)

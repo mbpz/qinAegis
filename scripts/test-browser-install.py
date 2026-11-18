@@ -70,7 +70,7 @@ def exercise(binary, archive, cache):
         # Import through the product's verified compatibility installer; fixture
         # transport settings apply only to this isolated service process.
         runtime = installer.install(archive, hashlib.sha256(archive.read_bytes()).hexdigest(), root / 'runtime-data', root / 'runtime-state')
-        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Transport)
+        server = web.LoopbackHTTPServer(('127.0.0.1', 0), Transport)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         smoke = web.Smoke(binary, root)
