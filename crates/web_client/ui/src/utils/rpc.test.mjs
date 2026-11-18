@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ui = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temp = mkdtempSync(join(tmpdir(), 'qinaegis-rpc-'));
-execFileSync(process.execPath, [join(ui, 'node_modules/typescript/bin/tsc'), 'src/utils/rpc.ts', '--target', 'ES2020', '--module', 'ES2022', '--moduleResolution', 'bundler', '--outDir', temp], { cwd: ui });
+execFileSync(process.execPath, [join(ui, 'node_modules/typescript/bin/tsc'), 'src/utils/rpc.ts', 'src/utils/flow_execution_editor.ts', '--target', 'ES2020', '--module', 'ES2022', '--moduleResolution', 'bundler', '--outDir', temp], { cwd: ui });
 const compiled = join(temp, 'rpc.mjs');
 writeFileSync(compiled, readFileSync(join(temp, 'utils/rpc.js')));
 process.on('exit', () => rmSync(temp, { recursive: true, force: true }));
@@ -276,4 +276,56 @@ test('interrupted history and incremental log offsets survive the RPC boundary',
   assert.equal((await rpc.getJobs()).jobs[0].status, 'interrupted');
   assert.deepEqual(await rpc.getJobLog('old-task', 42), {output: 'retained tail', cursor: 70000, truncated: true});
   assert.deepEqual(calls, [['getJobs', {}], ['getJobLog', {jobId: 'old-task', cursor: 42}]]);
+});
+
+
+test('flow execution failures stay readable and rejected admission is never replayed', async () => {
+  const {rpc} = await fresh(); const calls = [];
+  globalThis.fetch = async (url, init) => {
+    if (url.endsWith('/session')) return response({csrf: 'csrf'});
+    const body = JSON.parse(init.body); calls.push(body.method);
+    if (body.method === 'runFlowExecution') return response({id: body.id, ok: false, error: {message: 'preparation expired'}});
+    return response({id: body.id, ok: true, data: {run_id: 'flow-1', status: 'failed', error: 'action failed', facts: {cleanup_error: 'cleanup unconfirmed'}}});
+  };
+  const record = await rpc.getFlowExecution('flow-1');
+  assert.equal(record.error, 'action failed');
+  assert.equal(record.facts.cleanup_error, 'cleanup unconfirmed');
+  await assert.rejects(rpc.runFlowExecution('expired'), /preparation expired/);
+  assert.deepEqual(calls, ['getFlowExecution', 'runFlowExecution']);
+});
+
+
+test('malformed advanced flow JSON cannot become unsafe structured editor children', async () => {
+  const helper = join(temp, 'flow-editor.mjs');
+  writeFileSync(helper, readFileSync(join(temp, 'utils/flow_execution_editor.js')));
+  const {parseExecutionDraft} = await import(pathToFileURL(helper).href);
+  const draft = {definition: {schema_version: 2, id: 'flow', title: 'Flow', project: 'alpha', inputs: {}, outputs: {}, steps: [{id: 'case', depends_on: [], operation: {capability: 'case.execute.v1', case: {project: 'alpha', case_id: 'approved', content_revision: 'content:exact', contract: {id: 'receipt', version: 1}}}, condition: null, timeout_ms: 1000, max_attempts: 1}], total_timeout_ms: 5000, cleanup_timeout_ms: 1000, required_permissions: ['browser.read', 'browser.write', 'model.send', 'report.write']}, model_profiles: {case: 'vision'}};
+  assert.ok(parseExecutionDraft(JSON.stringify(draft)));
+  for (const corrupt of [d => delete d.definition.outputs, d => d.definition.steps[0].operation.case.case_id = {}, d => d.definition.inputs = [], d => d.definition.outputs = {x: {value_type: 'number'}}, d => d.definition.steps[0].operation.case.contract.id = {}, d => d.model_profiles.case = {}, d => d.definition.steps[0].operation = {capability: 'wait.v1', milliseconds: {kind: 'literal', value: {toString: null, valueOf: null}}}]) {
+    const bad = structuredClone(draft); corrupt(bad);
+    assert.equal(parseExecutionDraft(JSON.stringify(bad)), null);
+  }
+});
+
+
+test('cached preparation expiry stays anchored when selected again later', async () => {
+  const helper = join(temp, 'flow-editor.mjs');
+  writeFileSync(helper, readFileSync(join(temp, 'utils/flow_execution_editor.js')));
+  const {preparationDeadline} = await import(pathToFileURL(helper).href);
+  const receivedAt = 100000;
+  assert.equal(preparationDeadline(receivedAt, 600), 700000);
+  const selectedMuchLater = 800000;
+  assert.ok(preparationDeadline(receivedAt, 600) < selectedMuchLater);
+  assert.equal(preparationDeadline(receivedAt, -1), receivedAt);
+});
+
+test('execution polling retries only transient snapshot contention with a finite budget', async () => {
+  const helper = join(temp, 'flow-editor.mjs');
+  writeFileSync(helper, readFileSync(join(temp, 'utils/flow_execution_editor.js')));
+  const {retryExecutionRead} = await import(pathToFileURL(helper).href);
+  const busy = new Error('asset library is busy');
+  for (let attempt = 0; attempt < 3; attempt++) assert.equal(retryExecutionRead(busy, attempt), true);
+  assert.equal(retryExecutionRead(busy, 3), false);
+  assert.equal(retryExecutionRead(new Error('session expired'), 0), false);
+  assert.equal(retryExecutionRead(new Error('execution not found'), 0), false);
 });

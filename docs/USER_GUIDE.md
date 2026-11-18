@@ -43,7 +43,7 @@ qinaegis stop
 
 在 **Dashboard** 的创建表单填写项目名、目标 URL 和技术栈，提交后在其他页面选择该项目。项目名属于本地资产标识，不使用目录分隔符、路径或隐藏目录名；目标 URL 使用有效 HTTP/HTTPS 地址。不要用同名项目覆盖已有数据。
 
-推荐先建立和审核契约，再绑定项目、生成并审核用例，最后执行和查看报告。也可直接浏览已有资产，或在 Generate 中明确选择不使用契约；探索不是每次执行都必须重跑的前置操作。当前尚无可运行的任意流程编排器。
+推荐先建立和审核契约，再绑定项目、生成并审核用例，最后执行和查看报告。也可直接浏览已有资产，或在 Generate 中明确选择不使用契约；探索不是每次执行都必须重跑的前置操作。Flows 可组合已有 Approved 用例和显式等待；未登记的动作不能执行。
 
 例如，同一份“登录后可见工作台”的契约可以分别绑定商城后台与供应商平台；两个项目使用各自目标和输入。只有业务意图与断言确实相同才复用；业务预期不同则应修订或派生，不能只为测试通过放宽断言。
 
@@ -109,9 +109,9 @@ qinaegis stop
 
 当前核心、真实 HTTP、UI 和实际 Chromium 操作验收通过，F01 已勾选；包括保存迟到响应的项目隔离。完整条件见[规格验收方案](plans/project-specification-acceptance.md)。
 
-### 4.7 Flows：流程版本与项目计划
+### 4.7 Flows：执行组合与历史计划
 
-Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页面采用已有免费 beUI 编辑组件；尚无表单组合器或 Run 按钮。
+**Flow workspace** 默认选择 **Execution flows**，以下历史说明可在 **Planning history** 查看。历史 v1 计划只准备快照，不执行动作；schema 2 执行定义独立保存和审核。页面采用已有免费 beUI 组件。
 
 1. 在 **Saved flow draft** 选择草稿，或用 **Load planning template** 开始。编辑 **Flow draft JSON**，通过 **Original saved flow draft** 对照原文；输入来源只允许字面量、流程输入或上游输出。服务校验类型、依赖、端口、权限、副作用与非幂等重试限制。
 2. 勾选保存确认，点击 **Save flow draft**。保存使用整库修订 CAS；冲突保留编辑输入。需要放弃编辑时明确点击 **Reload flows and discard editor draft**。保存后对相同内容点击 **Validate flow draft**，再勾选发布确认并点击 **Publish flow version**。编辑会清除旧确认；发布版本不能原地覆盖。
@@ -119,7 +119,16 @@ Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页�
 4. 核对所列 planning permissions，明确确认后点击 **Prepare project plan**。此确认仅用于计划校验，不授予执行或系统权限。计划固定流程、项目绑定、原始契约断言、实参及模型注册修订/候选顺序；保留已校验的模型端点及能力和授权事实，不含密钥或标签。后续修改不会改变旧计划。
 5. 在 **Saved project plan** 选择历史项，点击 **View saved plan** 查看冻结快照。计划历史限制为 100 条/8 MiB，达到上限会拒绝新写入并保留已有记录。**Server capability catalog** 显示规划支持与实际 runner 可用性；当前所有 runner 均为 false，计划 executable=false。
 
-核心、真实 HTTP、实际 Chromium 与独立复核通过，F03 已按治理与计划边界验收。F04 条件/等待/超时/有界重试与失败清理、F05 表单组合器、M04 步骤模型降级继续单独推进，见[流程治理验收方案](plans/flow-governance-acceptance.md)。
+F03 已按治理与计划边界验收；v1 不自动迁移为执行定义。schema 2 操作如下：
+
+1. 选择 **Execution project** 创建草稿，填写身份及标题。**Add wait step** 添加显式等待；依赖勾选框决定先后，Move 只允许保持合法依赖的调序。新增步骤默认依赖上一步，移除前先解除相关依赖/输出。
+2. 使用 **Approved case to reuse** 选择已审核用例，再选 **Reviewed source contract** 和兼容视觉模型，点击 **Add reviewed case step**。完整来源、脚本与原断言保持固定；没有契约来源、修订失效、权限不足、运行时缺失或模型不兼容会明确拒绝准备。
+3. **Advanced typed inputs, conditions and outputs** 编辑有限类型与来源 JSON；错误结构保留原文待改，不进入表单。服务端仍是执行校验依据。视觉用例只运行一次；等待最多五次，受步骤及总预算约束。
+4. **Validate execution draft** 核对实际执行顺序，批准保存；对精确保存稿再次校验，批准 **Publish execution flow**。修订冲突保留草稿，重新读取会明确丢弃编辑稿。发布不可原地覆盖。
+5. 选择发布版本，填实际输入，审核权限后准备。打开 **Review frozen preparation before running** 检查完整用例、契约、目标、模型端点及配置身份；准备十分钟有效且一次消费。配置变化要求重新准备，凭据仅留服务内存。再次明确批准 **Run prepared execution** 才入队，入队后改模型不改变已审任务。
+6. **Execution history and cleanup** 显示步骤、尝试、失败原因及清理状态；刷新恢复事实，不重放。活动任务可 **Cancel execution**；超时/取消等受管资源退出和持久事实完成。每个已运行用例的 run ID 可在 Runs 中生成/查看官方 Allure。业务失败不会被清理成功覆盖。
+
+服务重启将遗留执行标为 interrupted。若实际浏览器尝试的资源清理无法确认，后续动作保持隔离；重启不会解除，需核对恢复边界，不能通过删记录假装完成。纯等待中断无需浏览器隔离。schema 2 的实际 HTTP、核心和浏览器验收进度见[执行验收方案](plans/flow-execution-acceptance.md)。M04 自动视觉备用与真实项目视觉验收仍独立待办。
 
 ## 5. Models 与 Settings：配置和切换模型
 
@@ -149,7 +158,7 @@ Flows 当前只准备计划，不执行模型、浏览器或桌面动作。页�
 - 一旦注册库包含配置，任务按注册库路由解析；不能只填写 Settings 就假定缺失的任务路由会自动回退到旧配置。请为实际使用的任务补齐路由。
 - 已开始任务固定原选择；改变路由用于后续任务，不热改正在运行的模型，也不重写契约断言。
 
-通过 **Route scope** 选择项目可覆盖全局路由，**Use global default** 删除所选覆盖。**Test saved profile** 仅向已保存端点发送合成文本，分别观测文本/JSON；未保存表单不参与检测。检测期间锁定编辑，结果注明实际已保存配置；选择其他配置清除旧结果。视觉/tools/Midscene 兼容不由此认证，视觉选项禁用 Messages 配置。步骤级策略仍待实现。模型故障与业务断言失败应分开诊断，切换模型不能作为隐藏业务失败的手段。
+通过 **Route scope** 选择项目可覆盖全局路由，**Use global default** 删除所选覆盖。**Test saved profile** 仅向已保存端点发送合成文本，分别观测文本/JSON；未保存表单不参与检测。检测期间锁定编辑，结果注明实际已保存配置；选择其他配置清除旧结果。视觉/tools/Midscene 兼容不由此认证，视觉选项禁用 Messages 配置。schema 2 可逐步骤明确选择一个兼容视觉模型；自动视觉备用策略仍待实现。模型故障与业务断言失败应分开诊断，切换模型不能作为隐藏业务失败的手段。
 
 ### 5.3 预览并迁移已知配置
 

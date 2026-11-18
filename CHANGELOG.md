@@ -11,6 +11,8 @@ Development branch, not a published stable release. Current scope and remaining 
 
 ### Added
 
+- Separate schema-2 reviewed execution flows: free beUI composition, typed ports/conditions, bounded waits, fixed per-step models, frozen admission, durable checkpoints and case-run/Allure evidence. Historical v1 plans stay non-executable; visual fallback and automatic healing remain unavailable.
+
 - Reusable contract library with immutable published versions, project bindings, reviewed corrections, comparison, deprecation, derivation, controlled import/export and reviewed binding migration.
 - Extensible model registry, capability/data authorization, task routing and frozen configuration snapshots; built-in Chat Completions and native Anthropic Messages text/JSON protocols.
 - Atomic case generation provenance and immutable execution evidence; infrastructure/lifecycle failure blocks the quality gate even when returned cases passed.

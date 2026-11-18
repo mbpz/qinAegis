@@ -1,3 +1,4 @@
+import type { ExecutionDraft, ExecutionFlows, ExecutionLibrary, ExecutionPreparation, FlowRun } from '../types/flow_execution';
 import type { RuntimeMaintenance, RuntimePreview } from '../types/runtime_maintenance';
 import type { FlowDraft, FlowLibrary, FlowValidation, FlowsResponse, FlowPlan, PrepareFlowPlan } from '../types/flows';
 export interface ProjectSpec {project: string; exists: boolean; markdown: string; revision: string | null}
@@ -95,7 +96,7 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
       throw new RpcError(body.error?.message || 'Request failed', body.error?.code || 'RPC_ERROR', method);
     }
     const result = body.data;
-    if (!['getJobStatus', 'getRunEvidence'].includes(method) && result && typeof result === 'object' && 'error' in result && result.error) {
+    if (!['getJobStatus', 'getRunEvidence', 'getFlowExecution'].includes(method) && result && typeof result === 'object' && 'error' in result && result.error) {
       throw new RpcError(String(result.error), 'RPC_ERROR', method);
     }
     return result as T;
@@ -147,6 +148,13 @@ export const rpc = {
     }
   },
 
+  getExecutionFlows(): Promise<ExecutionFlows> { return call('getExecutionFlows'); },
+  saveExecutionFlowDraft(draft: ExecutionDraft, expected_revision: number): Promise<ExecutionLibrary> { return call('saveExecutionFlowDraft', {draft, expected_revision}); },
+  validateExecutionFlowDraft(draft: ExecutionDraft): Promise<{execution_order: string[]}> { return call('validateExecutionFlowDraft', {draft}); },
+  publishExecutionFlow(id: string, expected_revision: number): Promise<ExecutionLibrary> { return call('publishExecutionFlow', {id, expected_revision, approved: true}); },
+  prepareFlowExecution(params: {id: string; version: number; inputs: Record<string, unknown>; permissions: string[]; expected_revision: number; expected_model_revision: number}): Promise<ExecutionPreparation> { return call('prepareFlowExecution', {...params, approved: true}); },
+  runFlowExecution(preparation_id: string): Promise<{jobId: string; run_id: string}> { return call('runFlowExecution', {preparation_id, approved: true}); },
+  getFlowExecution(run_id: string): Promise<FlowRun> { return call('getFlowExecution', {run_id}); },
   getFlows(): Promise<FlowsResponse> { return call('getFlows'); },
   saveFlowDraft(draft: FlowDraft, expected_revision: number): Promise<FlowLibrary> { return call('saveFlowDraft', {draft, expected_revision}); },
   validateFlowDraft(draft: FlowDraft): Promise<FlowValidation> { return call('validateFlowDraft', {draft}); },

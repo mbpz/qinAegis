@@ -4,7 +4,7 @@ A local Web AI quality workbench based on **Playwright + Midscene.js visual test
 
 The product's central asset is the reusable test contract: business intent, inputs, preconditions, assertions and evidence remain separate from project bindings, models and engines. Versioned correction, extensible model routing and composable scenarios are the 2.0 direction. See [project memory](CONTEXT.md) and the [implementation plan](docs/plans/local-web.md) for scope and acceptance criteria.
 
-This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, full runtime distribution acceptance, workflow execution and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
+This branch is 2.0 development, not a claim that every planned feature is shipped. Local Web operation, contract lifecycle and execution provenance, model registration/routing, and official Allure reporting are implemented. Real business visual execution, full runtime distribution acceptance, visual model fallback and clean-machine acceptance remain open. Desktop accessibility assistance is planned and requires explicit OS authorization; it is not enabled by installation.
 
 Settings now offers reviewed migration from known configuration sources with an explicit credential choice, exact-content conflict checks and backup. Reports can inspect and explicitly clean verified owned staging residue while preserving execution evidence and completed reports. Windows managed processes use Job Objects and have passed Windows CI; per-engine cancellation timing remains pending.
 
@@ -12,10 +12,10 @@ Tasks use one execution slot and up to eight FIFO waiting tasks, with frozen sub
 
 Generate now supports a managed project spec.md with a 128 KiB limit, original-content comparison, explicit save approval and exact-content conflict checks. Explicitly selecting a saved specification freezes it alongside original contract assertions for both generation and critique. Core, HTTP, UI and real-browser checks passed, including conflict draft retention, approval invalidation and delayed-save isolation when switching projects.
 
-Flows now supports JSON drafts, library-revision CAS, validation, explicitly approved immutable publication and typed project plan snapshots. All registered capabilities have runner_available=false and plans have executable=false; there is no Run action. Core, actual HTTP, real Chromium and independent review passed for this planning scope.
+Flows separates historical planning from schema-2 execution. Execution flows compose reviewed cases and explicit waits, with typed inputs/outputs, finite conditions, validated dependencies, bounded timeouts and cleanup. Save, publish, prepare and run each require review; admission freezes exact approved content, contract assertions and the explicitly selected model. Durable step facts restore after refresh or restart without replay. Historical v1 plans remain non-executable. Visual cases run once; automatic visual fallback and unreviewed healing are unavailable.
 
 
-Windows candidates now include a user-local PowerShell installer with verified archives, running-service protection, previous-version rollback and data-preserving uninstall. Environment shows safe browser download progress and restores installation tasks after refresh. Version 2 flow execution definitions and reviewed case snapshots are being accepted separately from immutable planning-only v1 flows; full Web orchestration is still pending. See [installation](INSTALL.md) and the [acceptance checklist](docs/progress/acceptance-checklist-2.0.md).
+Windows candidates now include a user-local PowerShell installer with verified archives, running-service protection, previous-version rollback and data-preserving uninstall. Environment shows safe browser download progress and restores installation tasks after refresh. Schema-2 Web execution and its durable evidence are under final acceptance separately from immutable planning-only v1 flows. See [installation](INSTALL.md) and the [acceptance checklist](docs/progress/acceptance-checklist-2.0.md).
 
 ## Product structure and current scope
 
@@ -27,7 +27,7 @@ The same published contract can be bound to two projects with different paramete
 | Model routing | Private registry, capability/data authorization, task routes and frozen snapshots; Chat Completions and native Anthropic Messages text/JSON adapters, bounded approved generation fallback, one compatible visual primary |
 | Execution | Playwright + Midscene.js through an explicit runtime boundary; approved scripts and contract inputs fixed before execution |
 | Evidence and quality | Immutable run records, failed lifecycle blocks the gate, official Allure generation/view/download; single-run reports today |
-| Scenario composition | Versioned JSON flow governance and typed plan snapshots implemented; runtime orchestration and form composition remain planned |
+| Scenario composition | Separate immutable v1 plans and schema-2 reviewed execution, free beUI composition, typed data flow, bounded waits and case-run/Allure evidence |
 | Optional computer control | OS accessibility adapter planned, disabled until explicit permission and platform acceptance |
 
 The domain owns contracts and validation rules. Model adapters generate suggestions, execution adapters perform actions, and reporting preserves facts. Their responsibilities stay separate so changing a model or engine does not rewrite business expectations. The Web UI uses official free beUI components.

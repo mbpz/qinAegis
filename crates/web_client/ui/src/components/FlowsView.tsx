@@ -1,3 +1,4 @@
+import ExecutionFlowsView from './ExecutionFlowsView';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Checkbox, Select, TextArea } from './ui';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './motion/collapsible';
@@ -21,6 +22,10 @@ function objectInput(text: string): Record<string, unknown> {
 }
 
 export default function FlowsView({projects}: {projects: string[]}) {
+  const [mode, setMode] = useState('execution');
+  return <><label htmlFor="flow-workspace-mode">Flow workspace</label><Select id="flow-workspace-mode" value={mode} onValueChange={setMode}><option value="execution">Execution flows</option><option value="planning">Planning history</option></Select>{mode === 'execution' ? <ExecutionFlowsView projects={projects} /> : <PlanningFlowsView projects={projects} />}</>;
+}
+function PlanningFlowsView({projects}: {projects: string[]}) {
   const [data, setData] = useState<FlowsResponse | null>(null);
   const [selected, setSelected] = useState('');
   const [editor, setEditor] = useState('');

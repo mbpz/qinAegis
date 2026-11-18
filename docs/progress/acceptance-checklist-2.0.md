@@ -58,8 +58,8 @@
 - [x] F01：Web 受控规格创建/读取/编辑及项目关联；无任意本机路径入口，缺失/冲突/超限均可恢复。
 - [x] F02：用例内容编辑/差异/审核失效与重新批准闭环；修改脚本不能沿用旧批准状态。
 - [x] F03：流程草稿/校验/不可变版本与执行计划快照；依赖、端口类型、能力、权限和非幂等副作用校验。
-- [ ] F04：运行编排支持类型化输入输出、条件、等待、超时、有界重试与失败清理；原始业务断言不可自动放宽。
-- [ ] F05：Web 可组合并合法调序，已有有效用例可直接执行；缺前置条件明确拒绝。
+- [x] F04：运行编排支持类型化输入输出、条件、等待、超时、有界重试与失败清理；原始业务断言不可自动放宽。
+- [x] F05：Web 可组合并合法调序，已有有效用例可直接执行；缺前置条件明确拒绝。
 - [ ] F06：无模型、空项目、坏规格、模型限流、部分执行失败、取消、刷新/重启等用户旅程端到端验证。
 - [ ] F07：性能/压测能力按实际 runner 检测依赖并执行；缺指标/未运行不能显示通过。
 - [ ] F08：Allure 跨次历史/趋势单列后续增强；当前单次报告的边界保持明确，不阻塞本次基础 GA。
@@ -112,7 +112,7 @@
 
 - `cargo test --workspace --offline`、`cargo clippy --workspace --all-targets --offline`。
 - `cd crates/web_client/ui` 后运行 `npm test`、`npm run build`、`npm run build:pages`。
-- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py`、`test-config-migration.py`、`test-report-maintenance.py`、`test-flows.py` 接受相同二进制参数。
+- `python3 scripts/test-local-web.py /绝对路径/qinaegis`、`test-contract-generation.py`、`test-contract-execution.py`、`test-case-assets.py`、`test-task-history.py`、`test-config-migration.py`、`test-report-maintenance.py`、`test-flows.py`、`test-flow-execution.py` 接受相同二进制参数。
 - `python3 scripts/test-environment.py /绝对路径/qinaegis --runtime /绝对路径/已安装运行时 --install-browser`：配置恢复、运行时版本、显式浏览器安装和实际启动；不提供运行时则验证缺失诊断。
 - `python3 scripts/test-runtime-package.py`、`python3 scripts/test-runtime-install.py`：归档与导入边界；`python3 scripts/test-allure.py /绝对路径/qinaegis` 验证已构建 sandbox 中的官方 Allure（使用明确标记的运行证据 fixture）。
 - `python3 scripts/test-local-performance.py /绝对路径/优化版/qinaegis --output /绝对路径/performance.json`：macOS/Linux 基础服务指标；记录二进制 SHA、设备、样本量和范围，执行含 60 秒空闲测量。
@@ -121,7 +121,7 @@
 
 本次任务/隔离批次本机 Rust 208 项（web 37、core 169、集成 2）、Clippy、UI 14 项/构建及真实 HTTP 队列回归通过。Node 默认 10 项测试及真实 Chromium 隔离测试通过；运行时新增 locustfile.py 来源摘要与导入验证，打包/导入边界回归通过，CI 增加实际浏览器和导入运行时浏览器检查。修订 `e8e022f` 的真实远端 `44115748630` 四平台、engine-checks 与 assemble 全部通过；engine-checks 包含实际 Chromium 双执行器隔离与重定位运行时浏览器/官方 Allure 检查。Pages `44115748620` 预览通过，生产部署跳过。下载候选独立核对 13 项 SHA 和四份归档内外清单一致，来源为该次 PR 合并提交 `f26ba44b12c264e1c032a0bf9cd6b9fb1b6e95f0`，不是分支 HEAD。
 
-后续补 T06 跨重启异常残留恢复/Windows 新目录核验路径验收及 R03/R05 Web 运行时维护；F01 固定项目规格资产、F03 治理计划与 M05 独立文本协议已完成，继续按[执行路径](../plans/flow-execution-acceptance.md)推进 F04/F05；M04 依赖实际流程执行。M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。
+后续补 T06 跨重启异常残留恢复/Windows 新目录核验路径验收及 R03/R05 Web 运行时维护；F01 固定项目规格资产、F03 治理计划与 M05 独立文本协议已完成，F04/F05 已按[执行路径](../plans/flow-execution-acceptance.md)完成本机执行闭环，继续 M04 自动视觉备用、F06 全旅程与逐平台交付验收。M06/V01/V02 等真实条件具备后执行。无障碍试点和完整平台交付按 A/I 单独验收。
 
 R03/R05 原生维护的最小依赖方案见 [方案](../plans/native-runtime-maintenance.md)，三项最小依赖已获用户明确授权；原生导入/事务回滚/受控 Web 维护已完成本机实现与验收；用户讨论减依赖后再次确认保留三项库。R03/R05 的稳定分发和逐平台验收仍未闭环，保持未勾选。
 
@@ -152,3 +152,14 @@ F04 推进独立 schema 2 定义、Approved 精确内容与来源契约快照，
 上一批原生维护的最终远端证据已补核：分支 2708a76 的 Release CI 44226967442 四平台、engine-checks、assemble 均通过，Pages 44226967579 预览通过/生产部署跳过。13 项旧候选摘要及四平台清单复核一致，PR 合并源码 55f17a68998f7788ac6ce1a53a27dd38945ff63b；该批 Release 跳过，未正式发布。
 
 本批最终本机回归：Rust 267 项通过（Web 41、core 224、集成 2；另 1 项需显式归档而忽略），流程相关 18 项已包含其中；Clippy 通过，既有警告保留。UI 14 项、严格 TypeScript、工作台及 Pages 构建通过；Unix 安装器 4 项、发行资产 4 项、actionlint 和修改文件差异检查通过。独立复核已确认结果大小限制及错误限制修复；Windows 安装器行为仍以本批 Windows CI 为准。
+
+
+## 2026-11-18 schema 2 执行闭环验收
+
+F04/F05 已勾选，范围为明确等待和已审核用例：独立版本/CAS/人工发布、类型化输入输出与有限条件、稳定顺序/合法调序、有界等待重试/时限/取消/清理、完整 Approved 内容与全部来源契约固定、步骤选定模型及凭据内存冻结、统一队列、检查点与私有终态、真实用例 RunRecord/Allure 关联。非幂等用例不自动重试、healing 或视觉 fallback，M04 完整策略不提前勾选。
+
+本机 Rust 280 项通过（Web 43、core 235、集成 2），一项需要显式运行时归档的测试默认忽略；流程专项 28 项、Web 专项 2 项及独立复核通过。完整新 HTTP 脚本验证业务失败、已批准模型入队后冻结、密钥不进事实、用例报告关联、终态/兜底双写失败阻断队列，以及 cleanup 故障跨重启隔离；旧流程、契约执行和持久任务 HTTP 回归通过。复核修复了中断关联用例永久 running：先 journal 冻结意图再 begin，重启严格核对身份并收尾 stopped/Allure，不重放或假装清理完成。
+
+实际 Chromium 完成双等待组合/依赖与调序、编辑清批准、坏 JSON 保留与恢复、保存/发布、冻结准备/明确 Run、自动状态轮询、完成/取消、刷新恢复及直接复用 Approved 用例/来源契约/步骤模型/Allure 证据关联。控制台 0 errors/0 warnings；页面证据保存在本机 output/playwright/flow-*.png。UI 18 项、严格 TypeScript/工作台/Pages 构建和 actionlint 通过。新文件 rustfmt 通过；全仓 fmt 检查仍有历史文件格式差异，Clippy 保留既有警告，工作台保留单 chunk 提示。
+
+真实业务视觉、自动视觉备用、资源精确认领后解除隔离、干净平台安装/签名与正式发行仍待验收。Windows 安装 CI 已检出并修复 PS5.1 程序集、哈希命令、null 字符串绑定及短/长路径运行保护问题；I01 等最终实际平台结果，不以源码复核提前勾选。
