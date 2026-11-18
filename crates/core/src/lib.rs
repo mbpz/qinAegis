@@ -9,6 +9,7 @@ pub mod jobs;
 pub(crate) mod asset_file;
 pub mod scenario;
 pub mod flow;
+pub mod flow_execution;
 pub mod flow_store;
 pub mod flow_plan;
 pub mod explorer;

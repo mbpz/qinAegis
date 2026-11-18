@@ -52,6 +52,11 @@ pub struct TestExecutor {
 }
 
 impl TestExecutor {
+    #[cfg(test)]
+    pub(crate) fn from_process_for_test(process: MidsceneProcess) -> Self {
+        Self { process: Arc::new(Mutex::new(process)), semaphore: Arc::new(Semaphore::new(1)) }
+    }
+
     pub async fn new(
         max_concurrency: usize,
         llm_config: Option<LlmConfig>,
@@ -210,6 +215,12 @@ impl TestExecutor {
             results.push(handle.await??);
         }
         Ok(results)
+    }
+
+    /// Terminate the owned process tree and wait for cleanup without relying
+    /// on a shutdown RPC, including after a dropped or cancelled call.
+    pub async fn terminate(&self) -> anyhow::Result<()> {
+        self.process.lock().await.terminate().await
     }
 
     pub async fn shutdown(&self) -> anyhow::Result<()> {

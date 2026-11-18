@@ -442,6 +442,15 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
+    #[cfg(test)]
+    pub(crate) async fn launch_owned_for_test(command: Command) -> anyhow::Result<(Self, std::path::PathBuf)> {
+        let workspace = EngineWorkspace::create()?;
+        let path = workspace.path.clone();
+        let process = Self::launch(command).await?;
+        *process.owner.workspace.lock().unwrap() = Some(workspace);
+        Ok((process, path))
+    }
+
     /// Spawn the installed engine; developer sandbox use must be explicitly selected.
     pub async fn with_adapter(
         llm_config: Option<LlmConfig>,
