@@ -4,6 +4,7 @@
 No network or models. Run: python scripts/test-windows-install.py BINARY
 """
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -59,9 +60,9 @@ def main():
                     z.writestr('../outside', 'must not extract')
             return path, hashlib.sha256(path.read_bytes()).hexdigest()
 
-        def invoke(*options, success=True):
+        def invoke(*options, success=True, install_prefix=None):
             result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive',
-                '-ExecutionPolicy', 'Bypass', '-File', str(SCRIPT), '-Prefix', str(prefix),
+                '-ExecutionPolicy', 'Bypass', '-File', str(SCRIPT), '-Prefix', str(install_prefix or prefix),
                 '-Version', version, '-NoStart', *map(str, options)], env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=40)
             require((result.returncode == 0) == success,
@@ -96,7 +97,33 @@ def main():
             port = sock.getsockname()[1]
         try:
             subprocess.run([str(installed), 'start', '--no-open', '--port', str(port)], env=env, check=True, timeout=20)
-            install(original, success=False)
+            for operation in (('-Archive', original[0], '-Checksum', original[1]), ('-Uninstall',)):
+                rejected = invoke(*operation, success=False)
+                require('Existing service is running' in rejected.stderr, 'Running guard did not identify the owned executable')
+            # Exercise a different 8.3 spelling of the same installed file.
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+            kernel.GetShortPathNameW.restype = ctypes.c_uint
+            short = ctypes.create_unicode_buffer(32768)
+            size = kernel.GetShortPathNameW(str(prefix), short, len(short))
+            require(0 < size < len(short), 'Could not obtain Windows short install path')
+            kernel.GetLongPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+            kernel.GetLongPathNameW.restype = ctypes.c_uint
+            long_name = ctypes.create_unicode_buffer(32768)
+            size = kernel.GetLongPathNameW(short.value, long_name, len(long_name))
+            require(0 < size < len(long_name), 'Could not expand Windows long install path')
+            require(short.value.casefold() != long_name.value.casefold(),
+                    '8.3 alias acceptance requires a volume with an actual short/long path alias')
+            rejected = invoke('-Archive', original[0], '-Checksum', original[1],
+                              install_prefix=Path(short.value), success=False)
+            require('Existing service is running' in rejected.stderr, '8.3 path alias bypassed running guard')
+            require(installed.read_bytes() == binary_bytes and not previous.exists(), 'Running guard changed installed binaries')
+            other_prefix = root / 'independent installation'
+            invoke('-Archive', original[0], '-Checksum', original[1], install_prefix=other_prefix)
+            require((other_prefix / 'qinaegis.exe').read_bytes() == binary_bytes,
+                    'Unrelated running installation blocked a different installation')
+            invoke('-Uninstall', install_prefix=other_prefix)
+            print('PASS running process file identity guard, 8.3 alias and independent installation', flush=True)
         finally:
             subprocess.run([str(installed), 'stop'], env=env, check=True, timeout=20)
         # PE overlay changes the exact bytes while preserving a runnable program.

@@ -38,11 +38,51 @@ function Hash([string]$Path) {
     try { ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant() }
     finally { $sha.Dispose(); $stream.Dispose() }
 }
+# File identity survives Windows 8.3 aliases, case changes and hard links.
+# Use the system API rather than optional PowerShell process modules.
+if (-not ('QinAegisInstallIdentity' -as [type])) { Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class QinAegisInstallIdentity {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Info {
+        public uint Attributes;
+        public uint CreationLow, CreationHigh, AccessLow, AccessHigh, WriteLow, WriteHigh;
+        public uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(SafeFileHandle file, out Info info);
+    public static string Read(string path) {
+        using (FileStream stream = File.Open(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete)) {
+            Info info;
+            if (!GetFileInformationByHandle(stream.SafeFileHandle, out info))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return info.Volume.ToString("x8") + ":" + info.IndexHigh.ToString("x8") + info.IndexLow.ToString("x8");
+        }
+    }
+}
+'@
+}
 function Assert-Stopped {
-    # Inspect OS process paths; never execute an unverified pre-existing binary.
-    foreach ($process in Get-Process -Name qinaegis,qinaegis.previous -ErrorAction SilentlyContinue) {
-        try { $path = $process.Path } catch { throw 'Cannot inspect a running QinAegis process; stop it before maintenance.' }
-        if (-not $path -or $path -eq $binary -or $path -eq $previous) { throw 'Existing service is running; stop it before installation maintenance.' }
+    $ownedIdentities = @(@($binary,$previous) | Where-Object { Test-Path -LiteralPath $_ } |
+        ForEach-Object { [QinAegisInstallIdentity]::Read($_) })
+    if ($ownedIdentities.Count -eq 0) { return }
+    foreach ($name in @('qinaegis','qinaegis.previous')) {
+        foreach ($process in [Diagnostics.Process]::GetProcessesByName($name)) {
+            try {
+                # MainModule returns the OS executable path, which may use a
+                # different long/short spelling from the installer prefix.
+                $path = $process.MainModule.FileName
+                if (-not $path) { throw 'Process executable path unavailable.' }
+                $identity = [QinAegisInstallIdentity]::Read($path)
+                if ($identity -in $ownedIdentities) { throw 'Existing service is running; stop it before installation maintenance.' }
+            } catch {
+                throw ('Cannot safely maintain this installation while inspecting QinAegis process ' + $process.Id + ': ' + $_.Exception.Message)
+            } finally { $process.Dispose() }
+        }
     }
 }
 # Finite HTTPS transport, with an explicit allowlist for GitHub release redirects.
