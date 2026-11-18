@@ -491,7 +491,13 @@ pub fn sync_verified_installation(
                 metadata.is_file() && !metadata.file_type().is_symlink(),
                 "package file changed before sync"
             );
-            File::open(path)?.sync_all()?;
+            let mut options = OpenOptions::new();
+            options.read(true);
+            // Windows FlushFileBuffers requires GENERIC_WRITE, even when no
+            // content is changed. Open the existing file without truncation.
+            #[cfg(windows)]
+            options.write(true);
+            options.open(path)?.sync_all()?;
         }
     }
     sync_directories(root, &expected.members, cancel)?;
@@ -850,9 +856,28 @@ mod tests {
             .contains("header size"));
         assert!(!s.exists());
     }
+    #[test]
+    fn installation_sync_preserves_contents_excludes_cache_and_checks_cancellation() {
+        let (dir, archive, digest) = fixture(vec![]);
+        let stage = stage(&dir);
+        let cancel = AtomicBool::new(false);
+        let receipt = verify_and_extract(&archive, &digest, &stage, &cancel).unwrap();
+        fs::create_dir(stage.join("browsers")).unwrap();
+        fs::write(
+            stage.join("browsers/unmanaged-cache"),
+            b"mutable browser cache",
+        )
+        .unwrap();
+        let before = fs::read(stage.join("node")).unwrap();
+        sync_verified_installation(&stage, &receipt, &cancel).unwrap();
+        assert_eq!(fs::read(stage.join("node")).unwrap(), before);
+        verify_installed(&stage, &receipt, &cancel).unwrap();
+        cancel.store(true, Ordering::Release);
+        assert!(sync_verified_installation(&stage, &receipt, &cancel).is_err());
+    }
     #[cfg(unix)]
     #[test]
-    fn installation_sync_excludes_mutable_cache_and_rejects_replaced_ancestor() {
+    fn installation_sync_rejects_replaced_ancestor_without_following_cache_links() {
         let (dir, archive, digest) = fixture(vec![]);
         let stage = stage(&dir);
         let cancel = AtomicBool::new(false);
@@ -864,9 +889,6 @@ mod tests {
         )
         .unwrap();
         sync_verified_installation(&stage, &receipt, &cancel).unwrap();
-        cancel.store(true, Ordering::Release);
-        assert!(sync_verified_installation(&stage, &receipt, &cancel).is_err());
-        cancel.store(false, Ordering::Release);
         let old = stage.join("old-modules");
         fs::rename(stage.join("node_modules"), &old).unwrap();
         std::os::unix::fs::symlink(&old, stage.join("node_modules")).unwrap();
