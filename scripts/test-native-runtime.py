@@ -54,7 +54,8 @@ def make_upgrade_fixture(source, destination):
     """
     version = "2.0.0-native-upgrade-fixture"
     changed = set()
-    with tarfile.open(source, "r|gz") as incoming, tarfile.open(destination, "w|gz", format=tarfile.PAX_FORMAT, compresslevel=1) as outgoing:
+    # Python 3.12's streaming gzip writer expects a string filename.
+    with tarfile.open(str(source), "r|gz") as incoming, tarfile.open(str(destination), "w|gz", format=tarfile.PAX_FORMAT, compresslevel=1) as outgoing:
         for member in incoming:
             reader = incoming.extractfile(member) if member.isfile() else None
             if member.name.lstrip("./") in ("runtime.json", "provenance.json"):
