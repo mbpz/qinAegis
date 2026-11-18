@@ -93,7 +93,8 @@ function Save-Receipt($Hashes) {
     $temp = Join-Path $Prefix ('.receipt-' + [Guid]::NewGuid().ToString('N'))
     try {
         [IO.File]::WriteAllText($temp, (@{schema_version=1; hashes=@($Hashes | Select-Object -Unique)} | ConvertTo-Json -Compress))
-        if (Test-Path -LiteralPath $receipt) { [IO.File]::Replace($temp,$receipt,$null) }
+        # PowerShell 5.1 otherwise coerces $null to an invalid empty backup path.
+        if (Test-Path -LiteralPath $receipt) { [IO.File]::Replace($temp,$receipt,[NullString]::Value) }
         else { [IO.File]::Move($temp,$receipt) }
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp } }
 }
