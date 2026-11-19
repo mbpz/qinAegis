@@ -5,7 +5,10 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 const require = createRequire(new URL('../sandbox/package.json', import.meta.url));
-const {chromium, expect} = require('@playwright/test');
+// Resolve both browser and assertions from the engine's locked Playwright package.
+// @playwright/test may resolve a different transitive Playwright/browser revision.
+const {chromium, expect} = require('playwright/test');
+assert.equal(chromium.executablePath(), require('playwright').chromium.executablePath());
 const config = JSON.parse(await fs.readFile(process.argv[2], 'utf8'));
 await fs.mkdir(config.output, {recursive:true});
 const browser = await chromium.launch({headless:true, ...(process.env.QINAEGIS_TEST_CHROME ? {executablePath:process.env.QINAEGIS_TEST_CHROME} : {})});
