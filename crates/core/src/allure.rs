@@ -275,6 +275,7 @@ mod tests {
             json!({"source":"legacy_config","model":"fixture"}),
             None,
             vec![RunCase {
+                case_revision: None,
                 case_id: "case-1".into(),
                 name: "Receipt".into(),
                 yaml_script: "assert receipt".into(),
@@ -286,6 +287,7 @@ mod tests {
         run.status = "completed".into();
         run.finished_at = Some("2026-11-16".into());
         run.results.push(TestResult {
+            capture: None,
             case_id: "case-1".into(),
             passed: true,
             duration_ms: 10,

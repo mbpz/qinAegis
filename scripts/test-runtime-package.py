@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Offline runtime archive boundary and deterministic metadata tests."""
 import argparse
+import base64
+import io
 import json
 import subprocess
 import importlib.util
@@ -9,6 +11,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+import zipfile
 
 spec = importlib.util.spec_from_file_location('runtime_builder', Path(__file__).with_name('build-runtime.py'))
 builder = importlib.util.module_from_spec(spec)
@@ -104,6 +107,74 @@ def smoke_archive(archive_path, browser_test=False):
                                 capture_output=True, text=True, env=environment, timeout=120, check=True)
         assert json.loads(result.stdout)['version'] == '3.33.0'
         assert (root / 'report/index.html').stat().st_size > 0
+        # This ZIP proves the immutable archive-serving boundary only. Real Trace
+        # loading/action/snapshot coverage belongs to trace_viewer.browser.test.ts.
+        fixture = io.BytesIO()
+        with zipfile.ZipFile(fixture, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr('packaging-fixture.txt', 'Explicit serving fixture; not a Playwright recording.\n')
+        viewer_script = r'''
+import assert from 'node:assert/strict';
+import net from 'node:net';
+const {startTraceViewer, stopTraceViewer} = await import(VIEWER_MODULE);
+const fixture = Buffer.from(FIXTURE_BASE64, 'base64');
+let origin;
+try {
+  const viewer = await startTraceViewer(fixture.toString('base64'));
+  assert.equal(viewer.version, '1.59.1');
+  assert.equal(viewer.expires_in_seconds, 900);
+  const entry = new URL(viewer.url);
+  origin = entry.origin;
+  assert.equal(entry.hostname, '127.0.0.1');
+  assert.match(entry.pathname, /^\/[a-f0-9]{64}\/index\.html$/);
+  const trace = new URL(entry.searchParams.get('trace'));
+  assert.equal(trace.origin, origin);
+  assert.equal(trace.pathname, entry.pathname.replace('index.html', 'trace.zip'));
+  const page = await fetch(entry);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-security-policy'), /connect-src 'self'/);
+  const html = await page.text();
+  const assets = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map(match => new URL(match[1], entry));
+  assert(assets.some(asset => asset.pathname.endsWith('.js')), 'official viewer JavaScript missing');
+  assert(assets.some(asset => asset.pathname.endsWith('.css')), 'official viewer CSS missing');
+  assets.push(new URL('sw.bundle.js', entry));
+  for (const asset of assets) {
+    assert.equal(asset.origin, origin, 'viewer must load only bundled local assets');
+    const response = await fetch(asset);
+    assert.equal(response.status, 200, asset.pathname);
+    assert((await response.arrayBuffer()).byteLength > 0);
+  }
+  const downloaded = await fetch(trace);
+  assert.equal(downloaded.status, 200);
+  assert.equal(downloaded.headers.get('content-type'), 'application/zip');
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), fixture);
+  const range = await fetch(trace, {headers: {Range: 'bytes=0-3'}});
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get('content-range'), `bytes 0-3/${fixture.length}`);
+  assert.deepEqual(Buffer.from(await range.arrayBuffer()), fixture.subarray(0, 4));
+  for (const target of [new URL('/index.html', origin), new URL('file?path=/etc/passwd', entry),
+                        new URL('trace.zip?path=/etc/passwd', entry)]) {
+    const response = await fetch(target);
+    assert.equal(response.status, 404);
+    await response.arrayBuffer();
+  }
+} finally {
+  await stopTraceViewer();
+}
+assert(origin, 'viewer must have actually listened');
+const address = new URL(origin);
+await new Promise((resolve, reject) => {
+  const socket = net.createConnection({host: address.hostname, port: Number(address.port)});
+  socket.once('connect', () => { socket.destroy(); reject(new Error('viewer listener survived stop')); });
+  socket.once('error', error => error.code === 'ECONNREFUSED' ? resolve() : reject(error));
+  socket.setTimeout(3000, () => { socket.destroy(); reject(new Error('viewer port check timed out')); });
+});
+console.log(JSON.stringify({version: '1.59.1', assets: true, fixture_archive: true, stopped: true}));
+'''.replace('VIEWER_MODULE', json.dumps((root / 'dist/trace_viewer.js').as_uri())).replace(
+            'FIXTURE_BASE64', json.dumps(base64.b64encode(fixture.getvalue()).decode('ascii')))
+        result = subprocess.run([str(node), '--input-type=module', '-e', viewer_script], cwd=root.parent,
+                                capture_output=True, text=True, env=environment, timeout=60, check=True)
+        assert json.loads(result.stdout) == {'version': '1.59.1', 'assets': True,
+                                            'fixture_archive': True, 'stopped': True}
         provenance = json.loads((root / 'provenance.json').read_text())
         assert builder.sha256(node) == provenance['node_sha256']
         assert (root / 'locustfile.py').is_file()
@@ -117,7 +188,7 @@ def smoke_archive(archive_path, browser_test=False):
                                        QINAEGIS_TEST_NODE=str(node))
             subprocess.run([str(node), '--test', str(builder.REPO / 'sandbox/dist/browser_isolation.test.js')],
                            cwd=root.parent, env=browser_environment, timeout=90, check=True)
-        print('Verified archive import + relocated compiled executor + official Allure passed with bundled Node and system-only PATH.')
+        print('Verified archive import + relocated compiled executor + official Allure + offline official Trace viewer assets/fixture transport/stop passed with bundled Node and system-only PATH.')
 
 
 if __name__ == '__main__':

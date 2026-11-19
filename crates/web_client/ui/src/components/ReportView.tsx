@@ -1,3 +1,4 @@
+import ProcessEvidence from './ProcessEvidence';
 import { Button, Select } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
@@ -150,6 +151,7 @@ export default function ReportView() {
     return (
       <div className="view">
         <h2 className="view-title">Test Reports</h2>
+      {selectedRun && <ProcessEvidence key={`${selectedProject}/${selectedRun}`} project={selectedProject} runId={selectedRun} />}
         <p style={{ color: 'var(--text-secondary)' }}>Loading...</p>
       </div>
     );
@@ -158,6 +160,7 @@ export default function ReportView() {
   return (
     <div className="view">
       <h2 className="view-title">Test Reports</h2>
+      {selectedRun && <ProcessEvidence key={`${selectedProject}/${selectedRun}`} project={selectedProject} runId={selectedRun} />}
 
       <div className="card">
         <div className="card-title">Project</div>

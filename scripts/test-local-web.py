@@ -234,6 +234,13 @@ class Smoke:
         export_text = json.dumps(exported)
         require(all(value["target"] not in export_text for value in (alpha_inputs, beta_inputs))
                 and "parameters" not in export_text, "contract export leaked project parameters")
+        audit = self.rpc('getContractAudit')
+        require(audit['history_complete'] and audit['revision'] == corrected['revision']
+                and len(audit['events']) == corrected['revision'], 'contract changes lost atomic audit records')
+        require(all(event['context']['source'] == 'local_web' and event['context']['author'] == 'local-owner'
+                    and event['revision'] == index+1 and event['parent_revision'] == index
+                    for index,event in enumerate(audit['events'])), 'contract audit context or revision chain missing')
+        self.rpc('getContractAudit', {'path':'arbitrary'}, success=False)
         print("PASS contract draft, explicit review, typed project reuse, CAS, immutable correction and safe export")
         return corrected
 

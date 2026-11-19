@@ -57,8 +57,14 @@ pub enum JsonRpcRequest {
     Screenshot,
     #[serde(rename = "currentUrl")]
     CurrentUrl,
+    #[serde(rename = "capture_capabilities")]
+    CaptureCapabilities,
+    #[serde(rename = "trace_viewer_start")]
+    StartTraceViewer { trace_base64: String },
     #[serde(rename = "run_yaml")]
     RunYaml {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        capture_policy: Option<crate::capture::CapturePolicy>,
         yaml_script: String,
         case_id: String,
         target_url: Option<String>,
@@ -442,8 +448,50 @@ impl Default for SandboxConfig {
 }
 
 impl MidsceneProcess {
+    pub fn read_capture_attachment(&self, name: &str, size: u64) -> anyhow::Result<Vec<u8>> {
+        anyhow::ensure!(size <= 8388608, "attachment too large");
+        let stem = name
+            .strip_prefix("qinaegis-capture-")
+            .and_then(|s| s.rsplit_once('.'))
+            .ok_or_else(|| anyhow::anyhow!("invalid attachment name"))?;
+        anyhow::ensure!(
+            (16..=64).contains(&stem.0.len())
+                && stem.0.bytes().all(|b| b.is_ascii_hexdigit())
+                && matches!(stem.1, "png" | "zip" | "json"),
+            "invalid attachment name"
+        );
+        let lock = self
+            .owner
+            .workspace
+            .lock()
+            .map_err(|_| anyhow::anyhow!("workspace unavailable"))?;
+        let w = lock
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no owned workspace"))?;
+        let (_, identity) = EngineWorkspace::directory(&w.path)?;
+        anyhow::ensure!(
+            identity == w.identity && EngineWorkspace::identity(&w.pin)? == identity,
+            "workspace identity changed"
+        );
+        anyhow::ensure!(
+            crate::capture::read_file(&w.path.join(".qinaegis-owner"), w.marker.len() as u64)?
+                == w.marker.as_bytes(),
+            "workspace marker changed"
+        );
+        let b = crate::capture::read_file(&w.path.join(name), size)?;
+        anyhow::ensure!(b.len() as u64 == size, "attachment size mismatch");
+        let (_, after_identity) = EngineWorkspace::directory(&w.path)?;
+        anyhow::ensure!(
+            after_identity == identity,
+            "workspace changed during attachment read"
+        );
+        Ok(b)
+    }
+
     #[cfg(test)]
-    pub(crate) async fn launch_owned_for_test(command: Command) -> anyhow::Result<(Self, std::path::PathBuf)> {
+    pub(crate) async fn launch_owned_for_test(
+        command: Command,
+    ) -> anyhow::Result<(Self, std::path::PathBuf)> {
         let workspace = EngineWorkspace::create()?;
         let path = workspace.path.clone();
         let process = Self::launch(command).await?;
@@ -615,7 +663,12 @@ impl MidsceneProcess {
         req: JsonRpcRequest,
         cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<JsonRpcResponse> {
-        let budget = if matches!(&req, JsonRpcRequest::Shutdown) {
+        let budget = if matches!(
+            &req,
+            JsonRpcRequest::Shutdown
+                | JsonRpcRequest::CaptureCapabilities
+                | JsonRpcRequest::StartTraceViewer { .. }
+        ) {
             Duration::from_secs(10)
         } else {
             Duration::from_secs(300)

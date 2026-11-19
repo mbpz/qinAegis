@@ -28,13 +28,13 @@ The same published contract can be bound to two projects with different paramete
 | Contract governance | Draft/edit/review/publish, version comparison, correction evidence, deprecation, derivation, reviewed binding migration and controlled import/export |
 | Model routing | Private registry, capability/data authorization, task routes and frozen snapshots; Chat Completions and native Anthropic Messages text/JSON adapters, bounded approved generation fallback, one compatible visual primary |
 | Execution | Playwright + Midscene.js through an explicit runtime boundary; approved scripts and contract inputs fixed before execution |
-| Evidence and quality | Immutable run records, failed lifecycle blocks the gate, official Allure generation/view/download; single-run reports today |
+| Evidence and quality | Frozen run and case revisions, optional capture receipts and artifacts, private change audit and case history, official Allure generation/view/download; single-run reports today |
 | Scenario composition | Separate immutable v1 plans and schema-2 reviewed execution, free beUI composition, typed data flow, bounded waits and case-run/Allure evidence |
 | Optional computer control | OS accessibility adapter planned, disabled until explicit permission and platform acceptance |
 
 The domain owns contracts and validation rules. Model adapters generate suggestions, execution adapters perform actions, and reporting preserves facts. Their responsibilities stay separate so changing a model or engine does not rewrite business expectations. The Web UI uses official free beUI components.
 
-The [capability review](docs/plans/capability-map-review-2.0.md) compares testing scope, process control and independent assets against the code. Current evidence includes screenshots, failed steps, results and frozen inputs; full Trace/Console/Network capture, reviewed failure diagnosis and pause/resume/handoff remain pending. A local service does not imply zero execution dependencies or no outbound model traffic. The [product agent](docs/agents/product.md) maintains goals and evidence-based task status.
+The [capability review](docs/plans/capability-map-review-2.0.md) compares testing scope, process control and independent assets against the code. Settings provides revisioned off/failure-only/key-step/full capture policies. Reports exposes verified artifacts and an isolated offline official Trace viewer; Review exposes immutable case history and restoration as a new Draft, and Contracts exposes before/after audit. Console/Network collection contains bounded metadata, not complete traffic. Trace temporary storage has a best-effort monitor rather than a hard disk quota, so E02 remains partially accepted. Evidence retention, complete backup, reviewed failure diagnosis and pause/resume/handoff remain pending. A local service does not imply zero execution dependencies or no outbound model traffic. The [product agent](docs/agents/product.md) maintains goals and evidence-based task status.
 
 ## Build and run
 

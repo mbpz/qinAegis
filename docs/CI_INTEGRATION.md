@@ -95,4 +95,4 @@ Schema 2 实际执行新增 `scripts/test-flow-execution.py`，在四平台基�
 
 注册链生成证据新增 `scripts/test-generation-evidence.py`，四平台真实 HTTP 验证实际尝试/限流备用、业务校验与 critic 未验证、已知秘密回显拒绝、取消及强杀后保留 started/interrupted 不重放。实现 `2ef4743a` 的 Release `44250352725` 四平台、engine-checks、assemble 全部通过，正式 Release 跳过；Pages `44250352800` 预览通过、生产部署跳过。下载候选独立核验全部 14 项 SHA 与四归档内外清单一致，源码 PR 合并提交 `6581f671b3287ed0d0eccf52ccba8e75824cd504` 的父提交包含 `2ef4743a`。
 
-当前能力状态按[三维复盘](plans/capability-map-review-2.0.md)与清单修订。新增完整过程采集、辅助归因、暂停/继续/接管目标仍待实现，不能将现有 CI 绿色扩展为这些能力通过。
+当前能力状态按[三维复盘](plans/capability-map-review-2.0.md)与清单修订。本轮四平台 smoke 新增 `scripts/test-process-evidence.py`，覆盖冻结策略、收据/附件身份、摘要和异常；engine-checks 的真实 Chromium 测试覆盖四模式和官方离线 Trace 查看，并运行 `scripts/test-evidence-workbench.py` 检查实际工作台交互。协议夹具不替代真实模型，旧 CI 绿色不计作本轮证据；Trace 暂存硬配额、完整故障矩阵、辅助归因及暂停/继续/接管仍未验收。

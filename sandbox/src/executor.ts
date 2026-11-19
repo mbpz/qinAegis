@@ -15,6 +15,10 @@ console.warn = () => {}; // Silence all console.warn
 
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
+import { Capture, capturePolicy, captureCapabilities } from './capture.js';
+import { RunCleanupError, runWithCleanup } from './run_with_cleanup.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { parseYamlPlan } from './yaml_spec.js';
 import * as readline from 'readline';
 import * as fs from 'fs';
@@ -62,18 +66,40 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
+    if (req.method === 'capture_capabilities') return { id: req.id || '0', ok: true, data: captureCapabilities };
+    if (req.method === 'trace_viewer_start') {
+      const {startTraceViewer}=await import('./trace_viewer.js');
+      const {trace_base64}=req.args as {trace_base64:string};
+      return {id:req.id||'0',ok:true,data:await startTraceViewer(trace_base64)};
+    }
     if (req.method === 'allure_generate') {
       const { results_dir, report_dir } = req.args as { results_dir: string; report_dir: string };
       const { generateAllure } = await import('./allure_report.js');
       return { id: req.id || '0', ok: true, data: await generateAllure(results_dir, report_dir) };
     }
     if (req.method === 'shutdown') {
+      const {stopTraceViewer}=await import('./trace_viewer.js');
+      await stopTraceViewer();
       await browser?.close();
       return { id: req.id || '0', ok: true, data: null };
     }
     if (req.method === 'run_yaml') {
       const args = req.args as unknown as { yaml_script: string; target_url?: string };
       parseYamlPlan(args.yaml_script, args.target_url);
+    }
+    if (req.method === 'run_yaml' && Object.prototype.hasOwnProperty.call(req.args, 'capture_policy')) {
+      const args = req.args as { yaml_script: string; case_id: string; target_url?: string; capture_policy: unknown };
+      const policy = capturePolicy(args.capture_policy);
+      const temporary = await mkdtemp(join(process.cwd(), 'qinaegis-capture-temp-'));
+      let owned: Browser | null = null;
+      const result = await runWithCleanup(async () => {
+        owned = await chromium.launch({ headless: true, tracesDir: temporary });
+        const ctx = await owned.newContext();
+        const p = await ctx.newPage();
+        const { runYaml } = await import('./yaml_runner.js');
+        return runYaml(args.yaml_script, args.case_id, p, args.target_url, new Capture(policy, p, ctx, temporary));
+      }, async () => { await owned?.close(); }, async () => { await rm(temporary, { recursive: true, force: true }); });
+      return { id: req.id || '0', ok: true, data: result };
     }
     if (!['explore', 'lighthouse', 'stress', 'zap_scan'].includes(req.method)) {
       await ensureConnected();
@@ -172,6 +198,9 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id || '0', ok: false, error: `Unknown method: ${req.method}` };
     }
   } catch (e) {
+    if (e instanceof RunCleanupError) {
+      return { id: req.id || '0', ok: false, error: String(e.original), data: { lifecycle_error: e.lifecycle_error } };
+    }
     return { id: req.id || '0', ok: false, error: String(e) };
   }
 }

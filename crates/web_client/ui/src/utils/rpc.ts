@@ -1,3 +1,5 @@
+import type { CaseHistory, CaseRevision, ContractAudit } from '../types/case_history';
+import type { CapturePolicy, CapturePolicySnapshot, ProcessEvidence, ProcessArtifact, TraceViewer } from '../types/capture';
 import type { ExecutionDraft, ExecutionFlows, ExecutionLibrary, ExecutionPreparation, FlowRun } from '../types/flow_execution';
 import type { RuntimeMaintenance, RuntimePreview } from '../types/runtime_maintenance';
 import type { FlowDraft, FlowLibrary, FlowValidation, FlowsResponse, FlowPlan, PrepareFlowPlan } from '../types/flows';
@@ -111,6 +113,16 @@ async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TI
 
 // Typed RPC methods
 export const rpc = {
+  getContractAudit(): Promise<ContractAudit> { return call('getContractAudit', {}); },
+  getCaseHistory(project: string, case_id: string): Promise<CaseHistory> { return call('getCaseHistory', {project, case_id}); },
+  getCaseRevision(project: string, case_id: string, revision: number): Promise<CaseRevision> { return call('getCaseRevision', {project, case_id, revision}); },
+  restoreCaseRevision(project: string, case_id: string, revision: number, expected_digest: string, reason: string): Promise<CaseAsset> { return call('restoreCaseRevision', {project, case_id, revision, expected_digest, reason, approved:true}); },
+  getCapturePolicy(): Promise<CapturePolicySnapshot> { return call('getCapturePolicy', {}); },
+  saveCapturePolicy(expected_revision: number, policy: CapturePolicy): Promise<CapturePolicySnapshot> { return call('saveCapturePolicy', { expected_revision, policy, approved: true }); },
+  readProcessEvidence(project: string, run_id: string): Promise<ProcessEvidence> { return call('readProcessEvidence', { project, run_id }); },
+  readProcessArtifact(project: string, run_id: string, case_id: string, artifact_id: string): Promise<ProcessArtifact> { return call('readProcessArtifact', { project, run_id, case_id, artifact_id }); },
+  startTraceViewer(project: string, run_id: string, case_id: string, artifact_id: string): Promise<TraceViewer> { return call('startTraceViewer', { project, run_id, case_id, artifact_id, approved: true }); },
+  stopTraceViewer(viewer_id: string): Promise<{ok: boolean}> { return call('stopTraceViewer', { viewer_id }); },
   getRuntimeMaintenance(): Promise<RuntimeMaintenance> { return call('getRuntimeMaintenance'); },
   beginRuntimeUpload(size: number, expected_sha256: string): Promise<{upload_id: string; received: number}> { return call('beginRuntimeUpload', {size, expected_sha256}); },
   abortRuntimeUpload(upload_id: string): Promise<{ok: boolean}> { return call('abortRuntimeUpload', {upload_id}); },

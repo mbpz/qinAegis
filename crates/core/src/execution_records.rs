@@ -313,6 +313,9 @@ pub fn case_provenance(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunCase {
+    /// Exact case-history revision captured under the case store lock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub case_revision: Option<u64>,
     pub case_id: String,
     pub name: String,
     pub yaml_script: String,
@@ -335,6 +338,9 @@ pub struct RunRecord {
     pub results: Vec<TestResult>,
     pub error: Option<String>,
     pub semantic_validation: String,
+    /// Missing in historical runs: do not infer a policy or complete capture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_policy: Option<crate::capture::CapturePolicySnapshot>,
 }
 impl RunRecord {
     pub fn prepare(
@@ -359,6 +365,7 @@ impl RunRecord {
             results: vec![],
             error: None,
             semantic_validation: "not_verified".into(),
+            capture_policy: None,
         };
         record.validate()?;
         Ok(record)
@@ -368,6 +375,9 @@ impl RunRecord {
             self.schema_version == 1 && self.semantic_validation == "not_verified",
             "unsupported run schema or semantic validation claim"
         );
+        if let Some(snapshot) = &self.capture_policy {
+            snapshot.policy.validate()?;
+        }
         identifier(&self.project)?;
         identifier(&self.run_id)?;
         nonempty(&self.started_at)?;
@@ -386,6 +396,10 @@ impl RunRecord {
         let mut ids = BTreeSet::new();
         for case in &self.cases {
             identifier(&case.case_id)?;
+            ensure!(
+                case.case_revision.is_none_or(|r| r > 0),
+                "invalid case history revision"
+            );
             nonempty(&case.name)?;
             nonempty(&case.yaml_script)?;
             let url = reqwest::Url::parse(&case.target_url)?;
@@ -402,7 +416,24 @@ impl RunRecord {
             }
         }
         let mut results = BTreeSet::new();
+        let mut capture_bytes = 0u64;
         for result in &self.results {
+            if let Some(receipt) = &result.capture {
+                receipt.validate_for_result(result.passed)?;
+                let policy = self
+                    .capture_policy
+                    .as_ref()
+                    .context("capture receipt needs a frozen policy")?;
+                ensure!(
+                    serde_json::to_value(&receipt.policy)? == serde_json::to_value(&policy.policy)?,
+                    "capture receipt policy mismatch"
+                );
+                capture_bytes += receipt.artifacts.iter().map(|a| a.bytes).sum::<u64>();
+                ensure!(
+                    capture_bytes <= policy.policy.max_run_bytes,
+                    "aggregate capture run quota exceeded"
+                );
+            }
             ensure!(
                 ids.contains(result.case_id.as_str()) && results.insert(result.case_id.as_str()),
                 "foreign or duplicate result identity"
@@ -630,6 +661,7 @@ mod tests {
             model: p.model.clone(),
             engine_version: Some("fixture".into()),
             cases: vec![RunCase {
+                case_revision: None,
                 case_id: p.case_id.clone(),
                 name: "Receipt".into(),
                 yaml_script: p.yaml_script.clone(),
@@ -639,6 +671,7 @@ mod tests {
             results: vec![],
             error: None,
             semantic_validation: "not_verified".into(),
+            capture_policy: None,
         }
     }
     fn result(id: &str) -> TestResult {
@@ -647,11 +680,75 @@ mod tests {
             passed: false,
             duration_ms: 1,
             screenshot_base64: None,
+            capture: None,
             error_message: Some("business assertion failed".into()),
             retry_count: 0,
             healed_yaml_script: None,
             failed_step: Some("aiAssert".into()),
         }
+    }
+    #[test]
+    fn capture_history_requires_exact_policy_and_aggregate_budget() {
+        use crate::capture::{
+            CaptureArtifact, CapturePolicy, CapturePolicySnapshot, CaptureReceipt,
+        };
+        let mut record = run();
+        let old: RunRecord =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert!(old.capture_policy.is_none());
+        let policy = CapturePolicy {
+            mode: "key_steps".into(),
+            include_sensitive: true,
+            max_artifact_bytes: 1024,
+            max_run_bytes: 1024,
+            ..Default::default()
+        };
+        let mut receipt = CaptureReceipt::unknown(policy.clone());
+        receipt.artifacts.push(CaptureArtifact {
+            id: "steps-1".into(),
+            kind: "steps".into(),
+            file_name: "steps-1.json".into(),
+            bytes: 600,
+            sha256: "0".repeat(64),
+        });
+        let steps = receipt
+            .channels
+            .iter_mut()
+            .find(|c| c.kind == "steps")
+            .unwrap();
+        steps.status = "collected".into();
+        steps.bytes = 600;
+        let mut one = result("receipt");
+        one.capture = Some(receipt.clone());
+        record.results = vec![one];
+        record.status = "completed".into();
+        record.finished_at = Some("now".into());
+        assert!(
+            record.validate().is_err(),
+            "receipt needs its admission policy"
+        );
+        record.capture_policy = Some(CapturePolicySnapshot {
+            revision: 1,
+            policy: policy.clone(),
+        });
+        record.validate().unwrap();
+        record.capture_policy.as_mut().unwrap().policy.max_events += 1;
+        assert!(
+            record.validate().is_err(),
+            "later policy cannot replace frozen inputs"
+        );
+        record.capture_policy.as_mut().unwrap().policy = policy;
+        let mut second = record.cases[0].clone();
+        second.case_id = "second".into();
+        second.provenance = None;
+        record.cases.push(second);
+        let mut two = result("second");
+        two.capture = Some(receipt);
+        record.results.push(two);
+        assert!(
+            record.validate().is_err(),
+            "per-case receipts must share the total run quota"
+        );
     }
     #[test]
     fn provenance_is_private_immutable_and_bound_to_exact_script() {

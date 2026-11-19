@@ -70,6 +70,9 @@ import path from 'node:path';
 const root=process.env.QINAEGIS_FIXTURE_DIR;
 for await (const line of readline.createInterface({input:process.stdin})) {
  const req=JSON.parse(line);
+  if (req.method === 'capture_capabilities') {
+    console.log(JSON.stringify({id:'0',ok:true,data:{protocol_version:1,modes:['off','failure_only','key_steps','full'],kinds:['screenshot','trace','console','network','steps'],artifact_transport:'owned_files_v1'}})); continue;
+  }
  if(req.method!=='run_yaml') throw Error('fixture supports run_yaml only');
  fs.appendFileSync(path.join(root,'requests.jsonl'),JSON.stringify({args:req.args,model:process.env.MIDSCENE_MODEL_NAME})+'\n');
  const failed=fs.existsSync(path.join(root,'failed'));
@@ -85,7 +88,10 @@ for await (const line of readline.createInterface({input:process.stdin})) {
    await new Promise(resolve=>setTimeout(resolve,20));
   }
  }
- console.log(JSON.stringify({id:'0',ok:true,data:{case_id:req.args.case_id,passed:!failed,duration_ms:12,screenshot_base64:null,error_message:'fixture echo '+process.env.MIDSCENE_MODEL_API_KEY,retry_count:0,healed_yaml_script:null,failed_step:failed?'fixture assertion':null}}));
+ const data={case_id:req.args.case_id,passed:!failed,duration_ms:12,screenshot_base64:null,error_message:'fixture echo '+process.env.MIDSCENE_MODEL_API_KEY,retry_count:0,healed_yaml_script:null,failed_step:failed?'fixture assertion':null};
+ if(fs.existsSync(path.join(root,'lifecycle'))) data.lifecycle_error='temporary_cleanup_failed';
+ if(req.args.capture_policy) data.capture={schema_version:1,policy:req.args.capture_policy,status:'disabled',channels:['screenshot','trace','console','network','steps'].map(kind=>({kind,status:'not_requested',reason:null,bytes:0})),artifacts:[]};
+ console.log(JSON.stringify({id:'0',ok:true,data}));
 }
 """
 
@@ -270,6 +276,16 @@ def main():
             require(not failed['facts']['steps'][0]['attempts'][0]['case_result']['passed'],'business assertion failure hidden')
             require(len((Path(directory)/'requests.jsonl').read_text().splitlines())==2,'non-idempotent case retried')
             (Path(directory)/'failed').unlink()
+            (Path(directory)/'lifecycle').write_text('1')
+            for business_failed in (False, True):
+                if business_failed: (Path(directory)/'failed').write_text('1')
+                lifecycle=finish(run(prepare(case_value)),'failed')
+                child=smoke.rpc('getRunEvidence',{'project':'smoke-alpha','run_id':lifecycle['case_runs']['pause']['run_id']})
+                require(child['status']=='failed' and child['results'][0]['passed'] is not business_failed
+                        and child['results'][0]['duration_ms']==12 and child['error'],
+                        'flow cleanup failure lost original business result')
+                if business_failed: (Path(directory)/'failed').unlink()
+            (Path(directory)/'lifecycle').unlink()
             old=prepare(case_value)
             profiles[1]['model']='model-two-after'
             revision=smoke.rpc('saveModel',{'profile':profiles[1],'expected_revision':revision})['revision']

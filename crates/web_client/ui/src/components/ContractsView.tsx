@@ -1,3 +1,4 @@
+import ContractAuditPanel from './ContractAuditPanel';
 import { Button, Checkbox, Input, Select, TextArea } from './ui';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './motion/collapsible';
 import ContractCorrectionPanel, { CorrectionSourceDetails, CorrectionObservationPanel } from './ContractCorrectionPanel';
@@ -200,6 +201,7 @@ export default function ContractsView({ projects }: { projects: string[] }) {
 
   return <div className="view">
     <h2 className="view-title">Contracts</h2>
+      <ContractAuditPanel />
     <p>Reusable, versioned contracts across projects. Publications are immutable; corrections require human review. Reviewer identity is recorded by the local service.</p>
     {message && <div className="card" role={failed ? 'alert' : 'status'} style={{ borderColor: failed ? 'var(--accent-red)' : 'var(--accent-green)', whiteSpace: 'pre-wrap' }}>{message}</div>}
     <fieldset disabled={busy} style={{ border: 0, padding: 0, minWidth: 0 }}>

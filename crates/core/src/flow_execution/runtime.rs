@@ -479,6 +479,7 @@ mod tests {
             let _active = Active(self.active.clone());
             tokio::time::sleep(Duration::from_millis(self.delay)).await;
             Ok(TestResult {
+                capture: None,
                 case_id: case.reference().case_id.clone(),
                 passed: self.passed,
                 duration_ms: self.delay,
@@ -887,6 +888,7 @@ for line in sys.stdin:
     #[test]
     fn result_size_budget_counts_json_escaping_without_buffering_the_payload() {
         let result = TestResult {
+            capture: None,
             case_id: "case".into(),
             passed: false,
             duration_ms: 0,

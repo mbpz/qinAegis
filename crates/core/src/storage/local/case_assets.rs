@@ -1,4 +1,5 @@
 //! Recoverable case transitions and exact-content optimistic editing.
+use super::case_history::{self, AuditContext, CaseHistory, HistoryMutation};
 use crate::asset_file::{AssetFile, AssetGuard};
 use crate::storage::{CaseStatus, TestCase};
 use anyhow::{ensure, Context, Result};
@@ -17,6 +18,7 @@ const STATUSES: [CaseStatus; 5] = [
 ];
 #[derive(Serialize)]
 pub struct CaseAsset {
+    pub revision: u64,
     pub case_id: String,
     pub name: String,
     pub yaml_script: String,
@@ -31,10 +33,15 @@ pub struct CaseAsset {
 enum TransitionKind {
     Status,
     Edit,
+    Save,
+    Delete,
+    Restore,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Transition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    history: Option<HistoryMutation>,
     schema: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kind: Option<TransitionKind>,
@@ -45,6 +52,7 @@ struct Transition {
     after: Vec<u8>,
 }
 pub(super) struct CaseAssets {
+    context: AuditContext,
     root: PathBuf,
     project: String,
 }
@@ -83,9 +91,15 @@ impl CaseAssets {
             );
         }
         Ok(Self {
+            context: Default::default(),
             root,
             project: project.into(),
         })
+    }
+    pub(super) fn with_context(mut self, context: AuditContext) -> Result<Self> {
+        context.validate()?;
+        self.context = context;
+        Ok(self)
     }
     fn path(&self, id: &str, status: Option<CaseStatus>) -> Result<PathBuf> {
         identity(id)?;
@@ -112,6 +126,49 @@ impl CaseAssets {
     fn validate_transition(&self, t: &Transition) -> Result<()> {
         identity(&t.id)?;
         ensure!(t.schema == 1, "unsupported case transition journal");
+        if matches!(t.kind, Some(TransitionKind::Save)) {
+            self.parse(&t.after, &t.id, Some(t.to))?;
+            if !t.before.is_empty() {
+                let before = self.parse(&t.before, &t.id, t.from)?;
+                let after = self.parse(&t.after, &t.id, Some(t.to))?;
+                ensure!(
+                    before.status == after.status && after.status == CaseStatus::Draft,
+                    "typed content changes require Draft"
+                );
+            }
+            return Ok(());
+        }
+        if matches!(t.kind, Some(TransitionKind::Delete)) {
+            self.parse(&t.before, &t.id, t.from)?;
+            ensure!(t.after.is_empty(), "delete contains content");
+            return Ok(());
+        }
+        if matches!(t.kind, Some(TransitionKind::Restore)) {
+            self.parse(&t.before, &t.id, t.from)?;
+            let after = self.parse(&t.after, &t.id, Some(t.to))?;
+            ensure!(
+                after.status == CaseStatus::Draft && after.provenance.is_none(),
+                "restore must create unattributed draft"
+            );
+            let actual: Value = serde_json::from_slice(&t.after)?;
+            let h = case_history::load(&self.root, &t.id)?;
+            ensure!(
+                h.revisions
+                    .iter()
+                    .filter(|r| t
+                        .history
+                        .as_ref()
+                        .is_none_or(|m| r.revision < m.entry.revision))
+                    .filter_map(|r| r.snapshot.clone())
+                    .any(|mut v| {
+                        v["status"] = serde_json::json!("draft");
+                        v.as_object_mut().unwrap().remove("provenance");
+                        v == actual
+                    }),
+                "restore lacks historical source snapshot"
+            );
+            return Ok(());
+        }
         let before_case = self.parse(&t.before, &t.id, t.from)?;
         let after_case = self.parse(&t.after, &t.id, Some(t.to))?;
         let mut before_value: Value = serde_json::from_slice(&t.before)?;
@@ -176,10 +233,60 @@ impl CaseAssets {
             serde_json::from_slice(&bytes).context("invalid case transition journal")?;
         let Some(t) = pending else { return Ok(()) };
         self.validate_transition(&t)?;
+        if let Some(h) = &t.history {
+            let before = if t.before.is_empty() {
+                None
+            } else {
+                Some(t.before.as_slice())
+            };
+            let after = if t.after.is_empty() {
+                None
+            } else {
+                Some(t.after.as_slice())
+            };
+            ensure!(
+                h.before_digest == before.map(|b| format!("content:{}", STANDARD.encode(b))),
+                "journal history before mismatch"
+            );
+            ensure!(
+                h.entry.digest == after.map(|b| format!("content:{}", STANDARD.encode(b))),
+                "journal history after mismatch"
+            );
+            if let Some(base) = &h.baseline {
+                ensure!(
+                    base.digest == before.map(|b| format!("content:{}", STANDARD.encode(b))),
+                    "journal history baseline mismatch"
+                );
+            }
+        }
         let src = self.path(&t.id, t.from)?;
         let dst = self.path(&t.id, Some(t.to))?;
         let current_src = self.read(&src)?;
         let current_dst = self.read(&dst)?;
+        if matches!(t.kind, Some(TransitionKind::Save)) && t.before.is_empty() {
+            ensure!(
+                current_dst.is_none() || current_dst.as_deref() == Some(t.after.as_slice()),
+                "creation recovery conflict"
+            );
+            self.record_history(&t)?;
+            AssetFile::new(dst, MAX_CASE).lock()?.write(&t.after)?;
+            guard.write(b"null")?;
+            return Ok(());
+        }
+        if matches!(t.kind, Some(TransitionKind::Delete)) {
+            ensure!(
+                current_src.is_none() || current_src.as_deref() == Some(t.before.as_slice()),
+                "delete recovery conflict"
+            );
+            self.record_history(&t)?;
+            if current_src.is_some() {
+                std::fs::remove_file(&src)?;
+                #[cfg(unix)]
+                std::fs::File::open(src.parent().unwrap())?.sync_all()?;
+            }
+            guard.write(b"null")?;
+            return Ok(());
+        }
         if src == dst {
             ensure!(
                 current_src.as_deref() == Some(t.before.as_slice())
@@ -200,6 +307,7 @@ impl CaseAssets {
                 "case transition lost both assets"
             );
         }
+        self.record_history(&t)?;
         AssetFile::new(dst.clone(), MAX_CASE)
             .lock()?
             .write(&t.after)?;
@@ -214,6 +322,95 @@ impl CaseAssets {
         }
         guard.write(b"null")?;
         Ok(())
+    }
+    fn record_history(&self, t: &Transition) -> Result<()> {
+        let mutation = match &t.history {
+            Some(h) => h.clone(),
+            None => {
+                let h = case_history::load(&self.root, &t.id)?;
+                if h.revisions.last().is_some_and(|r| {
+                    r.digest == Some(format!("content:{}", STANDARD.encode(&t.after)))
+                }) {
+                    return Ok(());
+                }
+                case_history::prepare(
+                    &self.root,
+                    &t.id,
+                    Some(&t.before),
+                    Some(&t.after),
+                    "legacy_recovered_transition",
+                    AuditContext::default(),
+                )?
+            }
+        };
+        case_history::apply(&self.root, &t.id, &mutation)
+    }
+    pub(super) fn history(&self, id: &str) -> Result<CaseHistory> {
+        identity(id)?;
+        self.with_lock(|_| {
+            let mut h = case_history::load(&self.root, id)?;
+            if h.revisions.is_empty() {
+                let (_, bytes) = self.locate(id)?;
+                case_history::observe(&self.root, id, &bytes)?;
+                h = case_history::load(&self.root, id)?;
+            }
+            Ok(h)
+        })
+    }
+    pub(super) fn restore(
+        &self,
+        id: &str,
+        revision: u64,
+        expected: &str,
+        context: AuditContext,
+    ) -> Result<CaseAsset> {
+        context.validate()?;
+        self.with_lock(|guard| {
+            let (status, before) = self.locate(id)?;
+            ensure!(
+                format!("content:{}", STANDARD.encode(&before)) == expected,
+                "case content revision conflict"
+            );
+            let h = case_history::load(&self.root, id)?;
+            let old = h
+                .revisions
+                .iter()
+                .find(|r| r.revision == revision)
+                .context("case revision not found")?;
+            let mut value = old
+                .snapshot
+                .clone()
+                .context("deleted revision cannot be restored")?;
+            value["status"] = serde_json::to_value(CaseStatus::Draft)?;
+            value
+                .as_object_mut()
+                .context("invalid snapshot")?
+                .remove("provenance");
+            let after = serde_json::to_vec_pretty(&value)?;
+            let history = case_history::prepare(
+                &self.root,
+                id,
+                Some(&before),
+                Some(&after),
+                "restore",
+                context,
+            )?;
+            let t = Transition {
+                history: Some(history),
+                schema: 1,
+                kind: Some(TransitionKind::Restore),
+                id: id.into(),
+                from: status,
+                to: CaseStatus::Draft,
+                before,
+                after,
+            };
+            self.validate_transition(&t)?;
+            guard.write(&serde_json::to_vec(&Some(t))?)?;
+            self.recover(guard)?;
+            let (status, b) = self.locate(id)?;
+            self.view(id, status, &b)
+        })
     }
     fn with_lock<T>(&self, work: impl FnOnce(&AssetGuard<'_>) -> Result<T>) -> Result<T> {
         let journal = AssetFile::new(self.root.join(".transition.json"), MAX_JOURNAL);
@@ -281,8 +478,10 @@ impl CaseAssets {
         })
     }
     pub(super) fn save(&self, case: &TestCase) -> Result<()> {
-        self.with_lock(|_| {
-            let path = self.path(&case.id, Some(case.status))?;
+        self.with_lock(|guard| {
+            let mut before = None;
+            let mut location = None;
+            let _path = self.path(&case.id, Some(case.status))?;
             let mut value = serde_json::to_value(case)?;
             // Typed callers must not discard manual expected-result metadata.
             if let Ok((status, existing)) = self.locate(&case.id) {
@@ -290,6 +489,8 @@ impl CaseAssets {
                     status == Some(case.status),
                     "case status must change through a transition"
                 );
+                before = Some(existing.clone());
+                location = status;
                 let previous: Value = serde_json::from_slice(&existing)?;
                 if let Some(expected) = previous.get("expected_result") {
                     value["expected_result"] = expected.clone();
@@ -305,7 +506,30 @@ impl CaseAssets {
             }
             let bytes = serde_json::to_vec_pretty(&value)?;
             self.parse(&bytes, &case.id, Some(case.status))?;
-            AssetFile::new(path, MAX_CASE).lock()?.write(&bytes)
+            if before.as_ref() == Some(&bytes) {
+                return Ok(());
+            }
+            let history = case_history::prepare(
+                &self.root,
+                &case.id,
+                before.as_deref(),
+                Some(&bytes),
+                "save",
+                self.context.clone(),
+            )?;
+            let t = Transition {
+                history: Some(history),
+                schema: 1,
+                kind: Some(TransitionKind::Save),
+                id: case.id.clone(),
+                from: location,
+                to: case.status,
+                before: before.unwrap_or_default(),
+                after: bytes,
+            };
+            self.validate_transition(&t)?;
+            guard.write(&serde_json::to_vec(&Some(t))?)?;
+            self.recover(guard)
         })
     }
     fn transition(
@@ -324,7 +548,20 @@ impl CaseAssets {
                 "transition destination already exists"
             );
         }
+        let history = case_history::prepare(
+            &self.root,
+            id,
+            Some(&before),
+            Some(&after),
+            if matches!(kind, TransitionKind::Status) {
+                "status"
+            } else {
+                "edit"
+            },
+            self.context.clone(),
+        )?;
         let pending = Transition {
+            history: Some(history),
             schema: 1,
             kind: Some(kind),
             id: id.into(),
@@ -339,17 +576,29 @@ impl CaseAssets {
         self.recover(guard)
     }
     pub(super) fn delete(&self, id: &str) -> Result<()> {
-        self.with_lock(|_| {
+        self.with_lock(|guard| {
             let (status, before) = self.locate(id)?;
-            let path = self.path(id, status)?;
-            ensure!(
-                self.read(&path)?.as_deref() == Some(before.as_slice()),
-                "case changed before deletion"
-            );
-            std::fs::remove_file(&path)?;
-            #[cfg(unix)]
-            std::fs::File::open(path.parent().unwrap())?.sync_all()?;
-            Ok(())
+            let parsed = self.parse(&before, id, status)?;
+            let history = case_history::prepare(
+                &self.root,
+                id,
+                Some(&before),
+                None,
+                "delete",
+                self.context.clone(),
+            )?;
+            let t = Transition {
+                history: Some(history),
+                schema: 1,
+                kind: Some(TransitionKind::Delete),
+                id: id.into(),
+                from: status,
+                to: parsed.status,
+                before,
+                after: vec![],
+            };
+            guard.write(&serde_json::to_vec(&Some(t))?)?;
+            self.recover(guard)
         })
     }
     pub(super) fn move_status(&self, id: &str, from: CaseStatus, to: CaseStatus) -> Result<()> {
@@ -417,9 +666,45 @@ impl CaseAssets {
         })
     }
     fn view(&self, id: &str, status: Option<CaseStatus>, bytes: &[u8]) -> Result<CaseAsset> {
-        let case = self.parse(bytes, id, status)?;
+        let mut case = self.parse(bytes, id, status)?;
         let value: Value = serde_json::from_slice(bytes)?;
+        let mut history = case_history::load(&self.root, id)?;
+        let revision = if history.revisions.is_empty() {
+            let revision = case_history::observe(&self.root, id, bytes)?.revision;
+            history = case_history::load(&self.root, id)?;
+            revision
+        } else {
+            let last = history.revisions.last().unwrap();
+            ensure!(
+                last.digest == Some(format!("content:{}", STANDARD.encode(bytes))),
+                "case history differs from asset"
+            );
+            last.revision
+        };
+        // Sidecars predate embedded provenance. Only an untouched legacy baseline
+        // followed by known status-only transitions can still inherit that source.
+        // An edit/restore/save (even of identical text) permanently ends eligibility.
+        if case.provenance.is_none()
+            && history
+                .revisions
+                .first()
+                .is_some_and(|r| r.operation == "legacy_baseline")
+            && history
+                .revisions
+                .iter()
+                .skip(1)
+                .all(|r| r.operation == "status")
+        {
+            case.provenance = crate::execution_records::CaseProvenanceStore::new(
+                self.root
+                    .parent()
+                    .context("case root has no project directory")?
+                    .join("provenance"),
+            )
+            .load(&self.project, &case.id, &case.yaml_script)?;
+        }
         Ok(CaseAsset {
+            revision,
             case_id: case.id,
             name: case.name,
             yaml_script: case.yaml_script,
@@ -768,6 +1053,7 @@ mod tests {
         let mut after: Value = serde_json::from_slice(&before).unwrap();
         after["status"] = serde_json::to_value(CaseStatus::Reviewed).unwrap();
         Transition {
+            history: None,
             schema: 1,
             kind: None,
             id: case.id.clone(),
@@ -945,6 +1231,272 @@ mod tests {
             "target:\n url: file:///tmp/a\ntasks: []",
         ] {
             assert!(validate_script(yaml).is_err());
+        }
+    }
+    #[test]
+    fn full_history_records_cas_review_restore_and_tombstone() {
+        let (_dir, assets, case) = fixture();
+        assert_eq!(assets.asset(&case.id).unwrap().revision, 1);
+        assets
+            .move_status(&case.id, CaseStatus::Draft, CaseStatus::Reviewed)
+            .unwrap();
+        assets
+            .move_status(&case.id, CaseStatus::Reviewed, CaseStatus::Approved)
+            .unwrap();
+        let approved = assets.asset(&case.id).unwrap();
+        let edited = assets
+            .edit(
+                &case.id,
+                &approved.digest,
+                "changed",
+                "- aiAssert: changed",
+                "changed",
+            )
+            .unwrap();
+        assert_eq!(edited.revision, 4);
+        let count = assets.history(&case.id).unwrap().revisions.len();
+        assert!(assets
+            .edit(&case.id, &approved.digest, "bad", "- aiAssert: bad", "")
+            .is_err());
+        assert_eq!(assets.history(&case.id).unwrap().revisions.len(), count);
+        let context = AuditContext {
+            source: "local_web".into(),
+            author: Some("local-owner".into()),
+            reason: "Restore historical expectations".into(),
+        };
+        let restored = assets
+            .restore(&case.id, 3, &edited.digest, context.clone())
+            .unwrap();
+        assert_eq!(restored.status, CaseStatus::Draft);
+        assert!(restored.provenance.is_none());
+        assert_eq!(restored.yaml_script, case.yaml_script);
+        let h = assets.history(&case.id).unwrap();
+        assert!(h.history_complete);
+        assert_eq!(h.revisions.last().unwrap().context, context);
+        assert_eq!(h.revisions.last().unwrap().parent_revision, Some(4));
+        assets.delete(&case.id).unwrap();
+        assert!(assets
+            .history(&case.id)
+            .unwrap()
+            .revisions
+            .last()
+            .unwrap()
+            .snapshot
+            .is_none());
+    }
+    #[test]
+    fn history_recovery_is_idempotent_at_all_commit_boundaries() {
+        for boundary in 0..4 {
+            let (_dir, assets, case) = fixture();
+            let mut t = pending(&assets, &case);
+            t.kind = Some(TransitionKind::Status);
+            t.history = Some(
+                case_history::prepare(
+                    &assets.root,
+                    &case.id,
+                    Some(&t.before),
+                    Some(&t.after),
+                    "status",
+                    AuditContext::default(),
+                )
+                .unwrap(),
+            );
+            write_journal(&assets, &t);
+            if boundary >= 1 {
+                assets.record_history(&t).unwrap();
+            }
+            if boundary >= 2 {
+                AssetFile::new(assets.path(&case.id, Some(t.to)).unwrap(), MAX_CASE)
+                    .lock()
+                    .unwrap()
+                    .write(&t.after)
+                    .unwrap();
+            }
+            if boundary >= 3 {
+                std::fs::remove_file(assets.path(&case.id, t.from).unwrap()).unwrap();
+            }
+            assert_eq!(assets.asset(&case.id).unwrap().revision, 2);
+            assert_eq!(assets.history(&case.id).unwrap().revisions.len(), 2);
+            assert_eq!(assets.history(&case.id).unwrap().revisions.len(), 2);
+        }
+    }
+    #[test]
+    fn legacy_current_snapshot_is_marked_unknown_and_history_tampering_blocks() {
+        let (_dir, assets, case) = fixture();
+        std::fs::remove_dir_all(assets.root.join(".history")).unwrap();
+        let h = assets.history(&case.id).unwrap();
+        assert!(!h.history_complete);
+        assert_eq!(
+            h.revisions.len(),
+            1,
+            "observing legacy content must not fabricate a second revision"
+        );
+        assert!(h.revisions[0].created_at.is_none());
+        assert_eq!(h.revisions[0].context.author, None);
+        let path = assets
+            .root
+            .join(".history")
+            .join(format!("{}.json", case.id));
+        let mut value: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["revisions"][0]["snapshot"]["name"] = serde_json::json!("forged");
+        std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(assets.asset(&case.id).is_err());
+    }
+    #[test]
+    fn new_case_and_delete_journals_keep_history_across_partial_commit() {
+        for deleting in [false, true] {
+            let (_dir, assets, case) = fixture();
+            let (status, before) = assets.locate(&case.id).unwrap();
+            let (id, kind, after, before) = if deleting {
+                (case.id.clone(), TransitionKind::Delete, vec![], before)
+            } else {
+                let mut value: Value = serde_json::from_slice(&before).unwrap();
+                value["id"] = serde_json::json!("new-case");
+                (
+                    "new-case".into(),
+                    TransitionKind::Save,
+                    serde_json::to_vec_pretty(&value).unwrap(),
+                    vec![],
+                )
+            };
+            let history = case_history::prepare(
+                &assets.root,
+                &id,
+                if before.is_empty() {
+                    None
+                } else {
+                    Some(&before)
+                },
+                if after.is_empty() { None } else { Some(&after) },
+                if deleting { "delete" } else { "save" },
+                AuditContext::default(),
+            )
+            .unwrap();
+            let t = Transition {
+                schema: 1,
+                history: Some(history),
+                kind: Some(kind),
+                id: id.clone(),
+                from: if deleting { status } else { None },
+                to: case.status,
+                before,
+                after,
+            };
+            write_journal(&assets, &t);
+            assets.record_history(&t).unwrap();
+            let h = assets.history(&id).unwrap();
+            assert_eq!(h.revisions.len(), if deleting { 2 } else { 1 });
+            assert_eq!(h.revisions.last().unwrap().snapshot.is_none(), deleting);
+            if deleting {
+                assert!(assets.locate(&id).is_err());
+            } else {
+                assert_eq!(assets.asset(&id).unwrap().revision, 1);
+            }
+        }
+    }
+    #[test]
+    fn malformed_zero_history_journal_fails_without_mutating_assets() {
+        for corrupt_baseline in [false, true] {
+            let (_dir, assets, case) = fixture();
+            let mut t = pending(&assets, &case);
+            if corrupt_baseline {
+                std::fs::remove_dir_all(assets.root.join(".history")).unwrap();
+            }
+            let mut history = case_history::prepare(
+                &assets.root,
+                &case.id,
+                Some(&t.before),
+                Some(&t.after),
+                "status",
+                AuditContext::default(),
+            )
+            .unwrap();
+            if corrupt_baseline {
+                history.baseline.as_mut().unwrap().revision = 0;
+            } else {
+                history.entry.revision = 0;
+            }
+            t.history = Some(history);
+            write_journal(&assets, &t);
+            let journal = std::fs::read(assets.root.join(".transition.json")).unwrap();
+            let history_path = assets
+                .root
+                .join(".history")
+                .join(format!("{}.json", case.id));
+            let previous_history = std::fs::read(&history_path).ok();
+            assert!(assets.asset(&case.id).is_err());
+            assert_eq!(
+                std::fs::read(assets.path(&case.id, Some(case.status)).unwrap()).unwrap(),
+                t.before
+            );
+            assert_eq!(
+                std::fs::read(assets.root.join(".transition.json")).unwrap(),
+                journal
+            );
+            assert_eq!(std::fs::read(&history_path).ok(), previous_history);
+        }
+    }
+    #[test]
+    fn legacy_sidecar_survives_status_only_but_never_edit_or_restore() {
+        for restore in [false, true] {
+            let (_dir, assets, case) = fixture();
+            std::fs::remove_dir_all(assets.root.join(".history")).unwrap();
+            let source = crate::execution_records::CaseProvenance {
+                specification: None,
+                schema_version: 1,
+                project: "project".into(),
+                case_id: case.id.clone(),
+                yaml_script: case.yaml_script.clone(),
+                created_at: case.created_at.clone(),
+                contracts: None,
+                model: serde_json::json!({"source":"legacy_config","model":"fixture"}),
+                model_calls: None,
+            };
+            crate::execution_records::CaseProvenanceStore::new(
+                assets.root.parent().unwrap().join("provenance"),
+            )
+            .save(&source)
+            .unwrap();
+            let original = assets.asset(&case.id).unwrap();
+            assert!(original.provenance.is_some());
+            assert!(assets.history(&case.id).unwrap().revisions[0]
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .get("provenance")
+                .is_none_or(Value::is_null));
+            assets
+                .move_status(&case.id, CaseStatus::Draft, CaseStatus::Reviewed)
+                .unwrap();
+            assets
+                .move_status(&case.id, CaseStatus::Reviewed, CaseStatus::Approved)
+                .unwrap();
+            let approved = assets.asset(&case.id).unwrap();
+            assert!(approved.provenance.is_some());
+            let changed = if restore {
+                assets
+                    .restore(&case.id, 1, &approved.digest, AuditContext::default())
+                    .unwrap()
+            } else {
+                assets
+                    .edit(
+                        &case.id,
+                        &approved.digest,
+                        &approved.name,
+                        &approved.yaml_script,
+                        &approved.expected_result,
+                    )
+                    .unwrap()
+            };
+            assert_eq!(changed.yaml_script, original.yaml_script);
+            assert!(changed.provenance.is_none());
+            assets
+                .move_status(&case.id, CaseStatus::Draft, CaseStatus::Reviewed)
+                .unwrap();
+            assets
+                .move_status(&case.id, CaseStatus::Reviewed, CaseStatus::Approved)
+                .unwrap();
+            assert!(assets.asset(&case.id).unwrap().provenance.is_none());
         }
     }
 }

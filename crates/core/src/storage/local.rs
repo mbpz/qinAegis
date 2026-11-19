@@ -9,6 +9,8 @@ use async_trait::async_trait;
 use std::path::PathBuf;
 use tokio::fs;
 mod case_assets;
+mod case_history;
+pub use case_history::{AuditContext, CaseHistory, CaseRevision};
 mod spec_assets;
 pub use case_assets::CaseAsset;
 pub use spec_assets::ProjectSpec;
@@ -73,6 +75,75 @@ impl LocalStorage {
 
     fn case_assets(name: &str) -> anyhow::Result<case_assets::CaseAssets> {
         case_assets::CaseAssets::new(Self::cases_dir(name), name)
+    }
+    pub fn save_case_with_context(
+        project: &str,
+        case: &TestCase,
+        context: AuditContext,
+    ) -> anyhow::Result<()> {
+        Self::case_assets(project)?
+            .with_context(context)?
+            .save(case)
+    }
+    pub fn delete_case_with_context(
+        project: &str,
+        id: &str,
+        context: AuditContext,
+    ) -> anyhow::Result<()> {
+        Self::case_assets(project)?
+            .with_context(context)?
+            .delete(id)
+    }
+    pub fn edit_case_asset_with_context(
+        project: &str,
+        id: &str,
+        expected: &str,
+        name: &str,
+        script: &str,
+        expected_result: &str,
+        context: AuditContext,
+    ) -> anyhow::Result<CaseAsset> {
+        Self::case_assets(project)?.with_context(context)?.edit(
+            id,
+            expected,
+            name,
+            script,
+            expected_result,
+        )
+    }
+    pub fn change_case_status_with_context(
+        project: &str,
+        id: &str,
+        to: CaseStatus,
+        expected: Option<&str>,
+        context: AuditContext,
+    ) -> anyhow::Result<()> {
+        Self::case_assets(project)?
+            .with_context(context)?
+            .move_status_checked(id, to, expected)
+    }
+    pub fn get_case_history(project: &str, id: &str) -> anyhow::Result<CaseHistory> {
+        Self::case_assets(project)?.history(id)
+    }
+    pub fn get_case_revision(
+        project: &str,
+        id: &str,
+        revision: u64,
+    ) -> anyhow::Result<CaseRevision> {
+        Self::get_case_history(project, id)?
+            .revisions
+            .into_iter()
+            .find(|r| r.revision == revision)
+            .ok_or_else(|| anyhow::anyhow!("case revision not found"))
+    }
+    pub fn restore_case_revision(
+        project: &str,
+        id: &str,
+        revision: u64,
+        expected: &str,
+        context: AuditContext,
+    ) -> anyhow::Result<CaseAsset> {
+        Self::case_assets(project)?.restore(id, revision, expected, context)
     }
     pub fn get_case_asset(project: &str, id: &str) -> anyhow::Result<CaseAsset> {
         Self::case_assets(project)?.asset(id)

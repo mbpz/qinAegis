@@ -537,6 +537,7 @@ mod tests {
             specification: None,
         };
         let case = RunCase {
+            case_revision: None,
             case_id: "case".into(),
             name: "receipt".into(),
             yaml_script: script,
@@ -555,6 +556,7 @@ mod tests {
         record.status = "completed".into();
         record.finished_at = Some("2026-11-18T00:00:01Z".into());
         record.results = vec![TestResult {
+            capture: None,
             case_id: "case".into(),
             passed: false,
             duration_ms: 2,

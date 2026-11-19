@@ -985,6 +985,7 @@ mod tests {
         r.status = "running".into();
         let mut f = facts();
         f.steps[0].attempts[0].case_result = Some(crate::executor::TestResult {
+            capture: None,
             case_id: "foreign".into(),
             passed: true,
             duration_ms: 1,

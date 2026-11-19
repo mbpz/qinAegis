@@ -38,6 +38,7 @@ pub(crate) struct Prepared {
     config_revision: u64,
     contract_revision: u64,
     runtime: Option<Value>,
+    capture_policy: qin_aegis_core::capture::CapturePolicySnapshot,
     expires: Instant,
     metadata: Value,
     frozen: Value,
@@ -301,9 +302,11 @@ fn prepare(app: &mut AppState, request: Prepare) -> Result<Value> {
     secrets.retain(|s| !s.is_empty());
     secrets.sort_by_key(|s| std::cmp::Reverse(s.len()));
     secrets.dedup();
+    let capture_policy =
+        qin_aegis_core::capture::CapturePolicyStore::new(LocalStorage::base_path()).snapshot()?;
     let id = format!("prep-{}", crate::server::random_token()?);
-    let mut metadata = json!({"preparation_id":id,"flow_id":d.id,"version":publication.version,"project":d.project,"target_url":project.url,"execution_order":order,"models":public_models,"expires_in_seconds":600,"permissions":request.permissions});
-    let frozen = json!({"publication":publication,"inputs":request.inputs,"cases":cases,"models":public_models,"permissions":request.permissions,"target_url":project.url,"library_revision":library.revision,"model_revision":request.expected_model_revision,"contract_revision":contract_library.revision,"runtime":runtime});
+    let mut metadata = json!({"preparation_id":id,"flow_id":d.id,"version":publication.version,"project":d.project,"target_url":project.url,"execution_order":order,"models":public_models,"expires_in_seconds":600,"permissions":request.permissions,"capture_policy":capture_policy});
+    let frozen = json!({"publication":publication,"inputs":request.inputs,"cases":cases,"models":public_models,"permissions":request.permissions,"target_url":project.url,"library_revision":library.revision,"model_revision":request.expected_model_revision,"contract_revision":contract_library.revision,"runtime":runtime,"capture_policy":capture_policy});
     // Reject collisions rather than editing approved assertions, targets or input semantics.
     ensure!(!contains_secret(&frozen,&secrets)&&!contains_secret(&metadata,&secrets),"reviewed content contains a configured credential; replace it with non-secret test data before preparation");
     metadata["snapshot"] = frozen.clone();
@@ -319,6 +322,7 @@ fn prepare(app: &mut AppState, request: Prepare) -> Result<Value> {
         config_revision,
         contract_revision: contract_library.revision,
         runtime,
+        capture_policy,
         expires: Instant::now() + Duration::from_secs(600),
         metadata: metadata.clone(),
         frozen,
@@ -534,6 +538,8 @@ struct FrozenRunner {
     executor: Option<TestExecutor>,
     active_record: Option<(RunStore, RunRecord, std::path::PathBuf)>,
     case_runs: BTreeMap<String, Value>,
+    capture_policy: qin_aegis_core::capture::CapturePolicySnapshot,
+    capture_budget: Arc<std::sync::Mutex<u64>>,
 }
 impl FrozenRunner {
     fn new(p: &Prepared, id: &str, cancel: Arc<AtomicBool>, report: JobReporter) -> Self {
@@ -548,6 +554,8 @@ impl FrozenRunner {
             executor: None,
             active_record: None,
             case_runs: BTreeMap::new(),
+            capture_policy: p.capture_policy.clone(),
+            capture_budget: Arc::new(std::sync::Mutex::new(0)),
         }
     }
     fn finish_case(
@@ -600,7 +608,7 @@ impl CaseRunner for FrozenRunner {
         let dir = LocalStorage::run_dir(&self.project, &run_id);
         let case_store = RunStore::new(dir.clone());
         let engine_version = RuntimeResolver::resolve()?.version;
-        let record = RunRecord::prepare(
+        let mut record = RunRecord::prepare(
             run_id.clone(),
             self.project.clone(),
             "functional".into(),
@@ -608,12 +616,13 @@ impl CaseRunner for FrozenRunner {
             Some(engine_version),
             vec![case.run_case()],
         )?;
+        record.capture_policy = Some(self.capture_policy.clone());
         // Journal the complete frozen case intent before creating its separate
         // evidence file, so crashes at either boundary have a recoverable owner.
         self.case_runs.insert(step.into(),json!({"run_id":run_id,"project":self.project,"status":"running","allure_results_ready":false,"record":record}));
         store().case_evidence(&self.flow_run, step, self.case_runs[step].clone())?;
         case_store.begin(&record)?;
-        self.active_record = Some((case_store, record, dir));
+        self.active_record = Some((case_store, record, dir.clone()));
         self.executor = Some(
             TestExecutor::new_cancellable(
                 1,
@@ -621,7 +630,13 @@ impl CaseRunner for FrozenRunner {
                 None,
                 self.cancel.clone(),
             )
-            .await?,
+            .await?
+            .with_known_secrets(self.secrets.clone())
+            .with_capture_budget(
+                self.capture_policy.clone(),
+                dir,
+                self.capture_budget.clone(),
+            )?,
         );
         let result =
             CaseRunner::run_case(self.executor.as_mut().context("engine unavailable")?, case).await;
@@ -651,6 +666,7 @@ impl CaseRunner for FrozenRunner {
             }
             anyhow::bail!("Owned engine exit is unconfirmed; inspect case evidence");
         }
+        let lifecycle_failed = self.executor.as_ref().unwrap().lifecycle_failed();
         self.executor = None;
         match result {
             Ok(result) => {
@@ -661,6 +677,14 @@ impl CaseRunner for FrozenRunner {
                         && result.healed_yaml_script.is_none(),
                     "engine changed reviewed case identity or healing policy"
                 );
+                if lifecycle_failed {
+                    self.finish_case(
+                        "failed",
+                        vec![result],
+                        Some("Case browser or temporary evidence cleanup failed".into()),
+                    )?;
+                    anyhow::bail!("Case cleanup failed; inspect preserved business evidence");
+                }
                 self.finish_case("completed", vec![result.clone()], None)?;
                 Ok(result)
             }

@@ -174,7 +174,9 @@ impl AppState {
                     let source=ModelCorrectionSource {schema_version:1,input:input.clone(),model:model.clone(),attempts,limitations:output.limitations,evidence_tokens:output.evidence_tokens};
                     domain::reject_secrets(&serde_json::to_string(&source)?,&secrets)?;
                     check_cancel(&cancel)?;
-                    let updated=store().propose_model_cancellable(output.replacement,&output.reason,source,expected,&cancel)?;
+                    let updated=store().with_audit_context(qin_aegis_core::storage::local::AuditContext {
+                        source: "model_correction".into(), author: None, reason: output.reason.clone(),
+                    })?.propose_model_cancellable(output.replacement,&output.reason,source,expected,&cancel)?;
                     let proposal=updated.proposals.last().context("saved correction proposal unavailable")?;
                     Ok::<String,anyhow::Error>(proposal.id.clone())
                 };
@@ -197,7 +199,13 @@ impl AppState {
         crate::dispatch::validate_report_path(project, run_id).map_err(anyhow::Error::msg)?;
         let record = Self::load_record(project, run_id)?;
         // Inputs are loaded from immutable managed evidence, never client facts.
-        let updated = store().observe_correction(proposal_id, &record, case_id, expected)?;
+        let updated = store()
+            .with_audit_context(qin_aegis_core::storage::local::AuditContext {
+                source: "local_web".into(),
+                author: Some("local-owner".into()),
+                reason: "explicit observation against a later run".into(),
+            })?
+            .observe_correction(proposal_id, &record, case_id, expected)?;
         Ok(serde_json::to_value(updated)?)
     }
 }

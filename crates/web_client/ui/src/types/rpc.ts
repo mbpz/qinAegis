@@ -1,4 +1,5 @@
 import type { ExecutionSnapshot } from './contracts';
+import type { CapturePolicySnapshot } from './capture';
 // Shared RPC types — single source of truth
 
 export interface RpcRequest<P = object> {
@@ -143,6 +144,7 @@ export interface CaseProvenance {
   created_at: string; contracts: ExecutionSnapshot | null; model: unknown;
 }
 export interface RunEvidence {
+  capture_policy?: CapturePolicySnapshot | null;
   schema_version: number; run_id: string; project: string; test_type: string; status: string;
   started_at: string; finished_at: string | null; model: unknown; engine_version: string | null;
   cases: {case_id: string; name: string; yaml_script: string; target_url: string; provenance: CaseProvenance | null}[];
@@ -156,6 +158,7 @@ export interface AllureReportResponse { ok: boolean; html?: string; version?: st
 export interface TaskSummary { queue_position?: number | null; wait_reason?: string | null; jobId: string; jobType: string; status: JobStatusValue; error?: string | null; created_at?: number; updated_at?: number; }
 
 export interface CaseAsset {
+  revision?: number;
   case_id: string; name: string; yaml_script: string; expected_result: string;
   status: TestCase['status']; provenance: CaseProvenance | null; digest: string;
 }

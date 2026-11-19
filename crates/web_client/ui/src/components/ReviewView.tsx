@@ -1,3 +1,4 @@
+import CaseHistoryPanel from './CaseHistoryPanel';
 import { Button, Checkbox, Input, Select, TextArea } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
@@ -130,6 +131,7 @@ export default function ReviewView() {
         <h4>Expected result</h4><pre style={{whiteSpace:'pre-wrap'}}>{reviewAsset.expected_result || '(No separate expected result recorded)'}</pre>
         <Collapsible><CollapsibleTrigger>Generation source, contract inputs and model</CollapsibleTrigger><CollapsibleContent><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{reviewAsset.provenance ? JSON.stringify(reviewAsset.provenance,null,2) : 'No recorded generation source. No current contract has been assigned retroactively.'}</pre></CollapsibleContent></Collapsible>
         <p>Source snapshots record generator inputs. Successful execution alone does not independently verify contract semantics.</p>
+        <CaseHistoryPanel key={`${selectedProject}/${reviewAsset.case_id}/${reviewAsset.digest}`} project={selectedProject} asset={reviewAsset} onRestored={() => { ++inspection.current; setReviewAsset(null); setEditing(null); setEditApproved(false); void loadCases(); }} />
       </section>}
 
       {editing && <section className="card" aria-label="Case editor">

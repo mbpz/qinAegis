@@ -34,7 +34,7 @@ Windows 候选包现加入用户级 PowerShell 安装器，支持归档核验、
 
 领域层管理契约与验证规则，模型适配器提出建议，执行适配器完成动作，报告保存事实。职责独立，切换模型或引擎不改写业务预期。前端统一使用官方 beUI 免费组件。
 
-[能力复盘](docs/plans/capability-map-review-2.0.md)按测试分类、过程可控和资产独立对照源码。当前证据包括截图、失败步骤、结果及冻结输入；完整 Trace/Console/Network、可复核归因、暂停/继续/接管仍待补齐。本地服务不等于整个产品零依赖或模型无出网。[产品 Agent](docs/agents/product.md)负责维护目标与有证据的任务状态。
+[能力复盘](docs/plans/capability-map-review-2.0.md)按测试分类、过程可控和资产独立对照源码。Settings 已有关闭/仅失败/关键步骤/全量的版本化策略，Reports 支持核验后的附件和隔离离线官方 Trace 查看；Review 支持不可变用例历史及恢复为新 Draft，Contracts 支持前后变更审计。Console/Network 仅保留有界元数据，不等于完整流量。Trace 暂存采用监测，尚无硬磁盘配额，E02 保持部分完成；证据保留、完整备份、可复核归因和暂停/继续/接管仍待补齐。本地服务不等于整个产品零依赖或模型无出网。[产品 Agent](docs/agents/product.md)负责维护目标与有证据的任务状态。
 
 ## 从源码运行
 

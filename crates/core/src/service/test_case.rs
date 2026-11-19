@@ -173,7 +173,15 @@ impl TestCaseService {
                 storage_case.provenance = Some(provenance);
             }
             self.ensure_not_cancelled()?;
-            self.storage.save_case(project_name, &storage_case).await?;
+            crate::LocalStorage::save_case_with_context(
+                project_name,
+                &storage_case,
+                crate::storage::local::AuditContext {
+                    source: "model_generation".into(),
+                    author: None,
+                    reason: "generated draft; human review required".into(),
+                },
+            )?;
 
             results.push(SaveResult {
                 case_id: tc.id.clone(),

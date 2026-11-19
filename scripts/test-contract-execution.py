@@ -32,6 +32,9 @@ for await (const line of readline.createInterface({input: process.stdin})) {
     console.log(JSON.stringify({id:'0',ok:!fail,data:null,error:fail?'fixture shutdown failed':null}));
     break;
   }
+  if (req.method === 'capture_capabilities') {
+    console.log(JSON.stringify({id:'0',ok:true,data:{protocol_version:1,modes:['off','failure_only','key_steps','full'],kinds:['screenshot','trace','console','network','steps'],artifact_transport:'owned_files_v1'}})); continue;
+  }
   if (req.method !== 'run_yaml') throw Error('unsupported fixture request');
   fs.appendFileSync(file('requests.jsonl'), JSON.stringify(req.args)+'\n');
   if (fs.existsSync(file('hold'))) {
@@ -46,6 +49,8 @@ for await (const line of readline.createInterface({input: process.stdin})) {
   const data = {case_id:mode==='foreign'?'foreign-case':req.args.case_id, passed,
     duration_ms:12,screenshot_base64:null,error_message:passed?null:'fixture assertion failed',
     retry_count:0,healed_yaml_script:null,failed_step:passed?null:'fixture check'};
+  if(mode==='lifecycle') data.lifecycle_error='browser_cleanup_failed';
+  if(req.args.capture_policy) data.capture={schema_version:1,policy:req.args.capture_policy,status:'disabled',channels:['screenshot','trace','console','network','steps'].map(kind=>({kind,status:'not_requested',reason:null,bytes:0})),artifacts:[]};
   console.log(JSON.stringify({id:'0',ok:true,data}));
 }
 '''
@@ -165,11 +170,13 @@ def main():
             revision = smoke.rpc('setModelRoute', {'task': 'execute', 'route': {'primary': 'two', 'fallbacks': []},
                 'expected_revision': revision})['revision']
             # Freeze before engine response, then alter disk assets while the fixture waits.
+            approved_asset = smoke.rpc('getCaseAsset', {'project': 'smoke-alpha', 'case_id': saved['smoke-alpha'][0]['id']})
             (root / 'hold').write_text('1')
             job = smoke.rpc('runTests', {'project': 'smoke-alpha', 'type': 'smoke'})
             wait_for(lambda: (root / 'arrived').exists(), 'engine fixture did not receive execution')
             case, provenance = saved['smoke-alpha']
             case_path = projects / 'smoke-alpha' / 'cases' / 'approved' / f"{case['id']}.json"
+            case_bytes = case_path.read_bytes()
             mutated = {**case, 'status': 'approved', 'yaml_script': 'tasks: [changed-after-start]'}
             case_path.write_text(json.dumps(mutated))
             (root / 'release').write_text('1')
@@ -177,6 +184,7 @@ def main():
             alpha = evidence('smoke-alpha', alpha_status)
             require(alpha['cases'][0]['yaml_script'] == case['yaml_script'] and alpha['cases'][0]['provenance'] == provenance,
                     'active execution reread changed disk assets')
+            require(alpha['cases'][0]['case_revision'] == approved_asset['revision'], 'run did not freeze exact approved case revision')
             require(alpha['model']['candidates'][0]['id'] == 'two' and provenance['model']['candidates'][0]['id'] == 'one',
                     'generation and execution model histories were conflated')
             require(alpha['semantic_validation'] == 'not_verified' and alpha['engine_version'] == 'protocol-fixture-1',
@@ -188,7 +196,7 @@ def main():
             count = len((root / 'requests.jsonl').read_text().splitlines())
             smoke.rpc('runTests', {'project': 'smoke-alpha', 'type': 'smoke'}, success=False)
             require(len((root / 'requests.jsonl').read_text().splitlines()) == count, 'tampered case reached engine')
-            case_path.write_text(json.dumps({**case, 'status': 'approved'}))
+            case_path.write_bytes(case_bytes)
             (root / 'hold').unlink()
             beta = evidence('smoke-beta', run('smoke-beta'))
             require(beta['results'][0]['passed'] is False and beta['results'][0]['error_message'] == 'fixture assertion failed',
@@ -206,6 +214,16 @@ def main():
             require(gate['execution_blocked'] is True and gate['execution_status'] == 'failed'
                     and gate['e2e_pass_rate'] is None and gate['last_run_id'] == shutdown_record['run_id'],
                     'executor failure was displayed as a successful quality gate')
+            # Cleanup errors cannot replace original passing/failing business facts.
+            (root / 'mode').write_text('lifecycle')
+            for project, passed in (('smoke-alpha', True), ('smoke-beta', False)):
+                lifecycle = evidence(project, run(project, 'failed'))
+                require(lifecycle['status']=='failed' and lifecycle['results'][0]['passed'] is passed
+                        and lifecycle['results'][0]['duration_ms']==12 and lifecycle['error'],
+                        'cleanup lifecycle failure replaced original business result')
+                if not passed:
+                    require(lifecycle['results'][0]['error_message']=='fixture assertion failed',
+                            'cleanup error overwrote original assertion failure')
             # Foreign result identity cannot turn into a successful run.
             (root / 'mode').write_text('foreign')
             bad = run('smoke-alpha', 'failed')

@@ -66,6 +66,7 @@ jobs:
           tar -xzf build/allure-check/qinaegis-x86_64-unknown-linux-gnu.tar.gz -C build/allure-check
           python3 scripts/test-native-runtime.py "$PWD/build/allure-check/qinaegis" --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz --exercise-switches
           python3 scripts/test-allure.py "$PWD/build/allure-check/qinaegis"
+          python3 scripts/test-evidence-workbench.py "$PWD/build/allure-check/qinaegis"
           python3 scripts/test-browser-install.py "$PWD/build/allure-check/qinaegis" --archive build/runtime/qinaegis-runtime-linux-x86_64.tar.gz --browser-cache "$HOME/.cache/ms-playwright"
   build:
     timeout-minutes: 60
@@ -136,6 +137,7 @@ jobs:
           python scripts/test-contract-execution.py "$BINARY"
           echo "::endgroup::"
           python scripts/test-case-assets.py "$BINARY"
+          python scripts/test-process-evidence.py "$BINARY"
           python scripts/test-flows.py "$BINARY"
           python scripts/test-flow-execution.py "$BINARY"
           python scripts/test-model-protocols.py "$BINARY"

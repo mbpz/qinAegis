@@ -12,6 +12,16 @@ use std::path::PathBuf;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractAuditEvent {
+    pub revision: u64,
+    pub parent_revision: u64,
+    pub created_at: String,
+    pub context: crate::storage::local::AuditContext,
+    pub before: BTreeMap<String, Value>,
+    pub after: BTreeMap<String, Value>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CorrectionStatus {
     Pending,
@@ -71,6 +81,8 @@ pub struct MigrationBinding {
 #[serde(try_from = "LibraryRecord")]
 pub struct ContractLibrary {
     pub schema_version: u32,
+    pub audit: Vec<ContractAuditEvent>,
+    pub history_complete: bool,
     pub revision: u64,
     pub drafts: Vec<ContractDraft>,
     pub publications: Vec<PublishedContract>,
@@ -86,6 +98,8 @@ impl Default for ContractLibrary {
     fn default() -> Self {
         Self {
             schema_version: 1,
+            audit: vec![],
+            history_complete: true,
             revision: 0,
             drafts: vec![],
             publications: vec![],
@@ -102,6 +116,10 @@ impl Default for ContractLibrary {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LibraryRecord {
+    #[serde(default)]
+    audit: Vec<ContractAuditEvent>,
+    #[serde(default)]
+    history_complete: bool,
     schema_version: u32,
     revision: u64,
     drafts: Vec<ContractDraft>,
@@ -131,6 +149,8 @@ impl TryFrom<LibraryRecord> for ContractLibrary {
     type Error = anyhow::Error;
     fn try_from(record: LibraryRecord) -> Result<Self> {
         let mut library = Self {
+            audit: record.audit,
+            history_complete: record.history_complete,
             schema_version: record.schema_version,
             revision: record.revision,
             drafts: record.drafts,
@@ -185,6 +205,59 @@ impl ContractLibrary {
             self.schema_version == 1,
             "unsupported contract library schema"
         );
+        let mut observed: BTreeMap<&str, &Value> = BTreeMap::new();
+        let mut previous = None;
+        for event in &self.audit {
+            event.context.validate()?;
+            ensure!(
+                event.revision
+                    == event
+                        .parent_revision
+                        .checked_add(1)
+                        .context("audit revision exhausted")?
+                    && event.revision <= self.revision
+                    && previous.is_none_or(|r| r == event.parent_revision)
+                    && !event.created_at.is_empty(),
+                "invalid contract audit chain"
+            );
+            ensure!(
+                event.before.keys().eq(event.after.keys())
+                    && !event
+                        .before
+                        .keys()
+                        .any(|k| matches!(k.as_str(), "audit" | "history_complete" | "revision")),
+                "invalid contract audit fields"
+            );
+            for (key, value) in &event.before {
+                if let Some(prior) = observed.get(key.as_str()) {
+                    ensure!(
+                        *prior == value,
+                        "audit before snapshot differs from prior change"
+                    );
+                }
+                observed.insert(key, &event.after[key]);
+            }
+            previous = Some(event.revision);
+        }
+        if !self.audit.is_empty() {
+            ensure!(
+                previous == Some(self.revision),
+                "audit does not reach current revision"
+            );
+        }
+        if self.history_complete && self.revision > 0 {
+            ensure!(
+                self.audit.first().is_some_and(|e| e.parent_revision == 0),
+                "complete audit lacks baseline"
+            );
+        }
+        let current = serde_json::to_value(self)?;
+        for (key, value) in observed {
+            ensure!(
+                current.get(key) == Some(value),
+                "audit differs from current contract asset"
+            );
+        }
         let mut versions: BTreeMap<&str, BTreeSet<u32>> = BTreeMap::new();
         for p in &self.publications {
             // Revalidate even snapshots assembled in memory through public fields.
@@ -376,16 +449,29 @@ pub struct ContractBundle {
 }
 
 pub struct ContractStore {
+    context: crate::storage::local::AuditContext,
     file: AssetFile,
 }
 
 impl ContractStore {
     pub fn new(path: PathBuf) -> Self {
         Self {
+            context: Default::default(),
             file: AssetFile::new(path, MAX_BYTES),
         }
     }
 
+    pub fn with_audit_context(
+        mut self,
+        context: crate::storage::local::AuditContext,
+    ) -> Result<Self> {
+        context.validate()?;
+        self.context = context;
+        Ok(self)
+    }
+    pub fn audit(&self) -> Result<Vec<ContractAuditEvent>> {
+        Ok(self.snapshot()?.audit)
+    }
     pub fn snapshot(&self) -> Result<ContractLibrary> {
         match self.file.lock()?.read()? {
             Some(bytes) => serde_json::from_slice(&bytes).context("invalid contract library"),
@@ -418,11 +504,32 @@ impl ContractStore {
             expected,
             library.revision
         );
+        self.context.validate()?;
+        let original = serde_json::to_value(&library)?;
         change(&mut library)?;
         library.revision = library
             .revision
             .checked_add(1)
             .context("library revision exhausted")?;
+        let updated = serde_json::to_value(&library)?;
+        let mut before = BTreeMap::new();
+        let mut after = BTreeMap::new();
+        for (k, v) in original.as_object().unwrap() {
+            if !matches!(k.as_str(), "audit" | "history_complete" | "revision")
+                && updated.get(k) != Some(v)
+            {
+                before.insert(k.clone(), v.clone());
+                after.insert(k.clone(), updated[k].clone());
+            }
+        }
+        library.audit.push(ContractAuditEvent {
+            revision: library.revision,
+            parent_revision: expected,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            context: self.context.clone(),
+            before,
+            after,
+        });
         library.validate()?;
         let bytes = serde_json::to_vec_pretty(&library)?;
         // This is the atomic commit boundary. Cancellation accepted before it
@@ -1275,5 +1382,38 @@ mod tests {
         cancel.store(true, Ordering::Release);
         drop(guard);
         assert_eq!(store.snapshot().unwrap(), original);
+    }
+    #[test]
+    fn audit_is_atomic_with_cas_and_context_and_rejects_forged_snapshots() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("contracts.json");
+        let context = crate::storage::local::AuditContext {
+            source: "local_web".into(),
+            author: Some("local-owner".into()),
+            reason: "Review fixture contract".into(),
+        };
+        let store = ContractStore::new(path.clone())
+            .with_audit_context(context.clone())
+            .unwrap();
+        let first = store.save_draft(draft("audit", 1), 0).unwrap();
+        assert_eq!(first.audit.len(), 1);
+        assert_eq!(first.audit[0].context, context);
+        assert_eq!(first.audit[0].parent_revision, 0);
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(store.save_draft(draft("other", 1), 0).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let published = store.publish("audit", 1, "local-owner").unwrap();
+        assert_eq!(published.audit.len(), 2);
+        let mut forged = serde_json::to_value(&published).unwrap();
+        forged["audit"][1]["after"]["drafts"] = serde_json::json!(["forged"]);
+        assert!(serde_json::from_value::<ContractLibrary>(forged).is_err());
+        let mut legacy = serde_json::to_value(&published).unwrap();
+        legacy.as_object_mut().unwrap().remove("audit");
+        legacy.as_object_mut().unwrap().remove("history_complete");
+        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(!store.snapshot().unwrap().history_complete);
+        let next = store.save_draft(draft("other", 1), 2).unwrap();
+        assert!(!next.history_complete);
+        assert_eq!(next.audit[0].parent_revision, 2);
     }
 }

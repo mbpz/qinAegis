@@ -382,6 +382,7 @@ pub struct AppState {
     pub(crate) session_id: String,
     pub(crate) flow_preparations: HashMap<String, crate::flow_execution_api::Prepared>,
     pub(crate) resource_blocked: Arc<AtomicBool>,
+    pub(crate) trace_viewers: crate::capture_api::Viewers,
 }
 
 impl Default for AppState {
@@ -398,6 +399,7 @@ impl Default for AppState {
             history: None,
             session_id: "test".into(),
             flow_preparations: HashMap::new(),
+            trace_viewers: HashMap::new(),
             resource_blocked: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -438,7 +440,10 @@ impl AppState {
         app.history = Some(history);
         let executions = qin_aegis_core::flow_execution::store::ExecutionStore::new(LocalStorage::base_path());
         executions.recover()?;
-        app.resource_blocked.store(executions.quarantine()?, Ordering::Release);
+        app.resource_blocked.store(
+            executions.quarantine()? || crate::capture_api::recover()?,
+            Ordering::Release,
+        );
         if let Err(error) = crate::runtime_api::recover() {
             eprintln!("Runtime recovery requires attention: {error}");
         }
@@ -446,6 +451,7 @@ impl AppState {
     }
 
     fn register_job(&self, id: &str, mut entry: JobEntry) -> anyhow::Result<()> {
+        crate::capture_api::ensure_execution_safe(self)?;
         anyhow::ensure!(!self.resource_blocked.load(Ordering::Acquire), "Execution safety is blocked: owned resource cleanup or terminal evidence persistence is unconfirmed; further tasks and runtime maintenance are blocked");
         anyhow::ensure!(
             !self.jobs.lock().unwrap().values().any(|e| e.job_type == "runtimeMaintenance" && !e.worker_done),
@@ -955,6 +961,7 @@ impl AppState {
     where
         F: FnOnce(Arc<AtomicBool>, JobReporter) -> anyhow::Result<serde_json::Value> + Send + 'static,
     {
+        crate::capture_api::ensure_runtime_idle(self)?;
         // The app mutex serializes admission. Queued tests have already frozen
         // their inputs, so runtime replacement cannot join that queue.
         anyhow::ensure!(self.active_workers.load(Ordering::Acquire) == 0,
@@ -1330,11 +1337,17 @@ impl AppState {
             anyhow::ensure!(!cases.is_empty(), "no approved cases for this test type");
             let mut frozen = Vec::new();
             for case in cases {
+                let asset = LocalStorage::get_case_asset(project, &case.id)?;
+                anyhow::ensure!(
+                    asset.status == CaseStatus::Approved,
+                    "case approval changed before admission"
+                );
                 frozen.push(RunCase {
-                    provenance: qin_aegis_core::execution_records::case_provenance(project, &case)?,
-                    case_id: case.id,
-                    name: case.name,
-                    yaml_script: case.yaml_script,
+                    case_revision: Some(asset.revision),
+                    provenance: asset.provenance,
+                    case_id: asset.case_id,
+                    name: asset.name,
+                    yaml_script: asset.yaml_script,
                     // A full YAML target may override this fallback, as in the
                     // existing engine protocol. This records the supplied URL.
                     target_url: project_config.url.clone(),
@@ -1350,6 +1363,13 @@ impl AppState {
             Ok(selection) => selection,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
+        let capture_policy =
+            match qin_aegis_core::capture::CapturePolicyStore::new(LocalStorage::base_path())
+                .snapshot()
+            {
+                Ok(policy) => policy,
+                Err(error) => return serde_json::json!({"error":error.to_string()}).to_string(),
+            };
         let model_snapshot = Self::model_snapshot(&model_route, &cfg);
         let job_id = self.job_id();
         let run_id = format!(
@@ -1364,7 +1384,7 @@ impl AppState {
         let run_dir = LocalStorage::run_dir(project, &run_id);
         let store = RunStore::new(run_dir.clone());
         let runtime = qin_aegis_core::runtime::RuntimeResolver::resolve();
-        let record = match RunRecord::prepare(
+        let mut record = match RunRecord::prepare(
             run_id.clone(),
             project.into(),
             test_type.into(),
@@ -1375,9 +1395,11 @@ impl AppState {
             Ok(record) => record,
             Err(e) => return serde_json::json!({"error":e.to_string()}).to_string(),
         };
+        record.capture_policy = Some(capture_policy.clone());
         let mut entry = JobEntry::new("testExec");
-        entry.snapshot =
-            Some(serde_json::json!({"model":model_snapshot,"run_id":run_id,"cases":record.cases}));
+        entry.snapshot = Some(
+            serde_json::json!({"model":model_snapshot,"run_id":run_id,"cases":record.cases,"capture_policy":capture_policy}),
+        );
         let cancel_flag = entry.cancel_flag.clone();
         let output = entry.output.clone();
         let jobs = self.jobs.clone();
@@ -1386,6 +1408,12 @@ impl AppState {
                 .secrets
                 .extend(route.candidates().iter().map(|p| p.api_key.clone()));
         }
+        entry.secrets.extend([
+            resolve_env_var(&cfg.llm.api_key),
+            resolve_env_var(&cfg.llm.secondary_api_key),
+            frozen_visual.api_key.clone(),
+        ]);
+        let capture_secrets = entry.secrets.clone();
         if let Err(error) = self.register_job(&job_id, entry) {
             return serde_json::json!({"error":error.to_string()}).to_string();
         }
@@ -1422,7 +1450,9 @@ impl AppState {
                             }),
                             cancel_flag.clone(),
                         )
-                        .await?;
+                        .await?
+                        .with_capture(capture_policy.clone(), run_dir.clone())?
+                        .with_known_secrets(capture_secrets.clone());
                         let selected = record
                             .cases
                             .iter()
@@ -1608,11 +1638,7 @@ impl AppState {
 
     pub fn get_case_provenance(&self, project: &str, case_id: &str) -> String {
         let result = (|| -> anyhow::Result<_> {
-            let case = LocalStorage::load_cases(project)?
-                .into_iter()
-                .find(|c| c.id == case_id)
-                .ok_or_else(|| anyhow::anyhow!("case not found"))?;
-            qin_aegis_core::execution_records::case_provenance(project, &case)
+            Ok(LocalStorage::get_case_asset(project, case_id)?.provenance)
         })();
         match result {
             Ok(record) => serde_json::to_string(&record).unwrap_or_default(),
@@ -2354,6 +2380,7 @@ mod boundary_tests {
             history: None,
             session_id: "test".into(),
             flow_preparations: HashMap::new(),
+            trace_viewers: HashMap::new(),
             resource_blocked: Arc::new(AtomicBool::new(false)),
         };
         let value: serde_json::Value = serde_json::from_str(&app.get_config()).unwrap();
@@ -2373,6 +2400,7 @@ mod boundary_tests {
             history: None,
             session_id: "test".into(),
             flow_preparations: HashMap::new(),
+            trace_viewers: HashMap::new(),
             resource_blocked: Arc::new(AtomicBool::new(false)),
         }
     }

@@ -80,6 +80,10 @@ def main():
             require(original['yaml_script'] == '- aiAssert: original receipt' and original['provenance'],
                     'case asset omitted actual script or generated provenance')
             require(original['digest'].startswith('content:'), 'case has no exact-content revision')
+            initial_history = smoke.rpc('getCaseHistory', params)
+            require(initial_history['history_complete'] and original['revision'] == 1
+                    and initial_history['revisions'][0]['snapshot']['yaml_script'] == original['yaml_script'],
+                    'managed generation did not retain its complete original revision')
             for status in ('reviewed', 'approved'):
                 inspected = smoke.rpc('getCaseAsset', params)
                 smoke.rpc('updateCaseStatus', {**params, 'status': status}, success=False)
@@ -146,8 +150,32 @@ def main():
             require(history_path.read_bytes() == history_bytes, 'editing changed immutable run bytes')
             frozen = smoke.rpc('getRunEvidence', {'project': project, 'run_id': history['run_id']})
             require(frozen['cases'][0]['yaml_script'] == approved['yaml_script'], 'historical run reread changed script')
+            before_restore = smoke.rpc('getCaseHistory', params)
+            require(before_restore['revisions'][:len(initial_history['revisions'])] == initial_history['revisions'],
+                    'later edits changed immutable original revisions')
+            require(all(entry['parent_revision'] == (index or None)
+                        for index, entry in enumerate(before_restore['revisions'])), 'revision chain is not contiguous')
+            require(any(entry['context']['source'] == 'local_web' and entry['context']['author'] == 'local-owner'
+                        for entry in before_restore['revisions']), 'explicit local session audit context missing')
+            historical = smoke.rpc('getCaseRevision', {**params, 'revision':1})
+            require(historical == initial_history['revisions'][0], 'single revision differs from full history')
+            restore = {**params, 'revision':1, 'expected_digest':after_review['digest'],
+                       'reason':'review old intent as a new draft', 'approved':True}
+            smoke.rpc('restoreCaseRevision', {**restore,'approved':False}, success=False)
+            smoke.rpc('restoreCaseRevision', {**restore,'reason':''}, success=False)
+            smoke.rpc('restoreCaseRevision', {**restore,'revision':999999}, success=False)
+            require(smoke.rpc('getCaseHistory', params) == before_restore, 'rejected restoration wrote audit history')
+            after_review = smoke.rpc('restoreCaseRevision', restore)
+            require(after_review['status'] == 'draft' and after_review['provenance'] is None
+                    and after_review['yaml_script'] == original['yaml_script']
+                    and after_review['revision'] == len(before_restore['revisions'])+1,
+                    'restore overwrote old revision, retained approval or failed to restore full intent')
+            smoke.rpc('restoreCaseRevision', restore, success=False)
+            complete_history = smoke.rpc('getCaseHistory', params)
+            require(complete_history['revisions'][:-1] == before_restore['revisions'], 'restore mutated existing history')
             smoke.cli('stop')
             start()
+            require(smoke.rpc('getCaseHistory', params) == complete_history, 'restart changed case revision history')
             require(smoke.rpc('getCaseAsset', params) == after_review, 'case changed across service restart')
             require(history_path.read_bytes() == history_bytes, 'restart changed frozen run')
             require(len(calls) == 2, 'case editing unexpectedly called a model')

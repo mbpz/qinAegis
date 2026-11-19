@@ -348,6 +348,7 @@ impl ExecutionDefinition {
 /// is deliberately separate and must be checked before queue admission.
 #[derive(Clone, Debug, Serialize)]
 pub struct PreparedCase {
+    case_revision: u64,
     reference: ReviewedCaseRef,
     target_url: String,
     name: String,
@@ -359,6 +360,7 @@ pub struct PreparedCase {
 impl PreparedCase {
     pub fn run_case(&self) -> crate::execution_records::RunCase {
         crate::execution_records::RunCase {
+            case_revision: Some(self.case_revision),
             case_id: self.reference.case_id.clone(),
             name: self.name.clone(),
             yaml_script: self.yaml_script.clone(),
@@ -467,6 +469,7 @@ impl PreparedCase {
 
         Ok(Self {
             reference: reference.clone(),
+            case_revision: asset.revision,
             target_url: expected_target.into(),
             name: asset.name,
             yaml_script: asset.yaml_script,
@@ -649,6 +652,8 @@ mod tests {
             )
             .unwrap();
         let library = ContractLibrary {
+            // This manually assembled legacy fixture has no recorded audit chain.
+            history_complete: false,
             revision: 1,
             publications: vec![publication],
             bindings: vec![binding],
@@ -676,6 +681,7 @@ mod tests {
             },
         };
         let asset = crate::storage::local::CaseAsset {
+            revision: 1,
             case_id: "case".into(),
             name: "receipt".into(),
             yaml_script: "tasks: []".into(),

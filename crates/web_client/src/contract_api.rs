@@ -8,6 +8,7 @@ pub fn handles(method: &str) -> bool {
     matches!(
         method,
         "getContracts"
+            | "getContractAudit"
             | "saveContractDraft"
             | "publishContract"
             | "proposeContractCorrection"
@@ -31,7 +32,21 @@ pub fn dispatch(method: &str, params: &Value) -> Result<Value> {
             "project does not exist"
         );
     }
-    handle(&ContractStore::new(path), method, params)
+    let context = qin_aegis_core::storage::local::AuditContext {
+        source: "local_web".into(),
+        // Identifies the authorized local session, not a verified natural person.
+        author: Some("local-owner".into()),
+        reason: params
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or(method)
+            .into(),
+    };
+    handle(
+        &ContractStore::new(path).with_audit_context(context)?,
+        method,
+        params,
+    )
 }
 
 pub fn execution(project: &str) -> Result<qin_aegis_core::contract_execution::ExecutionSnapshot> {
@@ -75,6 +90,16 @@ fn confirmation(params: &Value) -> Result<()> {
 }
 
 fn handle(store: &ContractStore, method: &str, p: &Value) -> Result<Value> {
+    if method == "getContractAudit" {
+        anyhow::ensure!(
+            p.as_object().is_some_and(|p| p.is_empty()),
+            "audit takes no parameters"
+        );
+        let snapshot = store.snapshot()?;
+        return Ok(
+            serde_json::json!({"revision":snapshot.revision,"history_complete":snapshot.history_complete,"events":snapshot.audit}),
+        );
+    }
     if method == "getContractExecution" {
         return Ok(serde_json::to_value(prepare_execution(
             store,

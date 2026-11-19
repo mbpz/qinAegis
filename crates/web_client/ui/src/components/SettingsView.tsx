@@ -1,3 +1,4 @@
+import CapturePolicyView from './CapturePolicyView';
 import { Button, Checkbox, Input, Loader, Select } from './ui';
 import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
@@ -114,6 +115,7 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
     return (
       <div className="view">
         <h2 className="view-title">Settings</h2>
+      <CapturePolicyView />
         <div className="loading">
           <Loader />
           <span>Loading configuration...</span>
@@ -125,6 +127,7 @@ export default function SettingsView({ onSaved }: { onSaved?: () => void }) {
   return (
     <div className="view">
       <h2 className="view-title">Settings</h2>
+      <CapturePolicyView />
 
       {message && (
         <div className="card" style={{ borderColor: message.includes('success') ? 'var(--accent-green)' : 'var(--accent-red)' }}>

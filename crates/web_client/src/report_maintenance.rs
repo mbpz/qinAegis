@@ -489,6 +489,7 @@ mod tests {
                 json!({"source":"legacy_config","model":"fixture"}),
                 None,
                 vec![RunCase {
+                    case_revision: None,
                     case_id: "receipt".into(),
                     name: "Receipt".into(),
                     yaml_script: "- aiAssert: receipt".into(),

@@ -187,6 +187,7 @@ impl BrowserAutomation for MidsceneAutomation {
         case_id: &str,
     ) -> Result<TestResult, AutomationError> {
         let req = JsonRpcRequest::RunYaml {
+            capture_policy: None,
             yaml_script: yaml_script.to_string(),
             case_id: case_id.to_string(),
             target_url: None,

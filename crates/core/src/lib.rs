@@ -1,6 +1,7 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
+pub mod capture;
 pub mod contracts;
 pub mod contract_correction;
 pub mod contract_store;
