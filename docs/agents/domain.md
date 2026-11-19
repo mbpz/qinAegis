@@ -1,100 +1,15 @@
-# qinAegis 项目上下文
+# QinAegis 产品与领域上下文入口
 
-## 项目概述
+更新：2026-11-18。唯一项目记忆入口：[CONTEXT.md](../../CONTEXT.md)。完整方案：[local-web.md](../plans/local-web.md)；当前实现与验收：[开发进度](../progress/local-web-2.0.md)；阶段导航：[2.0 Roadmap](../../qinAegis-platform-roadmap.md)。产品拆解和状态维护遵守[产品 Agent](product.md)，能力校准见[三维复盘](../plans/capability-map-review-2.0.md)。
 
-**qinAegis** 是 macOS 本地的 AI 自动化测试平台，基于视觉驱动技术为 Web 项目提供端到端测试能力。
+产品核心是可跨项目复用、维护、修改和人工纠正的契约。发布版本与历史执行依据不可原地改写；项目绑定承接环境差异。模型只提出草案或修订建议，不能为通过测试擅自放宽断言。
 
-## 核心价值
+2.0 采用轻量本地 HTTP 服务和浏览器 Web 工作台，启动后请求打开浏览器，不再打包桌面客户端。Web 交互统一采用 beUI 免费组件。核心职责与依赖解耦：契约、项目绑定、模型适配/路由、执行器、场景编排、生命周期和报告分别演进，能力按真实场景组合，调序遵守依赖、权限和副作用限制。
 
-- **完全本地沙箱化**：Playwright CDP 模式管理独立浏览器进程
-- **AI 视觉驱动**：MiniMax-VL、Qwen3-VL 理解页面，生成和执行测试，无需维护 CSS selector
-- **本地存储**：所有数据在 `~/.qinAegis/`
-- **Homebrew Cask 一键安装**：对标 `gh` / `lazygit` 安装体验
+视觉驱动测试保留 **Playwright + Midscene.js**，当前报告使用官方 **Allure 3.33.0**。模型接入目标是可扩展、可切换；现有兼容 Chat Completions 和原生 Anthropic Messages 文本/JSON 适配器共用批准的路由边界，后者不用于当前视觉执行。协议回归和合成检测不表示已验证任意厂商、付费账户或视觉模型。远程模型接收页面内容或截图须遵守项目数据授权。
 
-## 技术栈
+用户已确认保留 sha2、tar、纯 Rust 后端 flate2 三项最小编译库，原生导入不要求用户安装 Python 或全局 Node。用户已授权分阶段开发，完整 2.0 尚未全部完成。原生 Web 运行时导入、显式固定稳定源下载、预览升级/回滚和持久任务/重启中断恢复已接入；完整稳定分发/自动修复、完整场景编排、异常资源恢复、真实双项目视觉与跨平台干净安装仍有缺口。无障碍电脑控制为可选规划，须明确授权并实测，不因产品要求而默认获得系统权限。
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| **GUI** | wry/tao | WebView 桌面客户端 |
-| **前端** | React + TypeScript | Web UI |
-| **核心** | Rust | 业务逻辑 |
-| **浏览器沙箱** | Playwright | CDP 模式 |
-| **AI 引擎** | Midscene.js | 视觉驱动 act/query/assert |
-| **性能测试** | Lighthouse | Web Vitals |
-| **压力测试** | Locust | 负载测试 |
+F04/F05 的 schema 2 等待/已审核用例执行已在限定范围验收；完整视觉策略和其他能力组合仍有缺口。过程证据当前包括实际截图、失败步骤、结果和冻结来源，完整 Trace/Console/Network 与 AI 辅助归因尚未接入 Web 执行。任务支持取消和中断查看，暂停/继续/接管为 H01–H03 后续阶段；本机持久化不推定数据绝不出网，进程隔离不推定操作系统安全沙箱。
 
----
-
-## 核心模块
-
-### 1. Explorer
-AI 自动探索 Web 项目页面，生成 `spec.md`。
-
-### 2. Generator
-基于需求描述，调用 LLM 生成 Midscene YAML 测试用例。
-
-### 3. Executor
-执行 Midscene YAML 脚本，支持 smoke / functional / performance / stress 类型。
-
-### 4. Reporter
-生成 HTML 报告，存储到 `~/.qinAegis/projects/{project}/reports/`。
-
-### 5. Quality Gate
-汇总 E2E 通过率 + Lighthouse 分数 + Locust RPS，输出 pass/fail。
-
----
-
-## 数据目录
-
-```
-~/.qinAegis/
-├── config.toml
-└── projects/
-    └── {project}/
-        ├── config.yaml
-        ├── spec/
-        ├── cases/   # draft/reviewed/approved/flaky/archived
-        └── reports/
-            └── {run-id}/
-                ├── summary.json
-                ├── report.html
-                ├── lighthouse.json
-                └── locust-summary.json
-```
-
----
-
-## 配置
-
-`~/.config/qinAegis/config.toml`:
-
-```toml
-[llm]
-base_url = "https://api.minimax.chat/v1"
-model = "MiniMax-VL-01"
-```
-
-环境变量覆盖：`MIDSCENE_MODEL_API_KEY`, `MIDSCENE_MODEL_BASE_URL`, `MIDSCENE_MODEL_NAME`。
-
----
-
-## 本地开发
-
-```bash
-# 前端
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# 二进制
-cargo build --release -p qinAegis-web
-
-# 运行
-./target/release/qinAegis-web
-```
-
----
-
-## 文档
-
-- [USER_GUIDE.md](../USER_GUIDE.md) - 用户手册
-- [CI_INTEGRATION.md](../CI_INTEGRATION.md) - CI/CD 集成
-- [qinAegis-platform-roadmap.md](../qinAegis-platform-roadmap.md) - 路线图
+CI 候选归档、PR 官网预览、生产 Pages、稳定 Release 与 Homebrew 发布分别核验。历史桌面客户端、TUI、固定模型/其它引擎、Notion 存储或 Homebrew Cask 描述不是当前产品事实。开始任务前先读产品记忆，再核对实际源码与验证证据，不能以历史报告或文件存在推断能力已完成。

@@ -19,6 +19,16 @@ pub enum LlmError {
     Api(String),
     #[error("missing API key")]
     NoApiKey,
+    #[error("model failure: {0}")]
+    ModelFailure(&'static str),
+    #[error("model rate limited")]
+    RateLimited,
+    #[error("model service unavailable")]
+    ServiceUnavailable,
+    #[error("model call evidence persistence failed")]
+    EvidenceUnavailable,
+    #[error("unsupported model capability: {0}")]
+    UnsupportedCapability(&'static str),
 }
 
 // ============================================================================

@@ -84,6 +84,8 @@ pub struct TestCase {
     pub created_at: String,
     #[serde(default = "default_status")]
     pub status: CaseStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<crate::execution_records::CaseProvenance>,
 }
 
 fn default_status() -> CaseStatus {
@@ -178,12 +180,22 @@ pub trait Storage: Send + Sync {
     async fn load_cases(&self, name: &str) -> Result<Vec<TestCase>, StorageError>;
 
     /// Load cases filtered by status.
-    async fn load_cases_by_status(&self, name: &str, status: CaseStatus) -> Result<Vec<TestCase>, StorageError>;
+    async fn load_cases_by_status(
+        &self,
+        name: &str,
+        status: CaseStatus,
+    ) -> Result<Vec<TestCase>, StorageError>;
 
     async fn delete_case(&self, name: &str, case_id: &str) -> Result<(), StorageError>;
 
     /// Move a case from one status to another (atomic file move).
-    async fn move_case(&self, name: &str, case_id: &str, from: CaseStatus, to: CaseStatus) -> Result<(), StorageError>;
+    async fn move_case(
+        &self,
+        name: &str,
+        case_id: &str,
+        from: CaseStatus,
+        to: CaseStatus,
+    ) -> Result<(), StorageError>;
 
     // Transaction support
     async fn begin_transaction(&self) -> Result<Box<dyn StorageTransaction>, StorageError>;

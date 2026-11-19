@@ -1,55 +1,98 @@
-# 安装
+# 安装本地 Web 服务
 
-## 通过 Homebrew（推荐）
+2.0 正在开发。下列发布包安装步骤仅适用于**对应版本经过验证并正式发布后**；发布前请按 [README](README_zh.md) 从源码构建。Homebrew Formula 当前为发布模板，不应直接安装。
 
-```bash
-brew install --cask mbpz/qinAegis/qinAegis
-```
+`codex/qinaegis-2.0` 分支和 PR 的自动构建会在 Actions 运行产物中提供服务候选归档。核对工作流提交、目标平台和 manifest，再验证摘要。候选包不代表签名、干净机器安装或完整 2.0 GA 已通过；已有 `v1.0` 桌面发布不能当作 2.0 安装包。
 
-这将：
-1. 下载适合您架构的最新 DMG（arm64 或 x86_64）
-2. 挂载 DMG 并将 QinAegis.app 复制到 `/Applications`
-3. 移除隔离属性，避免 Gatekeeper 拦截
+## macOS / Linux
 
-安装完成后，在应用程序文件夹中找到 **QinAegis.app**。
-
-## 从 DMG（手动安装）
-
-1. 从 GitHub Releases 下载 DMG
-2. 双击挂载
-3. 将 QinAegis.app 拖到应用程序文件夹
-4. （首次运行）在 Gatekeeper 对话框中点击"打开"
-
-## 从源码构建
+从可信 2.0 发布页下载并审阅 `install.sh`：
 
 ```bash
-git clone https://github.com/mbpz/qinAegis.git
-cd qinAegis
-
-# 构建 React UI
-cd crates/web_client/ui && npm install && npm run build && cd ../..
-
-# 构建 Rust 二进制
-cargo build --release --bin qinAegis-web
+sh install.sh --version 2.0.0
 ```
 
-二进制文件位于 `target/release/qinAegis-web`。
+脚本识别 macOS ARM64/Intel 或 Linux x86_64，下载对应服务归档及 `SHA256SUMS`，校验后安装至 `~/.local/bin/qinaegis`，启动服务并打开浏览器。不使用 sudo、不修改 shell 配置、不删除系统安全标记。自行将目录加入 PATH，或使用绝对路径。SHA-256 依赖可信发布渠道，并非独立发布者签名。
 
-## 系统要求
-
-- macOS 10.15 或更高版本
-- Apple Silicon（M1/M2/M3）或 Intel Mac
-
-## 首次启动
-
-1. 在应用程序文件夹中双击 QinAegis.app
-2. 如果看到 Gatekeeper 警告，在系统偏好设置 > 安全性中点击"仍然打开"
-3. GUI 将打开，并显示 AI 模型配置的设置向导
-
-## 卸载
+支持 `--prefix /绝对路径/bin`、`--no-start`，离线安装使用 `--archive /路径/包.tar.gz --checksum 十六进制摘要`。升级前先停止旧服务。启动失败时检查 status 与服务日志，不能将文件安装完成等同于服务就绪。
 
 ```bash
-rm -rf /Applications/QinAegis.app
-# 可选：移除配置（您的测试数据将保留）
-rm -rf ~/.config/qinAegis
+~/.local/bin/qinaegis status
+~/.local/bin/qinaegis open
+~/.local/bin/qinaegis stop
+~/.local/bin/qinaegis serve --no-open
 ```
+
+## Windows
+
+从同一可信 2.0 发布或核验后的候选包下载并审阅 `install.ps1`，在 PowerShell 执行：
+
+```powershell
+& .\install.ps1 -Version 2.0.0
+```
+
+默认安装至 `%LOCALAPPDATA%\QinAegis`，随后启动服务并打开本地 Web 工作台。仅使用 Windows PowerShell 5.1 与系统 .NET，无需管理员权限、Node 或 Python，不修改执行策略及 PATH。遵循本机脚本执行策略，不通过关闭系统安全机制运行候选包。
+
+离线候选安装使用 `-Archive 'C:\含空格路径\service.zip' -Checksum 可信SHA256 -NoStart`；`-Prefix` 可指定绝对用户目录。替换前核验摘要、ZIP 固定普通成员、平台/版本清单及已有安装收据。运行中服务或未知目录内容会被拒绝。维护前运行 `& "$env:LOCALAPPDATA\QinAegis\qinaegis.exe" stop`。
+
+升级保留 `qinaegis.previous.exe`，`-Rollback -NoStart` 交换两个已核验版本；再次升级如有旧备份，需明确 `-DiscardPrevious`。`-Uninstall` 只卸载经核验的程序和收据，保留项目、配置、运行时及报告数据。维护时使用同一 `-Prefix`。强杀留下的 stage/swap 文件必须核对后再继续维护，见 [Windows 验收计划](docs/plans/windows-user-installation.md)。签名、干净桌面、默认浏览器自动打开及稳定在线分发仍分别验收。
+
+## Playwright + Midscene.js 引擎
+
+基础包不包含引擎，也不自动联网下载。浏览资产和设置不需要 Node；实际执行视觉测试需要兼容 Node、Playwright/Midscene.js 及自动化浏览器。
+
+安装式运行时目录须包含以下清单及真实配套文件：
+
+```json
+{"schema_version":1,"engine":"midscene","version":"your-verified-engine-version","entry":"dist/executor.js","node":"bin/node"}
+```
+
+将示例 `version` 替换为已验证的引擎版本，仅使用 ASCII 字母、数字、点、连字符或下划线。`entry` 和可选 `node` 指向目录内文件；只有清单无法运行。配齐编译后的执行器、锁定生产依赖和兼容浏览器。显式外部覆盖可在启动服务前设置 `QINAEGIS_RUNTIME_DIR` 为该绝对目录；默认受管安装不需要此变量。修改环境变量后重启服务。
+
+开发时可准备仓库根 `sandbox` 的依赖与浏览器，再设置 `QINAEGIS_DEV_SANDBOX` 为源码绝对目录；开发适配器使用 `src/executor.ts` 和 `node_modules/tsx/dist/cli.mjs`。不隐式回退编译时源码目录。Environment 管理默认安装；切换默认安装不会改变显式外部或开发覆盖。
+
+已安装兼容的 Node 24 时，在 2.0 源码目录准备开发引擎：
+
+```bash
+cd sandbox
+npx --yes pnpm@11.24.0 install --frozen-lockfile
+npx --yes pnpm@11.24.0 run build
+npx --yes pnpm@11.24.0 exec playwright install chromium
+export QINAEGIS_DEV_SANDBOX="$PWD"
+cd ..
+./target/release/qinaegis
+```
+
+Linux 还可能需要 Playwright 文档要求的浏览器系统依赖。执行 AI 动作前在本机 Web 工作台配置兼容视觉模型。官方 Allure HTML 使用同一引擎及固定 `allure@3.33.0`，生成时不调用模型、不需要 Java 服务，但仍需要 Node 依赖准备完成；下载报告不会自动安装视觉引擎。
+
+
+## 独立运行时候选包
+
+### 在 Environment 导入和维护
+
+1. 选择 **Runtime archive (.tar.gz)**，填写可信渠道提供的 64 位 SHA-256，点击 **Upload and verify archive**。归档上限 1 GiB，按 512 KiB 分块传输。Rust 服务校验宿主、来源、成员和内容，无需本机 Python 或全局 Node。
+2. 核对预览的版本、来源和摘要，勾选 **Approve this exact runtime change**，点击 **Confirm installation**。预览有效期 10 分钟，状态变化后重新准备；刷新可恢复预览，但批准会清除。**Discard pending preview** 明确丢弃待确认预览。
+3. 成功升级将原 current 保留为 previous；已有更旧备份时，需明确允许成功后丢弃。回滚使用 **Prepare rollback**，再次核对、批准并点击 **Confirm rollback**。切换前重新核验内容，激活失败恢复原安装。
+4. 等待运行中、排队及取消清理任务完成后维护；切换至清理结束期间拒绝新任务。残留上传可明确丢弃；服务重启不会自动重放安装。
+
+**Check available stable runtimes** 由用户显式查询固定 `mbpz/qinAegis` GitHub 发布源的兼容稳定资产；选择版本并允许下载后才下载校验，不接受任意 URL。空列表表示没有兼容的归档/摘要对，不能把候选 CI artifact 当作稳定版本。页面载入不自动查询；Chromium 仍独立安装。
+
+### 构建或使用 Python 离线导入
+
+构建机准备 Node 24 与 pnpm 11.24.0，运行 `python3 scripts/build-runtime.py`，在 `build/runtime` 生成独立归档与摘要；基础服务归档不包含引擎。核对可信 SHA-256、停止服务后本地导入：
+
+```bash
+python3 scripts/install-runtime.py /绝对路径/runtime.tar.gz --sha256 可信SHA256 --data-dir /绝对路径/私有数据
+```
+
+后续服务命令设置同一 `QINAEGIS_DATA_DIR`。安装器校验归档边界、宿主、内容和摘要，暂存后切换 `runtimes/midscene/current`，旧目录保留为 `previous`。服务活动或已有备份需人工决定保留时明确拒绝；不能只凭摘要标记跳过文件完整性检查。该备用导入工具需要本机 Python 且必须停止服务；上述 Web 原生导入无需 Python。完整逐平台交付仍待验收。
+
+**Environment** 可检测运行时和浏览器，明确授权 **Install Chromium** 后安装匹配浏览器，并显示实际启动结果。下载使用选定运行时缓存，显示每个组件的安全进度及真实 Chromium 启动检查。停止会等待受管进程清理，重试须重新授权下载；刷新恢复最近环境任务，不重放安装。原始安装输出和下载 URL 不进入页面，不提权安装系统库。真实模型兼容与干净机器验收另行完成。
+
+## 数据与卸载
+
+默认项目保留在 `~/.qinAegis/projects`，全局配置路径由操作系统决定。启动前设置绝对路径 `QINAEGIS_DATA_DIR` 可将项目、契约、模型注册库、服务状态、默认运行时及 `config.toml` 隔离到同一根目录；空值/相对路径会被拒绝。修改前先停止旧服务，后续命令使用相同设置；不会自动迁移已有资产，显式运行时/状态目录仍优先。先停止服务，再移除安装的 `qinaegis` 程序即可卸载基础包，默认保留配置与项目。需要清理数据时先备份；替换程序不等于回滚未来的数据格式迁移。
+
+日常操作见[用户指南](docs/USER_GUIDE.md)，完整入口见[文档索引](docs/README.md)，候选包与正式发布边界见 [CI 交付说明](docs/CI_INTEGRATION.md)。
+
+配置迁移在 Settings 中显式执行：选择已知来源、预览结果端点、选择两组凭据策略并确认后应用。迁移备份旧目标并保留源文件，不迁移项目或模型注册库。Allure 生成中断可在 Reports 检查并确认清理临时文件；未知残留与已完成报告保留，详见[用户指南](docs/USER_GUIDE.md)。

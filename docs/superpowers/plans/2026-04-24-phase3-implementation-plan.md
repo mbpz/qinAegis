@@ -1,5 +1,13 @@
 # QinAegis Phase 3 Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史并发执行与 Notion 报告计划。旧四并发、CLI 和 Notion 上传要求不作为 2.0 承诺；改由本地 Web 操作、运行证据持久保存、完整性门禁和官方 Allure 报告承载，执行与清理失败不能被通过用例掩盖。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement parallel test case execution and batch result storage in Notion, including dual Midscene HTML report writing (local + Notion attachment).

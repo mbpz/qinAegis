@@ -1,5 +1,13 @@
 # QinAegis Phase 3 Design: Test Execution + Notion Result Storage
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史执行与 Notion 双写方案。Notion 主存储、固定四并发与上传报告不是 2.0 承诺；当前方向为本地资产、不可变运行证据、完整性门禁与官方 Allure。并发、取消和真实执行能力以进度中的证据及缺口为准。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > Version: v0.1
 > Date: 2026-04-24
 > Status: Approved

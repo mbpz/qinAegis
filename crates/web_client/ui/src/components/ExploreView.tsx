@@ -1,3 +1,4 @@
+import { Button, Input } from './ui';
 import { useState } from 'react';
 import { rpc } from '../utils/rpc';
 import JobProgress from './JobProgress';
@@ -7,8 +8,7 @@ export default function ExploreView() {
   const [depth, setDepth] = useState<string>('3');
   const [jobId, setJobId] = useState<string | null>(null);
 
-  const handleDepthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
+  const handleDepthChange = (val: string) => {
     if (val === '' || /^\d+$/.test(val)) {
       setDepth(val);
     }
@@ -30,32 +30,34 @@ export default function ExploreView() {
       <div className="card">
         <div className="card-title">Project URL</div>
         <div className="input-group">
-          <label>Target URL</label>
-          <input
+          <label htmlFor="explore-target-url">Target URL</label>
+          <Input
+            id="explore-target-url"
             className="input"
             type="text"
             placeholder="https://example.com"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onValueChange={setUrl}
           />
         </div>
         <div className="form-row">
           <div className="input-group">
-            <label>Exploration Depth</label>
-            <input
+            <label htmlFor="explore-depth">Exploration Depth</label>
+            <Input
+              id="explore-depth"
               className="input"
               type="text"
               min="1"
               max="10"
               value={depth}
-              onChange={handleDepthChange}
+              onValueChange={handleDepthChange}
             />
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn btn-primary" onClick={handleExplore} disabled={!url || !!jobId}>
+          <Button className="btn btn-primary" onClick={handleExplore} disabled={!url || !!jobId}>
             {jobId ? 'Exploring...' : 'Start Exploration'}
-          </button>
+          </Button>
         </div>
       </div>
 

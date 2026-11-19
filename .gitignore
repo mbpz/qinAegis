@@ -3,7 +3,6 @@
 *.pdb
 .env
 .DS_Store
-Cargo.lock
 # Temporary/runtime files
 _huashu-output/
 midscene_run/
@@ -16,8 +15,10 @@ release/
 playwright-*.html
 .claude/
 node_modules/
-package-lock.json
 # Test artifacts
+.playwright-cli/
+output/playwright/
+__pycache__/
 tests/snapshots/
 build
 crates/web_client/src/assets/assets/

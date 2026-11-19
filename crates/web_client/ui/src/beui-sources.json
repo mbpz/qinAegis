@@ -1,0 +1,289 @@
+{
+  "registry_url": "https://beui.dev/r/registry.json",
+  "components": [
+    {
+      "slug": "button-base",
+      "source_url": "https://beui.dev/r/button-base.json",
+      "files": [
+        {
+          "path": "components/motion/button/base.tsx",
+          "sha256": "4737eddd464cd7907a64e1af3f82a4aa9d6edc7e2c75dffae9a8052543a19173"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/hooks/use-hover-capable.ts",
+          "sha256": "b5b9397bfa03859e04673c8f1817cf13ff55d2a9688955d6e0459ae70db90d06"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "input",
+      "source_url": "https://beui.dev/r/input.json",
+      "files": [
+        {
+          "path": "components/motion/input.tsx",
+          "sha256": "1467f467c24cf6c89fa88ce00acdc6e6cbd40f225bdb0c3a026b0773445e1475"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "select",
+      "source_url": "https://beui.dev/r/select.json",
+      "files": [
+        {
+          "path": "components/motion/select.tsx",
+          "sha256": "f53e3f754b272bfb7d785f322564a789feabb031c4eaf330cef061f024c14c03"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/hooks/use-listbox.ts",
+          "sha256": "7561866df702c9de817a3ccda78083a34806a7e696c7974619b295fb89198b95"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        },
+        {
+          "path": "lib/hooks/use-on-open.ts",
+          "sha256": "40fe63a564880b119063066621dac972ad01da73481fc26996377565f82c0083"
+        },
+        {
+          "path": "lib/hooks/use-row-cursor.ts",
+          "sha256": "95afe34ad19661c405bbec11da7d32a7a84343e660492f46f578ead2aed8c750"
+        }
+      ]
+    },
+    {
+      "slug": "checkbox",
+      "source_url": "https://beui.dev/r/checkbox.json",
+      "files": [
+        {
+          "path": "components/motion/checkbox.tsx",
+          "sha256": "f592269610098ec7af7c2d16535ae4a1d3a8d62dd7eba8ee8036db1029c7d968"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "loader",
+      "source_url": "https://beui.dev/r/loader.json",
+      "files": [
+        {
+          "path": "components/motion/loader.tsx",
+          "sha256": "2da3a1507691d1d9410cf5d42100c547840c0dc3203276e20ad46eac0caa8003"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "prompt-input",
+      "source_url": "https://beui.dev/r/prompt-input.json",
+      "files": [
+        {
+          "path": "components/agents/prompt-input.tsx",
+          "sha256": "bef879c579a585dbeea68cf3de7bcb97a46a993b20e3be33d74be0ace1bc6ba7"
+        },
+        {
+          "path": "components/motion/button/index.tsx",
+          "sha256": "b3942bfae8c1a2d85f06cdbc9c89edbbe2f15a976884024c43507066129e1f2e"
+        },
+        {
+          "path": "components/motion/popover-morph.tsx",
+          "sha256": "bb4e6fb6432964dfe79e2cba3f000a379cb4c1d17d4721b0f36e11864a35fc33"
+        },
+        {
+          "path": "components/motion/select.tsx",
+          "sha256": "79ff0aa16f5efa1cef2419e21961af63b262c6c69b748ad5b20138d0c6a5cab9",
+          "installed_sha256": "f53e3f754b272bfb7d785f322564a789feabb031c4eaf330cef061f024c14c03",
+          "resolution": "retained existing standalone component registry source"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        },
+        {
+          "path": "components/motion/button/base.tsx",
+          "sha256": "5948d878f3446b4cdfa6e076aa2c6ccdb05f5a102bbba074b022de6f3e924144",
+          "installed_sha256": "4737eddd464cd7907a64e1af3f82a4aa9d6edc7e2c75dffae9a8052543a19173",
+          "resolution": "retained existing standalone component registry source"
+        },
+        {
+          "path": "components/motion/button/magnetic.tsx",
+          "sha256": "864dc7db0cda2d8ee9bff7127706c546632d00f554595c9ce1816e283acb2a1f"
+        },
+        {
+          "path": "components/motion/button/metallic.tsx",
+          "sha256": "e95693277c7dfd71f55c096fca8a3aee2cc92fde1826f46ceab07d56d20b9f0e"
+        },
+        {
+          "path": "components/motion/button/stateful.tsx",
+          "sha256": "a353b6b68d5b5816e5ac7bc53242c748ff64b0eaf70ce1882abbf99580620028"
+        },
+        {
+          "path": "components/motion/popover-position.ts",
+          "sha256": "a31a9dc602243c3966aa1043cfd41dec5c13df1a52c847e745c88cbf00cb1f2e"
+        },
+        {
+          "path": "lib/focusable.ts",
+          "sha256": "54f7ad930f8f7467384fc734d6e92cbed9884a76796da0c0ab0794ffee942647"
+        },
+        {
+          "path": "lib/hooks/use-listbox.ts",
+          "sha256": "7561866df702c9de817a3ccda78083a34806a7e696c7974619b295fb89198b95"
+        },
+        {
+          "path": "lib/hooks/use-hover-capable.ts",
+          "sha256": "b5b9397bfa03859e04673c8f1817cf13ff55d2a9688955d6e0459ae70db90d06"
+        },
+        {
+          "path": "components/motion/magnetic.tsx",
+          "sha256": "f7802af9bbe57998575f6d9846ecfccc842f3c682e8fb0958957581dfd9873a3"
+        },
+        {
+          "path": "lib/hooks/use-on-open.ts",
+          "sha256": "40fe63a564880b119063066621dac972ad01da73481fc26996377565f82c0083"
+        },
+        {
+          "path": "lib/hooks/use-row-cursor.ts",
+          "sha256": "95afe34ad19661c405bbec11da7d32a7a84343e660492f46f578ead2aed8c750"
+        }
+      ]
+    },
+    {
+      "slug": "file-upload",
+      "source_url": "https://beui.dev/r/file-upload.json",
+      "files": [
+        {
+          "path": "components/motion/file-upload.tsx",
+          "sha256": "17ce79dce9ede15c5e7cab4477a5dee251b7f523e980986a18f06568f620a138"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "collapsible",
+      "source_url": "https://beui.dev/r/collapsible.json",
+      "files": [
+        {
+          "path": "components/motion/collapsible.tsx",
+          "sha256": "4fdc3d92ee6698e4284fd34025d25e848c9a5fbb5828ee53b5508ced8bb19b19"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "animated-toast-stack",
+      "source_url": "https://beui.dev/r/animated-toast-stack.json",
+      "files": [
+        {
+          "path": "components/motion/animated-toast-stack.tsx",
+          "sha256": "8c2eaaeb2afb83e755bca92eca0fabf16615be1cc0b4ea6c8613653cc6f36130"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    },
+    {
+      "slug": "morphing-modal",
+      "source_url": "https://beui.dev/r/morphing-modal.json",
+      "files": [
+        {
+          "path": "components/motion/morphing-modal.tsx",
+          "sha256": "20f1f2b1dc64d3d0fe33d6086eb845b78f045cb627cd1a3010a6506b4a629026"
+        },
+        {
+          "path": "lib/ease.ts",
+          "sha256": "cde4ce91ec645335cfa8297d6094c90b6e62ee6a1a021fe2ac0a6ece673c2a8f"
+        },
+        {
+          "path": "lib/hooks/use-focus-trap.ts",
+          "sha256": "faab917563064f16ef514f2286510f3a1471d0798e63276608647353c4f0e9f7"
+        },
+        {
+          "path": "lib/i18n.tsx",
+          "sha256": "5431651a737b19a53b2777fe214c6c6177ae7877919d94750c6c594565946dba"
+        },
+        {
+          "path": "lib/presence-gate.tsx",
+          "sha256": "f3c3911933dda28679c108281da9acc37e8f98bc28d7bb79ff63bc0e3aaa9c74"
+        },
+        {
+          "path": "lib/utils.ts",
+          "sha256": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d"
+        }
+      ]
+    }
+  ]
+}

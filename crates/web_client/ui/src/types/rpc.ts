@@ -1,3 +1,5 @@
+import type { ExecutionSnapshot } from './contracts';
+import type { CapturePolicySnapshot } from './capture';
 // Shared RPC types — single source of truth
 
 export interface RpcRequest<P = object> {
@@ -35,13 +37,19 @@ export interface ConfigStatusResponse {
 
 export interface StateResponse {
   ok: boolean;
-  config: AppConfig;
+  config: AppConfig | null;
   currentView: string;
+  config_revision: number;
+  config_backup_available: boolean;
 }
 
 export interface AppConfig {
   llm: {
     api_key: string;
+    api_key_configured?: boolean;
+    secondary_api_key_configured?: boolean;
+    clear_api_key?: boolean;
+    clear_secondary_api_key?: boolean;
     base_url: string;
     model: string;
     provider?: string;
@@ -50,6 +58,7 @@ export interface AppConfig {
     secondary_base_url?: string;
     secondary_model?: string;
   };
+  exploration?: { max_depth: number; max_pages_per_seed: number };
   sandbox: {
     cdp_port: number;
   };
@@ -62,6 +71,8 @@ export interface Project {
 }
 
 export interface GateStatus {
+  execution_status?: string | null;
+  execution_blocked?: boolean;
   e2e_pass_rate: number | null;
   e2e_pass_rate_display: string;
   performance: string | null;
@@ -73,6 +84,9 @@ export interface GateStatus {
 
 export interface RunReport {
   run_id: string;
+  status?: string;
+  executed?: number;
+  has_evidence?: boolean;
   total: number;
   passed: number;
   failed: number;
@@ -90,7 +104,7 @@ export interface TestCase {
 export interface TestPlan {
   plan: string;
   case_count: number;
-  steps: string[];
+  steps: {id: string; name: string; priority: string; type: string}[];
 }
 
 export interface ReportHtmlResponse {
@@ -99,16 +113,20 @@ export interface ReportHtmlResponse {
   error?: string;
 }
 
-export type JobType = 'explore' | 'generate' | 'testExec';
+export type JobType = 'explore' | 'generate' | 'testExec' | 'allureReport' | 'modelProbe' | 'runtimeCheck' | 'browserInstall' | 'contractCorrection';
 
-export type JobStatusValue = 'idle' | 'running' | 'completed' | 'failed' | 'stopped';
+export type JobStatusValue = 'idle' | 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'stopped' | 'interrupted';
 
 export interface JobStatus {
   jobId: string;
   jobType: JobType;
   status: JobStatusValue;
+  queue_position?: number | null;
+  wait_reason?: string | null;
   output: string;
   result?: unknown;
+  snapshot?: unknown;
+  history_error?: string | null;
   error?: string;
 }
 
@@ -121,3 +139,62 @@ export interface ExportResponse {
   }>;
   error?: string;
 }
+export interface CaseProvenance {
+  schema_version: number; project: string; case_id: string; yaml_script: string;
+  created_at: string; contracts: ExecutionSnapshot | null; model: unknown;
+}
+export interface RunEvidence {
+  capture_policy?: CapturePolicySnapshot | null;
+  schema_version: number; run_id: string; project: string; test_type: string; status: string;
+  started_at: string; finished_at: string | null; model: unknown; engine_version: string | null;
+  cases: {case_id: string; name: string; yaml_script: string; target_url: string; provenance: CaseProvenance | null}[];
+  results: {case_id: string; passed: boolean; duration_ms: number; screenshot_base64: string | null; error_message: string | null}[];
+  error: string | null; semantic_validation: 'not_verified';
+}
+
+export interface JobStartResult { ok: boolean; jobId: string; }
+export interface AllureReportResponse { ok: boolean; html?: string; version?: string; error?: string; }
+
+export interface TaskSummary { queue_position?: number | null; wait_reason?: string | null; jobId: string; jobType: string; status: JobStatusValue; error?: string | null; created_at?: number; updated_at?: number; }
+
+export interface CaseAsset {
+  revision?: number;
+  case_id: string; name: string; yaml_script: string; expected_result: string;
+  status: TestCase['status']; provenance: CaseProvenance | null; digest: string;
+}
+
+export interface ReportCleanupPreview {
+  project: string;
+  run_id: string;
+  run_status: string;
+  completed_report_preserved: boolean;
+  cleanup_available: boolean;
+  preview_token: string | null;
+  expires_in_seconds: number;
+  candidates: { name: string; kind: string; files: number; bytes: number }[];
+  manual_review: { name: string; reason: string }[];
+  preserved: string[];
+}
+
+export interface CorrectionAttempt {
+  call: number; attempt: number; profile_id: string;
+  outcome: 'started' | 'succeeded' | 'transport_failure' | 'timed_out' | 'rejected' | 'cancelled' | 'rate_limited' | 'service_unavailable';
+}
+export interface ContractCorrectionSource {
+  schema_version: 1;
+  input: {project: string; contract_id: string; version: number; library_revision: number;
+    publication: import('./contracts').PublishedContract; run_id: string; case_id: string; instruction: string;
+    case: RunEvidence['cases'][number]; run_status: string;
+    result: {passed: boolean; duration_ms: number; error_message: string | null; failed_step: string | null} | null;
+    evidence_token: string};
+  model: unknown; attempts: CorrectionAttempt[]; limitations: string[]; evidence_tokens: string[];
+}
+export interface CorrectionObservation {
+  proposal_id: string; project: string; run_id: string; case_id: string; contract_version: number;
+  outcome: 'passed' | 'failed' | 'incomplete'; recorded_by: 'local-owner'; semantic_validation: 'not_verified';
+  input: ContractCorrectionSource['input'];
+}
+export type CorrectionLibrary = Omit<import('./contracts').ContractsSnapshot, 'proposals'> & {
+  proposals: (import('./contracts').ContractProposal & {model_source?: ContractCorrectionSource | null})[];
+  observations?: CorrectionObservation[];
+};

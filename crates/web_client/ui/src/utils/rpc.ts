@@ -1,7 +1,17 @@
+import type { CaseHistory, CaseRevision, ContractAudit } from '../types/case_history';
+import type { CapturePolicy, CapturePolicySnapshot, ProcessEvidence, ProcessArtifact, TraceViewer } from '../types/capture';
+import type { ExecutionDraft, ExecutionFlows, ExecutionLibrary, ExecutionPreparation, FlowRun } from '../types/flow_execution';
+import type { RuntimeMaintenance, RuntimePreview } from '../types/runtime_maintenance';
+import type { FlowDraft, FlowLibrary, FlowValidation, FlowsResponse, FlowPlan, PrepareFlowPlan } from '../types/flows';
+export interface ProjectSpec {project: string; exists: boolean; markdown: string; revision: string | null}
 // Shared RPC client — single source of truth
+import type { ContractDraft, ContractsBundle, ContractsSnapshot, ExecutionSnapshot } from '../types/contracts';
+import type { ModelProfile, ModelRegistry, TaskModelRoute } from '../types/models';
+import type { ConfigMigrationSources, ConfigMigrationPreview, ConfigMigrationResult, ConfigSecretPolicy } from '../types/config_migration';
 
 import type {
-  ConfigStatusResponse,
+  CorrectionLibrary, AllureReportResponse, JobStartResult, CaseProvenance, RunEvidence, CaseAsset,
+  ReportCleanupPreview, ConfigStatusResponse,
   StateResponse,
   VersionResponse,
   UpdateCheckResponse,
@@ -13,7 +23,7 @@ import type {
   ReportHtmlResponse,
   ExportResponse,
   AppConfig,
-  JobStatus,
+  JobStatus, TaskSummary,
 } from '../types/rpc';
 
 const DEFAULT_TIMEOUT = 60000;
@@ -29,54 +39,191 @@ export class RpcError extends Error {
   }
 }
 
-function parseResponse<T>(text: string, method: string): T {
+let sessionPromise: Promise<string> | undefined;
+let nextRequestId = 0;
+let pendingToken: string | undefined;
+
+async function request(url: string, init: RequestInit, timeout: number): Promise<unknown> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   try {
-    const parsed = JSON.parse(text);
-    if (!parsed) {
-      throw new RpcError('Empty response', 'EMPTY_RESPONSE', method);
+    const response = await fetch(url, { ...init, credentials: 'same-origin', signal: controller.signal });
+    if (response.status === 401) {
+      sessionPromise = undefined;
+      if (url === '/api/v2/session' && init.method === 'POST') pendingToken = undefined;
+      throw new RpcError('Local session expired; retry, or reopen using qinaegis open.', 'HTTP_ERROR');
     }
-    return parsed as T;
-  } catch (e) {
-    if (e instanceof RpcError) throw e;
-    throw new RpcError(`Invalid JSON: ${(e as Error).message}`, 'PARSE_ERROR', method);
+    const body = await response.json();
+    if (!response.ok) {
+      throw new RpcError(body?.error?.message || body?.error || `HTTP ${response.status}`, 'HTTP_ERROR');
+    }
+    return body;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-async function call<T>(method: string, params: object = {}, timeout: number = DEFAULT_TIMEOUT): Promise<T> {
-  const paramsStr = encodeURIComponent(JSON.stringify(params));
-  const url = 'app://localhost/invoke?method=' + encodeURIComponent(method) + '&params=' + paramsStr;
+function session(): Promise<string> {
+  if (!sessionPromise) {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get('token') || pendingToken;
+    pendingToken = token || undefined;
+    if (token) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    sessionPromise = request('/api/v2/session', token ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    } : { method: 'GET' }, DEFAULT_TIMEOUT).then(body => {
+      const csrf = (body as { csrf?: string }).csrf;
+      if (!csrf) throw new RpcError('Local session unavailable; reopen QinAegis using its launch command.', 'SESSION_ERROR');
+      pendingToken = undefined;
+      return csrf;
+    }).catch(error => {
+      sessionPromise = undefined;
+      throw error;
+    });
+  }
+  return sessionPromise;
+}
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
+async function call<T>(method: string, params: object = {}, timeout = DEFAULT_TIMEOUT): Promise<T> {
   try {
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (!resp.ok) {
-      throw new RpcError(`HTTP ${resp.status}: ${resp.statusText}`, 'HTTP_ERROR', method);
+    const csrf = await session();
+    const id = String(++nextRequestId);
+    const body = await request('/api/v2/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Qinaegis-CSRF': csrf },
+      body: JSON.stringify({ id, method, params }),
+    }, timeout) as { id: string; ok: boolean; data?: T; error?: { code?: string; message?: string } };
+    if (body.id !== id) throw new RpcError('Response ID mismatch', 'PROTOCOL_ERROR', method);
+    if (!body.ok) {
+      throw new RpcError(body.error?.message || 'Request failed', body.error?.code || 'RPC_ERROR', method);
     }
-
-    const text = await resp.text();
-    const result = parseResponse<T>(text, method);
-
-    // Check for RPC-level error
-    if (typeof result === 'object' && result !== null && 'ok' in result && result.ok === false) {
-      throw new RpcError((result as { error?: string }).error || 'Unknown error', 'RPC_ERROR', method);
+    const result = body.data;
+    if (!['getJobStatus', 'getRunEvidence', 'getFlowExecution'].includes(method) && result && typeof result === 'object' && 'error' in result && result.error) {
+      throw new RpcError(String(result.error), 'RPC_ERROR', method);
     }
-
-    return result;
-  } catch (e) {
-    if (e instanceof RpcError) throw e;
-    if (e instanceof Error && e.name === 'AbortError') {
+    return result as T;
+  } catch (error) {
+    if (error instanceof RpcError) throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
       throw new RpcError(`Request timeout after ${timeout}ms`, 'TIMEOUT', method);
     }
-    throw new RpcError((e as Error).message, 'UNKNOWN', method);
+    throw new RpcError((error as Error).message, 'CONNECTION_ERROR', method);
   }
 }
 
 // Typed RPC methods
 export const rpc = {
+  getContractAudit(): Promise<ContractAudit> { return call('getContractAudit', {}); },
+  getCaseHistory(project: string, case_id: string): Promise<CaseHistory> { return call('getCaseHistory', {project, case_id}); },
+  getCaseRevision(project: string, case_id: string, revision: number): Promise<CaseRevision> { return call('getCaseRevision', {project, case_id, revision}); },
+  restoreCaseRevision(project: string, case_id: string, revision: number, expected_digest: string, reason: string): Promise<CaseAsset> { return call('restoreCaseRevision', {project, case_id, revision, expected_digest, reason, approved:true}); },
+  getCapturePolicy(): Promise<CapturePolicySnapshot> { return call('getCapturePolicy', {}); },
+  saveCapturePolicy(expected_revision: number, policy: CapturePolicy): Promise<CapturePolicySnapshot> { return call('saveCapturePolicy', { expected_revision, policy, approved: true }); },
+  readProcessEvidence(project: string, run_id: string): Promise<ProcessEvidence> { return call('readProcessEvidence', { project, run_id }); },
+  readProcessArtifact(project: string, run_id: string, case_id: string, artifact_id: string): Promise<ProcessArtifact> { return call('readProcessArtifact', { project, run_id, case_id, artifact_id }); },
+  startTraceViewer(project: string, run_id: string, case_id: string, artifact_id: string): Promise<TraceViewer> { return call('startTraceViewer', { project, run_id, case_id, artifact_id, approved: true }); },
+  stopTraceViewer(viewer_id: string): Promise<{ok: boolean}> { return call('stopTraceViewer', { viewer_id }); },
+  getRuntimeMaintenance(): Promise<RuntimeMaintenance> { return call('getRuntimeMaintenance'); },
+  beginRuntimeUpload(size: number, expected_sha256: string): Promise<{upload_id: string; received: number}> { return call('beginRuntimeUpload', {size, expected_sha256}); },
+  abortRuntimeUpload(upload_id: string): Promise<{ok: boolean}> { return call('abortRuntimeUpload', {upload_id}); },
+  prepareRuntimeInstall(upload_id: string): Promise<JobStartResult> { return call('prepareRuntimeInstall', {upload_id}); },
+  discardRuntimePreview(preview_token: string): Promise<JobStartResult> { return call('discardRuntimePreview', {preview_token}); },
+  listRuntimeDownloads(): Promise<JobStartResult> { return call('listRuntimeDownloads'); },
+  prepareRuntimeDownload(asset_id: string): Promise<JobStartResult> { return call('prepareRuntimeDownload', {asset_id}); },
+  prepareRuntimeRollback(): Promise<JobStartResult> { return call('prepareRuntimeRollback'); },
+  confirmRuntimeChange(preview: RuntimePreview, discard_previous: boolean): Promise<JobStartResult> {
+    return call(preview.operation === 'rollback' ? 'confirmRuntimeRollback' : 'confirmRuntimeInstall', {
+      preview_token: preview.preview_token, expected_revision: preview.expected_revision, discard_previous, approved: true,
+    });
+  },
+  async uploadRuntimeChunk(upload_id: string, offset: number, chunk: Blob, signal: AbortSignal): Promise<{received: number}> {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(upload_id) || !Number.isSafeInteger(offset) || offset < 0 || chunk.size > 512 * 1024 || chunk.size === 0) throw new RpcError('Invalid upload chunk');
+    const csrf = await session();
+    signal.throwIfAborted();
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal.addEventListener('abort', abort, {once: true});
+    const timeout = setTimeout(abort, DEFAULT_TIMEOUT);
+    try {
+      const response = await fetch(`/api/v2/runtime-upload/${upload_id}/${offset}`, {
+        method: 'PUT', credentials: 'same-origin', signal: controller.signal,
+        headers: {'Content-Type': 'application/octet-stream', 'X-Qinaegis-CSRF': csrf}, body: chunk,
+      });
+      if (response.status === 401) sessionPromise = undefined;
+      const result = await response.json();
+      if (!response.ok) throw new RpcError(result?.error?.message || 'Runtime upload failed', 'HTTP_ERROR');
+      if (result.received !== offset + chunk.size) throw new RpcError('Upload offset mismatch', 'PROTOCOL_ERROR');
+      return result;
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+    }
+  },
+
+  getExecutionFlows(): Promise<ExecutionFlows> { return call('getExecutionFlows'); },
+  saveExecutionFlowDraft(draft: ExecutionDraft, expected_revision: number): Promise<ExecutionLibrary> { return call('saveExecutionFlowDraft', {draft, expected_revision}); },
+  validateExecutionFlowDraft(draft: ExecutionDraft): Promise<{execution_order: string[]}> { return call('validateExecutionFlowDraft', {draft}); },
+  publishExecutionFlow(id: string, expected_revision: number): Promise<ExecutionLibrary> { return call('publishExecutionFlow', {id, expected_revision, approved: true}); },
+  prepareFlowExecution(params: {id: string; version: number; inputs: Record<string, unknown>; permissions: string[]; expected_revision: number; expected_model_revision: number}): Promise<ExecutionPreparation> { return call('prepareFlowExecution', {...params, approved: true}); },
+  runFlowExecution(preparation_id: string): Promise<{jobId: string; run_id: string}> { return call('runFlowExecution', {preparation_id, approved: true}); },
+  getFlowExecution(run_id: string): Promise<FlowRun> { return call('getFlowExecution', {run_id}); },
+  getFlows(): Promise<FlowsResponse> { return call('getFlows'); },
+  saveFlowDraft(draft: FlowDraft, expected_revision: number): Promise<FlowLibrary> { return call('saveFlowDraft', {draft, expected_revision}); },
+  validateFlowDraft(draft: FlowDraft): Promise<FlowValidation> { return call('validateFlowDraft', {draft}); },
+  publishFlow(id: string, expected_revision: number): Promise<FlowLibrary> { return call('publishFlow', {id, expected_revision, approved: true}); },
+  prepareFlowPlan(params: PrepareFlowPlan): Promise<FlowPlan> { return call('prepareFlowPlan', {...params, approved: true}); },
+  getFlowPlan(plan_id: string): Promise<FlowPlan> { return call('getFlowPlan', {plan_id}); },
+  listConfigMigrationSources(params: {project?: string} = {}): Promise<ConfigMigrationSources> { return call('listConfigMigrationSources', params); },
+  previewConfigMigration(params: {source_id: string; project?: string}): Promise<ConfigMigrationPreview> { return call('previewConfigMigration', params); },
+  applyConfigMigration(params: {preview_token: string; secret_policy: ConfigSecretPolicy; approved: true}): Promise<ConfigMigrationResult> { return call('applyConfigMigration', params); },
+  previewReportCleanup(project: string, run_id: string): Promise<ReportCleanupPreview> { return call('previewReportCleanup', {project, run_id}); },
+  cleanupReportResidue(project: string, run_id: string, preview_token: string): Promise<{ok: boolean; removed: string[]; removed_files: number; removed_bytes: number}> { return call('cleanupReportResidue', {project, run_id, preview_token, approved: true}); },
+  getCaseAsset(project: string, case_id: string): Promise<CaseAsset> { return call('getCaseAsset', {project, case_id}); },
+  saveCaseAsset(params: {project: string; case_id: string; expected_digest: string; name: string; yaml_script: string; expected_result: string; approved: true}): Promise<CaseAsset> { return call('saveCaseAsset', params); },
+  diagnoseRuntime(): Promise<JobStartResult> { return call('diagnoseRuntime'); },
+  installRuntimeBrowser(): Promise<JobStartResult> { return call('installRuntimeBrowser', {approved: true}); },
+  getJobs(): Promise<{jobs: TaskSummary[]; history_error: string | null}> { return call('getJobs'); },
+  getJobLog(jobId: string, cursor: number): Promise<{output: string; cursor: number; truncated: boolean}> { return call('getJobLog', {jobId, cursor}); },
+  probeModel(profile_id: string): Promise<JobStartResult> { return call('probeModel', {profile_id}); },
+  setProjectModelRoute(params: {project: string; task: string; route: TaskModelRoute | null; expected_revision: number}): Promise<ModelRegistry> { return call('setProjectModelRoute', params); },
+  restoreConfigBackup(expected_revision: number): Promise<{ok: boolean; revision: number}> { return call('restoreConfigBackup', {expected_revision, approved: true}); },
+  getModels(): Promise<ModelRegistry> { return call('getModels'); },
+  saveModel(params: { profile: ModelProfile; expected_revision: number; clear_api_key: boolean }): Promise<ModelRegistry> { return call('saveModel', params); },
+  setModelRoute(params: { task: string; route: TaskModelRoute; expected_revision: number }): Promise<ModelRegistry> { return call('setModelRoute', params); },
+  resolveModelRoute(task: string): Promise<{revision: number; task: string; candidates: {id: string; model: string}[]}> { return call('resolveModelRoute', {task}); },
+  deprecateContract(params: {contract_id: string; version: number; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('deprecateContract', params); },
+  deriveContract(params: {source_id: string; source_version: number; new_id: string; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('deriveContract', params); },
+  migrateContractBindings(params: {contract_id: string; from_version: number; to_version: number; bindings: {project: string; parameters: Record<string, unknown>}[]; reason: string; expected_revision: number; approved: true}): Promise<ContractsSnapshot> { return call('migrateContractBindings', params); },
+  getCaseProvenance(project: string, case_id: string): Promise<CaseProvenance | null> { return call('getCaseProvenance', {project, case_id}); },
+  generateAllureReport(project: string, run_id: string): Promise<JobStartResult> { return call('generateAllureReport', {project, run_id}); },
+  getAllureReportHtml(project: string, run_id: string): Promise<AllureReportResponse> { return call('getAllureReportHtml', {project, run_id}); },
+  getRunEvidence(project: string, run_id: string): Promise<RunEvidence> { return call('getRunEvidence', {project, run_id}); },
+  runContractCorrection(params: {project: string; contract_id: string; version: number; run_id: string; case_id: string; expected_revision: number; instruction: string}): Promise<JobStartResult> { return call('runContractCorrection', params); },
+  recordContractCorrectionObservation(params: {proposal_id: string; project: string; run_id: string; case_id: string; expected_revision: number; approved: true}): Promise<CorrectionLibrary> { return call('recordContractCorrectionObservation', params); },
+  getContracts(): Promise<CorrectionLibrary> {
+    return call('getContracts');
+  },
+  saveContractDraft(params: { draft: ContractDraft; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('saveContractDraft', params);
+  },
+  publishContract(params: { id: string; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('publishContract', params);
+  },
+  proposeContractCorrection(params: { contract_id: string; version: number; replacement: ContractDraft; reason: string; evidence: string[]; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('proposeContractCorrection', params);
+  },
+  reviewContractCorrection(params: { proposal_id: string; decision: 'approve' | 'reject'; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('reviewContractCorrection', params);
+  },
+  bindContract(params: { project: string; contract_id: string; version: number; parameters: Record<string, unknown>; expected_revision: number }): Promise<ContractsSnapshot> {
+    return call('bindContract', params);
+  },
+  exportContracts(): Promise<ContractsBundle> {
+    return call('exportContracts');
+  },
+  importContracts(params: { bundle: ContractsBundle; expected_revision: number; approved: true }): Promise<ContractsSnapshot> {
+    return call('importContracts', params);
+  },
   // Config
   async checkConfig(): Promise<ConfigStatusResponse> {
     return call<ConfigStatusResponse>('checkConfig');
@@ -86,8 +233,8 @@ export const rpc = {
     return call<StateResponse>('getState');
   },
 
-  async setConfig(config: AppConfig): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('setConfig', { config });
+  async setConfig(config: AppConfig, expected_revision: number): Promise<{ ok: boolean }> {
+    return call<{ ok: boolean }>('setConfig', { config, expected_revision });
   },
 
   // Version & Updates
@@ -100,12 +247,12 @@ export const rpc = {
   },
 
   // Projects
-  async getProjects(): Promise<Project[]> {
-    return call<Project[]>('getProjects');
+  async getProjects(): Promise<string[]> {
+    return call<string[]>('getProjects');
   },
 
-  async createProject(name: string, url: string, tech_stack: string[]): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('createProject', { name, url, tech_stack });
+  async createProject(name: string, url: string, tech_stack: string[]): Promise<Project> {
+    return call<Project>('createProject', { name, url, tech_stack });
   },
 
   // Output
@@ -123,8 +270,14 @@ export const rpc = {
   },
 
   // Generate
-  async runGenerate(requirement: string, spec?: string): Promise<{ ok: boolean; jobId: string }> {
-    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, spec });
+  async getContractExecution(project: string): Promise<ExecutionSnapshot> {
+    return call<ExecutionSnapshot>('getContractExecution', { project });
+  },
+
+  getProjectSpec(project: string): Promise<ProjectSpec> { return call("getProjectSpec", {project}); },
+  saveProjectSpec(project: string, expected_revision: string | null, markdown: string): Promise<ProjectSpec> { return call("saveProjectSpec", {project,expected_revision,markdown,approved:true}); },
+  async runGenerate(requirement: string, project: string, use_contracts: boolean, spec_revision?: string | null): Promise<{ ok: boolean; jobId: string }> {
+    return call<{ ok: boolean; jobId: string }>('runGenerate', { requirement, project, use_contracts, ...(spec_revision !== undefined ? {spec_revision} : {}) });
   },
 
   // Run Tests
@@ -158,8 +311,8 @@ export const rpc = {
     return call<TestCase[]>('getReviewCases', { project });
   },
 
-  async updateCaseStatus(project: string, case_id: string, status: string): Promise<{ ok: boolean }> {
-    return call<{ ok: boolean }>('updateCaseStatus', { project, case_id, status });
+  async updateCaseStatus(project: string, case_id: string, status: string, expected_digest?: string): Promise<{ ok: boolean }> {
+    return call<{ ok: boolean }>('updateCaseStatus', { project, case_id, status, expected_digest });
   },
 
   // Job control

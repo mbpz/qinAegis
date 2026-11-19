@@ -1,45 +1,74 @@
-name: Deploy Landing Page
+name: Build and deploy 2.0 website
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
     paths:
       - 'docs/landing/**'
+      - 'crates/web_client/ui/**'
+      - '.github/workflows/deploy-pages.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/landing/**'
+      - 'crates/web_client/ui/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: pages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out source
         uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload artifact
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: crates/web_client/ui/package-lock.json
+      - name: Install locked UI dependencies
+        working-directory: crates/web_client/ui
+        run: npm ci
+      - name: Build independent public website
+        working-directory: crates/web_client/ui
+        env:
+          QINAEGIS_PAGES_SOURCE_REF: ${{ github.head_ref || github.ref_name }}
+        run: npm run build:pages
+      - name: Upload preview for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: qinaegis-2.0-website-preview
+          path: build/pages
+          if-no-files-found: error
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'docs/landing'
+          path: build/pages
 
   deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
-    runs-on: ubuntu-latest
+    concurrency:
+      group: github-pages-production
+      cancel-in-progress: false
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy verified website
         id: deployment
         uses: actions/deploy-pages@v4

@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "test": "tsx src/midscene_test.ts"
+    "test": "tsx --test src/yaml_spec.test.ts src/allure_report.test.ts src/runner_boundaries.test.ts src/capture.test.ts src/run_with_cleanup.test.ts src/trace_viewer.test.ts",
+    "test:browser": "node --test dist/browser_isolation.test.js dist/capture_browser.test.js dist/trace_viewer.browser.test.js",
+    "test:live": "tsx src/midscene_test.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@midscene/web": "^1.0.0",
     "@playwright/test": "^1.59.1",
+    "allure": "3.33.0",
     "playwright": "^1.50.0",
     "yaml": "^2.0.0"
   },
@@ -15,5 +20,6 @@
     "@types/node": "^22.0.0",
     "tsx": "4.7.0",
     "typescript": "^6.0.3"
-  }
+  },
+  "packageManager": "pnpm@11.24.0"
 }

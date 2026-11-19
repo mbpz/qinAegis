@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { Button, Select } from './ui';
+import { MorphingModal } from './motion/morphing-modal';
+import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import type { TestPlan } from '../types/rpc';
 import JobProgress from './JobProgress';
@@ -8,20 +10,26 @@ const testTypes = [
   { value: 'functional', label: 'Functional Test', desc: 'Full feature coverage' },
   { value: 'performance', label: 'Performance Test', desc: 'Web Vitals measurement' },
   { value: 'stress', label: 'Stress Test', desc: 'Load and concurrency' },
-  { value: 'security', label: 'Security Test', desc: 'OWASP ZAP scan' },
 ];
 
 export default function RunView() {
-  const [projects, setProjects] = useState<string[]>(['default']);
-  const [project, setProject] = useState('default');
+  const [error, setError] = useState('');
+  const [projects, setProjects] = useState<string[]>([]);
+  const [project, setProject] = useState('');
   const [testType, setTestType] = useState('smoke');
   const [jobId, setJobId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [testPlan, setTestPlan] = useState<TestPlan | null>(null);
+  const previewButton = useRef<HTMLButtonElement>(null);
+
+  const closePreview = () => {
+    setShowPreview(false);
+    requestAnimationFrame(() => previewButton.current?.focus());
+  };
 
   useEffect(() => {
-    rpc.getProjects().then(ps => setProjects(ps.map(p => p.name))).catch(() => {});
+    rpc.getProjects().then(ps => { setProjects(ps); setProject(current => ps.includes(current) ? current : ps[0] ?? ''); }).catch(() => {});
   }, []);
 
   const handlePreview = async () => {
@@ -40,43 +48,47 @@ export default function RunView() {
 
   const handleRun = async () => {
     setShowPreview(false);
+    setError('');
+    try {
     const result = await rpc.runTests(project, testType);
     if (result.ok) {
       setJobId(result.jobId);
     }
+    } catch (e) { setError(String(e)); }
   };
 
   return (
     <div className="view">
       <h2 className="view-title">Run Tests</h2>
+      {error && <p role="alert">{error}</p>}
 
       <div className="card">
         <div className="card-title">Test Configuration</div>
         <div className="form-row">
           <div className="input-group">
-            <label>Project</label>
-            <select className="input" value={project} onChange={(e) => setProject(e.target.value)}>
+            <label htmlFor="run-project">Project</label>
+            <Select id="run-project" className="input" value={project} onValueChange={setProject}>
                 {projects.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}
-              </select>
+              </Select>
           </div>
           <div className="input-group">
-            <label>Test Type</label>
-            <select className="input" value={testType} onChange={(e) => setTestType(e.target.value)}>
+            <label htmlFor="run-type">Test Type</label>
+            <Select id="run-type" className="input" value={testType} onValueChange={setTestType}>
               {testTypes.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
         <div className="form-actions">
-          <button className="btn btn-secondary" onClick={handlePreview} disabled={previewLoading}>
+          <Button ref={previewButton} className="btn btn-secondary" onClick={handlePreview} disabled={previewLoading || !project}>
             {previewLoading ? 'Loading...' : 'Preview Plan'}
-          </button>
-          <button className="btn btn-primary" onClick={handleRun} disabled={!!jobId}>
+          </Button>
+          <Button className="btn btn-primary" onClick={handleRun} disabled={!!jobId || !project}>
             {jobId ? 'Running...' : 'Run Tests'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -85,12 +97,18 @@ export default function RunView() {
       </div>
       <JobProgress jobId={jobId} />
 
-      {showPreview && testPlan && (
-        <div className="modal-overlay" onClick={() => setShowPreview(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <MorphingModal
+        viewId={showPreview && testPlan ? 'test-plan-preview' : null}
+        onClose={closePreview}
+        placement="center"
+        ariaLabel="Test Plan Preview"
+        className="max-w-2xl max-h-[85vh] overflow-y-auto"
+      >
+        {testPlan && (
+          <>
             <div className="modal-header">
               <h3>Test Plan Preview</h3>
-              <button className="modal-close" onClick={() => setShowPreview(false)}>×</button>
+              <Button variant="ghost" aria-label="Close test plan preview" className="modal-close" onClick={closePreview}>×</Button>
             </div>
             <div className="modal-body">
               <p className="plan-summary">{testPlan.plan}</p>
@@ -98,18 +116,18 @@ export default function RunView() {
                 <strong>{testPlan.case_count} test cases</strong>
                 <ul>
                   {testPlan.steps.map((step, i) => (
-                    <li key={i}>{step}</li>
+                    <li key={step.id || i}>{step.id} · {step.name} · {step.type} · {step.priority}</li>
                   ))}
                 </ul>
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowPreview(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleRun}>Run Tests</button>
+              <Button className="btn btn-secondary" onClick={closePreview}>Cancel</Button>
+              <Button className="btn btn-primary" onClick={handleRun}>Run Tests</Button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </MorphingModal>
     </div>
   );
 }

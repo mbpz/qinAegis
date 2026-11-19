@@ -1,5 +1,13 @@
 # Rust Native Browser Automation — Tasks
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史替代引擎提案，已被 2.0 核心技术路线约束取代。2.0 保留 Playwright + Midscene.js 视觉驱动测试，不以全 Rust、消除所有 Node 依赖或 DMG 即装即用为承诺；NativeAutomation 的存在不代表具备替代能力。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../../CONTEXT.md)、[2.0 批准方案](../../../plans/local-web.md)及[实现进度与验收缺口](../../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 **Spec ID:** 009-rust-native-automation
 **Status:** In Progress
 **Created:** 2026-05-21

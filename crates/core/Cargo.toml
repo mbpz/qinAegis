@@ -20,6 +20,9 @@ dirs.workspace = true
 chromiumoxide = "0.9.1"
 base64 = "0.22.1"
 futures = "0.3.32"
+sha2 = "0.10"
+tar = { version = "0.4", default-features = false }
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,0 +1,4 @@
+# Existing native tooling dependencies only; reject all other dependency builds.
+allowBuilds:
+  esbuild: true
+  sharp: true

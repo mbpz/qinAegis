@@ -1,5 +1,13 @@
 # Phase 4 Notion Data Model Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史 Notion 主存储提案，已被本地优先产品方向取代。Notion OAuth、四数据库和原 crate/CLI 示例不属于 2.0 必选依赖或交付承诺；当前资产治理围绕本地契约、项目绑定与运行证据展开。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the Notion data model layer - four databases (Projects, Requirements, TestCases, TestResults) with full CRUD operations and OAuth integration.

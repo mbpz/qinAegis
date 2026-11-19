@@ -1,5 +1,7 @@
 # Triage Labels
 
+Updated: 2026-11-16. Product scope and completion evidence follow [CONTEXT.md](../../CONTEXT.md) and [2.0 progress](../progress/local-web-2.0.md). These label mappings are repository conventions, not evidence that all labels currently exist remotely or that a capability has shipped. A `ready-for-agent` ticket needs bounded scope and acceptance criteria, including authorization boundaries for real systems or optional desktop control.
+
 The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
 
 | Label in mattpocock/skills | Label in our tracker | Meaning                                  |

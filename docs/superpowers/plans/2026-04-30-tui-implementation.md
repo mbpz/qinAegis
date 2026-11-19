@@ -1,5 +1,13 @@
 # TUI Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史 TUI 产品实现计划，已被 2.0 本地 Web 工作台取代。ratatui/crossterm 视图、终端导航及旧 CLI 入口不再是当前交付目标；所有日常配置和功能操作转向浏览器，交互采用 beUI 公开免费组件。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the current CLI with a full ratatui-based interactive TUI application.

@@ -1,13 +1,15 @@
 // sandbox/src/lighthouse_runner.ts
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import { readFile, stat, unlink } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const execAsync = promisify(execFile);
 
 function validateUrl(url: string): void {
   try {
     const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
       throw new Error('Only http/https URLs are allowed');
     }
   } catch {
@@ -44,31 +46,34 @@ export async function runLighthouse(
 
   const timestamp = new Date().toISOString();
 
-  // Run lighthouse CI with JSON output
-  const cmd = `npx @lhci/cli autorun --url=${url} --output-json=${outputPath} --temporary-public-storage=true`;
-
-  let stderr = '';
+  // Only a preinstalled CLI: no downloads or public report uploads.
+  const path = resolve(outputPath);
+  if (dirname(path) !== process.cwd()) throw new Error('Report must be inside the owned workspace');
+  await unlink(path).catch(error => { if (error.code !== 'ENOENT') throw error; });
   try {
-    const { stdout, stderr: stderrOutput } = await execAsync(cmd, {
-      cwd: process.cwd(),
-      timeout: 120000,
+    await execAsync('lighthouse', [url, '--output=json', `--output-path=${path}`, '--chrome-flags=--headless'], {
+      cwd: process.cwd(), timeout: 120000, maxBuffer: 1024 * 1024,
     });
-    stderr = stderrOutput;
-
-    // Parse JSON output
-    const output = JSON.parse(stdout);
-
+    if ((await stat(path)).size > 8 * 1024 * 1024) throw new Error('Lighthouse report exceeds limit');
+    const output = JSON.parse(await readFile(path, 'utf8'));
+    if (output.runtimeError) throw new Error('Lighthouse did not complete measurement');
+    const number = (value: unknown, score = false): number => {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || (score && value > 1)) {
+        throw new Error('Lighthouse required metrics missing or invalid');
+      }
+      return value;
+    };
     const metrics: LighthouseMetrics = {
-      performance: output.categories?.performance?.score ?? 0,
-      accessibility: output.categories?.accessibility?.score ?? 0,
-      bestPractices: output.categories?.['best-practices']?.score ?? 0,
-      seo: output.categories?.seo?.score ?? 0,
-      firstContentfulPaint: output.audits?.['first-contentful-paint']?.numericValue ?? 0,
-      largestContentfulPaint: output.audits?.['largest-contentful-paint']?.numericValue ?? 0,
-      cumulativeLayoutShift: output.audits?.['cumulative-layout-shift']?.numericValue ?? 0,
-      totalBlockingTime: output.audits?.['total-blocking-time']?.numericValue ?? 0,
-      speedIndex: output.audits?.['speed-index']?.numericValue ?? 0,
-      ttfb: output.audits?.['server-response-time']?.numericValue ?? 0,
+      performance: number(output.categories?.performance?.score, true),
+      accessibility: number(output.categories?.accessibility?.score, true),
+      bestPractices: number(output.categories?.['best-practices']?.score, true),
+      seo: number(output.categories?.seo?.score, true),
+      firstContentfulPaint: number(output.audits?.['first-contentful-paint']?.numericValue),
+      largestContentfulPaint: number(output.audits?.['largest-contentful-paint']?.numericValue),
+      cumulativeLayoutShift: number(output.audits?.['cumulative-layout-shift']?.numericValue),
+      totalBlockingTime: number(output.audits?.['total-blocking-time']?.numericValue),
+      speedIndex: number(output.audits?.['speed-index']?.numericValue),
+      ttfb: number(output.audits?.['server-response-time']?.numericValue),
     };
 
     return {
@@ -79,6 +84,6 @@ export async function runLighthouse(
       report_path: outputPath,
     };
   } catch (e) {
-    throw new Error(`Lighthouse failed: ${stderr || e}`);
+    throw new Error(`Lighthouse unavailable or failed: ${e}`);
   }
 }

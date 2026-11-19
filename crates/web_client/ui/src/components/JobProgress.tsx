@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { Button, Loader } from './ui';
+import { useState, useEffect, useRef } from 'react';
 import { rpc } from '../utils/rpc';
 import type { JobStatusValue } from '../types/rpc';
 
@@ -13,6 +14,9 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
   const [output, setOutput] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const callbacks = useRef({ onComplete, onError });
+  callbacks.current = { onComplete, onError };
+
   useEffect(() => {
     if (!jobId) {
       setStatus('idle');
@@ -22,33 +26,39 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
     }
 
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setStatus('running');
+    setOutput('');
+    setError(null);
 
     const poll = async () => {
       try {
         const s = await rpc.getJobStatus(jobId);
         if (cancelled) return;
-        setStatus(s.status as JobStatusValue);
+        setStatus(s.status);
         setOutput(s.output);
-        if (s.error) setError(s.error);
+        setError(s.error || null);
 
-        if (s.status === 'completed' && onComplete) {
-          onComplete(s.result);
+        if (s.status === 'completed') {
+          callbacks.current.onComplete?.(s.result);
+          return;
         }
-        if ((s.status === 'failed' || s.status === 'stopped') && s.error && onError) {
-          onError(s.error);
+        if (s.status === 'failed' || s.status === 'stopped' || s.status === 'interrupted') {
+          callbacks.current.onError?.(s.error || (s.status === 'stopped' ? 'Task stopped' : s.status === 'interrupted' ? 'Task interrupted by service exit' : 'Task failed'));
+          return;
         }
       } catch (e) {
         if (!cancelled) {
-          setError('Failed to get job status');
+          setError('Failed to get job status; reconnecting...');
         }
       }
+      if (!cancelled) timer = setTimeout(poll, 2000);
     };
 
     poll();
-    const interval = setInterval(poll, 2000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
     };
   }, [jobId]);
 
@@ -56,11 +66,25 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
 
   return (
     <div className="job-progress">
-      {status === 'running' && (
+      {(status === 'running' || status === 'queued') && (
         <div className="job-running">
-          <div className="spinner" />
-          <span>Running...</span>
-          <button className="btn btn-danger" onClick={() => rpc.stopJob(jobId)}>Stop</button>
+          <Loader />
+          <span>{status === 'queued' ? 'Queued — waiting for owned resources.' : 'Running...'}</span>
+          <Button className="btn btn-danger" onClick={async () => {
+            try {
+              await rpc.stopJob(jobId);
+              setStatus(current => (current === 'running' || current === 'queued') ? 'cancelling' : current);
+              setError(null);
+            } catch (e) {
+              setError('Failed to stop task: ' + (e as Error).message);
+            }
+          }}>Stop</Button>
+        </div>
+      )}
+      {status === 'cancelling' && (
+        <div className="job-running" role="status">
+          <Loader />
+          <span>Stopping… waiting for the worker to finish cleanup.</span>
         </div>
       )}
       {status === 'completed' && (
@@ -73,6 +97,7 @@ export default function JobProgress({ jobId, onComplete, onError }: JobProgressP
           <span className="job-status-badge error">Failed</span>
         </div>
       )}
+      {status === 'interrupted' && <div className="job-failed"><span className="job-status-badge warning">Interrupted — inspect the saved evidence before rerunning.</span></div>}
       {status === 'stopped' && (
         <div className="job-stopped">
           <span className="job-status-badge warning">Stopped</span>

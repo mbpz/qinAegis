@@ -1,5 +1,13 @@
 # Local Storage Only - Implementation Plan
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史本地存储迁移执行计划。本地优先、存储抽象与移除 Notion 必选依赖方向沿用；旧 CLI 命令、目录和配置删除步骤不能直接重放到 2.0。现行工作包括契约版本治理、模型注册与运行证据，数据迁移仍需按当前验收边界处理。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove Notion dependency, use local file-based storage under `~/.qinAegis/`, add `qinAegis export` command

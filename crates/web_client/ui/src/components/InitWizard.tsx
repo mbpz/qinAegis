@@ -1,3 +1,4 @@
+import { Button, Input } from './ui';
 import { useState } from 'react';
 import { rpc } from '../utils/rpc';
 import type { AppConfig } from '../types/rpc';
@@ -34,7 +35,8 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
           cdp_port: parseInt(cdpPort, 10) || 9222,
         },
       };
-      const result = await rpc.setConfig(config);
+      const state = await rpc.getState();
+      const result = await rpc.setConfig(config, state.config_revision);
       if (result.ok) {
         onComplete();
       } else {
@@ -62,19 +64,22 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
             <div className="step-content">
               <h2>AI Model Configuration</h2>
               <div className="form-group">
-                <label>API Key *</label>
+                <label htmlFor="wizard-api-key">API Key *</label>
                 <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                  <input
+                  <Input
                     type={showKey ? 'text' : 'password'}
                     className="input"
                     placeholder="sk-..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
+                    id="wizard-api-key" value={apiKey}
+                    onValueChange={setApiKey}
                     autoFocus
                     style={{ paddingRight: '40px' }}
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    aria-label={showKey ? 'Hide API key' : 'Show API key'}
+                    aria-pressed={showKey}
                     onClick={() => setShowKey(!showKey)}
                     style={{
                       position: 'absolute',
@@ -88,45 +93,45 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
                     title={showKey ? 'Hide API Key' : 'Show API Key'}
                   >
                     {showKey ? '👁' : '👁‍🗨'}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="form-group">
-                <label>Base URL</label>
-                <input
+                <label htmlFor="wizard-base-url">Base URL</label>
+                <Input
                   type="text"
                   className="input"
                   placeholder="https://api.minimax.chat/v1"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  id="wizard-base-url" value={baseUrl}
+                  onValueChange={setBaseUrl}
                 />
               </div>
               <div className="form-group">
-                <label>Model</label>
-                <input
+                <label htmlFor="wizard-model">Model</label>
+                <Input
                   type="text"
                   className="input"
                   placeholder="MiniMax-VL-01"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
+                  id="wizard-model" value={model}
+                  onValueChange={setModel}
                 />
               </div>
-              <button className="btn btn-primary" onClick={() => setStep(2)} disabled={!apiKey.trim()}>
+              <Button className="btn btn-primary" onClick={() => setStep(2)} disabled={!apiKey.trim()}>
                 Next
-              </button>
+              </Button>
             </div>
           )}
           {step === 2 && (
             <div className="step-content">
               <h2>Sandbox Configuration</h2>
               <div className="form-group">
-                <label>Chrome DevTools Port</label>
-                <input
+                <label htmlFor="wizard-cdp-port">Chrome DevTools Port</label>
+                <Input
                   type="text"
                   className="input"
                   placeholder="9222"
-                  value={cdpPort}
-                  onChange={(e) => setCdpPort(e.target.value)}
+                  id="wizard-cdp-port" value={cdpPort}
+                  onValueChange={setCdpPort}
                 />
                 <small style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                   Default: 9222. Used for browser automation.
@@ -134,12 +139,12 @@ export default function InitWizard({ onComplete }: InitWizardProps) {
               </div>
               {error && <div className="error-message">{error}</div>}
               <div className="step-actions">
-                <button className="btn btn-secondary" onClick={() => setStep(1)}>
+                <Button className="btn btn-secondary" onClick={() => setStep(1)}>
                   Back
-                </button>
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                </Button>
+                <Button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                   {saving ? 'Saving...' : 'Get Started'}
-                </button>
+                </Button>
               </div>
             </div>
           )}

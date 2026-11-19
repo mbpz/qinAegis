@@ -1,11 +1,25 @@
 // Copyright (c) 2026 QinAegis Team
 // SPDX-License-Identifier: MIT
 
+pub mod capture;
+pub mod contracts;
+pub mod contract_correction;
+pub mod contract_store;
+pub mod contract_execution;
+pub mod models;
+pub mod jobs;
+pub(crate) mod asset_file;
+pub mod scenario;
+pub mod flow;
+pub mod flow_execution;
+pub mod flow_store;
+pub mod flow_plan;
 pub mod explorer;
 pub mod generator;
 pub mod critic;
 pub mod llm;
 pub mod protocol;
+pub mod process_owner;
 pub mod quarantine;
 pub mod events;
 pub mod flaky;
@@ -67,3 +81,13 @@ mod basic_test {
         assert_eq!(2 + 2, 4);
     }
 }
+
+pub mod runtime;
+pub mod runtime_transfer;
+
+pub mod execution_records;
+pub mod allure;
+
+pub mod runtime_package;
+
+pub mod runtime_install;

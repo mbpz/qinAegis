@@ -1,5 +1,13 @@
 # QinAegis Phase 2 Design: AI-Driven Execution Engine
 
+<!-- product-status-2.0 -->
+> **历史方案说明 · 2026-11-16**
+>
+> 历史 AI 执行引擎设计。Playwright + Midscene.js 与 Rust/Node 适配边界仍是技术基础；旧 stdio 协议、配置、模型与 Notion 示例只解释原设计。2.0 以可复用契约、人工审核、可切换模型与冻结生成来源演进，运行时按需交付。
+>
+> 正文的状态、任务勾选、代码和验收结论保留为原始记录，不作为 2.0 开发指令或交付证明。当前以[产品记忆](../../../CONTEXT.md)、[2.0 批准方案](../../plans/local-web.md)及[实现进度与验收缺口](../../progress/local-web-2.0.md)为准。
+<!-- /product-status-2.0 -->
+
 > Version: v0.1
 > Date: 2026-04-24
 > Status: Approved

@@ -15,14 +15,18 @@ console.warn = () => {}; // Silence all console.warn
 
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
-import { globalActionCache } from './action_cache.js';
+import { Capture, capturePolicy, captureCapabilities } from './capture.js';
+import { RunCleanupError, runWithCleanup } from './run_with_cleanup.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseYamlPlan } from './yaml_spec.js';
 import * as readline from 'readline';
 import * as fs from 'fs';
 
 interface JsonRpcRequest {
   id: string;
   method: string;
-  args: unknown[];
+  args: unknown;
 }
 
 let browser: Browser | null = null;
@@ -30,8 +34,6 @@ let context: BrowserContext | null = null;
 let page: Page | null = null;
 let agent: PlaywrightAgent | null = null;
 
-const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
-const CDP_WS_URL = process.env.CDP_WS_URL;
 const DEBUG = process.env.DEBUG === '1';
 
 // Debug log that writes to stderr via native syscall
@@ -43,38 +45,18 @@ function debug(...args: any[]) {
 }
 
 async function ensureBrowser() {
-  if (!browser) {
-    if (CDP_WS_URL) {
-      debug(`[executor] Connecting to existing Chrome via CDP: ${CDP_WS_URL}`);
-      browser = await chromium.connectOverCDP(CDP_WS_URL);
-      context = await browser.newContext({
-        ignoreHTTPSErrors: true,
-      });
-      page = await context.newPage();
-      agent = new PlaywrightAgent(page);
-      debug(`[executor] Connected to Chrome successfully`);
-    } else {
-      debug(`[executor] Launching fresh Chromium on port ${CDP_PORT}...`);
-      browser = await chromium.launch({
-        headless: true,
-        args: [
-          `--remote-debugging-port=${CDP_PORT}`,
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-extensions',
-          '--disable-popup-blocking',
-          '--disable-translate',
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-        ],
-      });
-      context = await browser.newContext({
-        ignoreHTTPSErrors: true,
-      });
-      page = await context.newPage();
-      agent = new PlaywrightAgent(page);
-      debug(`[executor] Browser launched successfully`);
-    }
+  if (browser) return;
+  // Always own the launched browser. Inherited CDP settings must never attach
+  // to (or close) a user's existing browser. Playwright uses its private pipe.
+  browser = await chromium.launch({ headless: true });
+  try {
+    context = await browser.newContext({ ignoreHTTPSErrors: true });
+    page = await context.newPage();
+    agent = new PlaywrightAgent(page);
+  } catch (error) {
+    await browser.close();
+    browser = null;
+    throw error;
   }
 }
 
@@ -84,53 +66,63 @@ async function ensureConnected() {
 
 async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
   try {
+    if (req.method === 'capture_capabilities') return { id: req.id || '0', ok: true, data: captureCapabilities };
+    if (req.method === 'trace_viewer_start') {
+      const {startTraceViewer}=await import('./trace_viewer.js');
+      const {trace_base64}=req.args as {trace_base64:string};
+      return {id:req.id||'0',ok:true,data:await startTraceViewer(trace_base64)};
+    }
+    if (req.method === 'allure_generate') {
+      const { results_dir, report_dir } = req.args as { results_dir: string; report_dir: string };
+      const { generateAllure } = await import('./allure_report.js');
+      return { id: req.id || '0', ok: true, data: await generateAllure(results_dir, report_dir) };
+    }
+    if (req.method === 'shutdown') {
+      const {stopTraceViewer}=await import('./trace_viewer.js');
+      await stopTraceViewer();
+      await browser?.close();
+      return { id: req.id || '0', ok: true, data: null };
+    }
+    if (req.method === 'run_yaml') {
+      const args = req.args as unknown as { yaml_script: string; target_url?: string };
+      parseYamlPlan(args.yaml_script, args.target_url);
+    }
+    if (req.method === 'run_yaml' && Object.prototype.hasOwnProperty.call(req.args, 'capture_policy')) {
+      const args = req.args as { yaml_script: string; case_id: string; target_url?: string; capture_policy: unknown };
+      const policy = capturePolicy(args.capture_policy);
+      const temporary = await mkdtemp(join(process.cwd(), 'qinaegis-capture-temp-'));
+      let owned: Browser | null = null;
+      const result = await runWithCleanup(async () => {
+        owned = await chromium.launch({ headless: true, tracesDir: temporary });
+        const ctx = await owned.newContext();
+        const p = await ctx.newPage();
+        const { runYaml } = await import('./yaml_runner.js');
+        return runYaml(args.yaml_script, args.case_id, p, args.target_url, new Capture(policy, p, ctx, temporary));
+      }, async () => { await owned?.close(); }, async () => { await rm(temporary, { recursive: true, force: true }); });
+      return { id: req.id || '0', ok: true, data: result };
+    }
     if (!['explore', 'lighthouse', 'stress', 'zap_scan'].includes(req.method)) {
       await ensureConnected();
-    } else {
-      await ensureBrowser();
     }
 
     switch (req.method) {
       case 'aiQuery': {
         const prompt = req.args as string;
         debug(`[executor] aiQuery: prompt length ${prompt.length}`);
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, prompt);
-        if (cached !== null) {
-          const dataStr = JSON.stringify(cached);
-          debug(`[executor] aiQuery: CACHE HIT (${dataStr.length} chars)`);
-          return { id: req.id || '0', ok: true, data: dataStr, cached: true };
-        }
         // Include screenshot for page analysis
         const data = await agent!.aiQuery(prompt, { screenshotIncluded: true });
         const dataStr = JSON.stringify(data);
         debug(`[executor] aiQuery: response length ${dataStr.length}`);
-        // Cache the result
-        await globalActionCache.set(page!, prompt, data);
         return { id: req.id || '0', ok: true, data: dataStr };
       }
       case 'aiAct': {
         const action = req.args as string;
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, 'act:' + action);
-        if (cached !== null) {
-          debug(`[executor] aiAct: CACHE HIT`);
-          return { id: req.id || '0', ok: true, data: null, cached: true };
-        }
         await agent!.aiAct(action);
-        await globalActionCache.set(page!, 'act:' + action, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'aiAssert': {
         const assertion = req.args as string;
-        // Check action cache first
-        const cached = await globalActionCache.get(page!, 'assert:' + assertion);
-        if (cached !== null) {
-          debug(`[executor] aiAssert: CACHE HIT`);
-          return { id: req.id || '0', ok: true, data: null, cached: true };
-        }
         await agent!.aiAssert(assertion);
-        await globalActionCache.set(page!, 'assert:' + assertion, true);
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'goto': {
@@ -139,7 +131,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         return { id: req.id || '0', ok: true, data: null };
       }
       case 'screenshot': {
-        const buf = await page!.screenshot({ encoding: 'base64' } as any);
+        const buf = (await page!.screenshot()).toString('base64');
         return { id: req.id || '0', ok: true, data: buf };
       }
       case 'currentUrl': {
@@ -176,7 +168,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         } catch (e) {
           return { id: req.id || '0', ok: false, error: `Invalid URL: ${url}` };
         }
-        const outputPath = `/tmp/lighthouse_${Date.now()}.json`;
+        const outputPath = `${process.cwd()}/lighthouse.json`;
         const { runLighthouse } = await import('./lighthouse_runner.js');
         const result = await runLighthouse(url, outputPath);
         return { id: req.id || '0', ok: true, data: result };
@@ -197,19 +189,18 @@ async function handleRequest(req: JsonRpcRequest): Promise<unknown> {
         } catch (e) {
           return { id: req.id || '0', ok: false, error: `Invalid URL: ${target_url}` };
         }
-        const outputPath = `/tmp/zap_report_${Date.now()}.json`;
+        const outputPath = `${process.cwd()}/zap-report.json`;
         const { runZapScan } = await import('./zap_runner.js');
         const result = await runZapScan(target_url, outputPath);
         return { id: req.id || '0', ok: true, data: result };
-      }
-      case 'shutdown': {
-        await browser?.close();
-        process.exit(0);
       }
       default:
         return { id: req.id || '0', ok: false, error: `Unknown method: ${req.method}` };
     }
   } catch (e) {
+    if (e instanceof RunCleanupError) {
+      return { id: req.id || '0', ok: false, error: String(e.original), data: { lifecycle_error: e.lifecycle_error } };
+    }
     return { id: req.id || '0', ok: false, error: String(e) };
   }
 }
@@ -226,9 +217,13 @@ rl.on('line', async (line) => {
     fs.writeSync(2, `[executor] Received request id: '${req.id}', method: ${req.method}\n`);
     const resp = await handleRequest(req);
     const respJson = JSON.stringify(resp);
-    fs.writeSync(2, `[executor] Response JSON (${respJson.length} chars): ${respJson}\n`);
+    debug(`[executor] Response sent (${respJson.length} chars)`);
     // ONLY write JSON to stdout - no other output
-    process.stdout.write(respJson + '\n');
+    if (req.method === 'shutdown') {
+      process.stdout.write(respJson + '\n', () => process.exit(0));
+    } else {
+      process.stdout.write(respJson + '\n');
+    }
   } catch (e) {
     const errResp = JSON.stringify({ id: '?', ok: false, error: String(e) });
     process.stdout.write(errResp + '\n');

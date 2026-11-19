@@ -1,13 +1,7 @@
-// sandbox/src/zap_runner.ts
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
-
 function validateUrl(url: string): void {
   try {
     const parsed = new URL(url);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
       throw new Error('Only http/https URLs are allowed');
     }
   } catch {
@@ -43,64 +37,8 @@ export async function runZapScan(
 ): Promise<ZapResult> {
   validateUrl(targetUrl);
 
-  const timestamp = new Date().toISOString();
-  const scanType = 'baseline';
-
-  // Use zap-baseline.py (passive scan, safe)
-  const cmd = `docker run --rm owasp/zap2docker-stable zap-baseline.py -t ${targetUrl} -J ${outputPath} -l WARN`;
-
-  let stderr = '';
-  try {
-    const { stderr: stderrOutput } = await execAsync(cmd, {
-      timeout: 300000,
-    });
-    stderr = stderrOutput;
-  } catch (e) {
-    // ZAP exits with non-zero on warnings, check if report was generated
-  }
-
-  // Parse ZAP JSON report if it exists
-  let alerts: ZapAlert[] = [];
-  let highRisk = 0;
-  let mediumRisk = 0;
-  let lowRisk = 0;
-  let informationalRisk = 0;
-
-  try {
-    const content = await import('fs').then(fs => fs.promises.readFile(outputPath, 'utf8'));
-    const report = JSON.parse(content);
-    const siteAlerts = report.site?.[0]?.alerts || [];
-
-    for (const alert of siteAlerts) {
-      const risk = alert.riskdesc?.toLowerCase() || 'informational';
-      if (risk.includes('high')) highRisk++;
-      else if (risk.includes('medium')) mediumRisk++;
-      else if (risk.includes('low')) lowRisk++;
-      else informationalRisk++;
-
-      alerts.push({
-        name: alert.name || 'Unknown',
-        risk: alert.risk || 'Informational',
-        confidence: alert.confidence || 'Medium',
-        url: alert.url || targetUrl,
-        description: alert.desc || '',
-        solution: alert.solution || '',
-      });
-    }
-  } catch {
-    // Report may not exist if scan failed
-  }
-
-  return {
-    target_url: targetUrl,
-    scan_type: scanType,
-    alert_count: alerts.length,
-    high_risk: highRisk,
-    medium_risk: mediumRisk,
-    low_risk: lowRisk,
-    informational_risk: informationalRisk,
-    alerts,
-    report_path: outputPath,
-    timestamp,
-  };
+  // A Docker daemon container outlives a killed executor process. Until the
+  // host owns a durable container lease and cancellation path, refuse to scan
+  // rather than leak a scan or turn an absent report into zero findings.
+  throw new Error('ZAP scanning is unavailable: managed container cancellation is not implemented');
 }
